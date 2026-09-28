@@ -22,3 +22,9 @@ coverage/
 .idea/
 .vscode/
 *.local
+
+# git worktrees (isolated SDD workspaces)
+.worktrees/
+
+# superpowers SDD scratch (ledger, briefs, reports) — never commit
+.superpowers/
