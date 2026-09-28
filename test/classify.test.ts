@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifySea } from "../server/classify.js";
+import { classifySea, classifyAir } from "../server/classify.js";
 
 describe("classifySea", () => {
   it("maps each AIS code bucket to the right kind", () => {
@@ -21,5 +21,41 @@ describe("classifySea", () => {
   it("returns other for null/undefined", () => {
     expect(classifySea(null)).toBe("other");
     expect(classifySea(undefined)).toBe("other");
+  });
+});
+
+describe("classifyAir", () => {
+  it("SPI flag → military regardless of callsign", () => {
+    expect(classifyAir({ spi: true, callsign: "WHATEVER" })).toBe("military");
+  });
+
+  it("airline designator + number → commercial", () => {
+    for (const cs of ["DAL539", "AAL2174", "UAL1716", "BAW123", "UAE24"]) {
+      expect(classifyAir({ callsign: cs }), cs).toBe("commercial");
+    }
+  });
+
+  it("US N-number → business", () => {
+    for (const cs of ["N759SG", "N123AB", "N4567"]) {
+      expect(classifyAir({ callsign: cs }), cs).toBe("business");
+    }
+  });
+
+  it("known biz-jet prefix → business", () => {
+    for (const cs of ["EJA123", "GTF456", "LEG789", "RJS101", "FGE202"]) {
+      expect(classifyAir({ callsign: cs }), cs).toBe("business");
+    }
+  });
+
+  it("military callsign pattern → military", () => {
+    for (const cs of ["USAF700", "NATOLIFT", "REAPER1"]) {
+      expect(classifyAir({ callsign: cs }), cs).toBe("military");
+    }
+  });
+
+  it("everything else → general", () => {
+    for (const cs of ["HELLO", "", undefined]) {
+      expect(classifyAir({ callsign: cs }), String(cs)).toBe("general");
+    }
   });
 });
