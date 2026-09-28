@@ -521,7 +521,7 @@ import { describe, it, expect } from "vitest";
 import { normalizeOpenSky } from "../server/normalize.js";
 
 // 17-field OpenSky state vector
-function vec(over: Partial<Record<number, string | number | boolean | null>> = {}): (string | number | boolean | null)[] {
+function vec(over: Record<number, string | number | boolean | null> = {}): (string | number | boolean | null)[] {
   const base: (string | number | boolean | null)[] = [
     "ac4963", "DAL539", "United States", 1700000000, 1700000000,
     -73.7, 40.6, 10000, false, 250, 90, 10, null, 10050, "1200", false, 2,
