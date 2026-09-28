@@ -1,5 +1,5 @@
 import type { Craft } from "../shared/craft.js";
-import { classifyAir } from "./classify.js";
+import { classifyAir, classifySea } from "./classify.js";
 
 export const MS_TO_KNOTS = 1.94384;
 export const M_TO_FT = 3.28084;
@@ -48,6 +48,79 @@ export function normalizeOpenSky(state: Field[], now: number): Craft | null {
     spi: Boolean(spi),
     originCountry: origin_country ? String(origin_country) : undefined,
     updatedAt: time_position != null ? Number(time_position) * 1000 : now,
+    stale: false,
+  };
+}
+
+export interface AisStatic {
+  mmsi: string;
+  shipName?: string;
+  imo?: number | null;
+  callSign?: string;
+  destination?: string;
+  aisType?: number | null;
+}
+
+function num(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function str(v: unknown): string | undefined {
+  if (v == null) return undefined;
+  const s = String(v).trim();
+  return s ? s : undefined;
+}
+
+function pickMmsi(env: any): string | null {
+  const m =
+    env?.MMSI ?? env?.mmsi ?? env?.metaData?.mmsi ??
+    env?.Message?.PositionReport?.UserID ?? env?.Message?.ShipStaticData?.UserID;
+  return m != null ? String(m) : null;
+}
+
+export function normalizeShipStaticData(env: any): AisStatic | null {
+  const mmsi = pickMmsi(env);
+  if (mmsi == null) return null;
+  const sd = env?.Message?.ShipStaticData ?? env?.ShipStaticData ?? env?.Message ?? {};
+  return {
+    mmsi,
+    shipName: str(sd.Name) ?? str(sd.ShipName),
+    imo: num(sd.ImoNumber) ?? num(sd.Imo) ?? null,
+    callSign: str(sd.CallSign),
+    destination: str(sd.Destination),
+    aisType: num(sd.Type) ?? null,
+  };
+}
+
+export function normalizePositionReport(env: any, staticData: AisStatic | undefined, now: number): Craft | null {
+  const mmsi = pickMmsi(env);
+  const pr = env?.Message?.PositionReport ?? env?.PositionReport ?? env?.Message ?? {};
+  const lat = num(pr.Latitude);
+  const lon = num(pr.Longitude);
+  if (mmsi == null || lat == null || lon == null) return null;
+
+  const sog = num(pr.Sog) ?? num(pr.SpeedOverGround);
+  const cog = num(pr.Cog) ?? num(pr.CourseOverGround);
+  const th = num(pr.TrueHeading);
+  const ts = num(pr.Timestamp);
+
+  return {
+    id: mmsi,
+    domain: "sea",
+    kind: classifySea(staticData?.aisType),
+    lat,
+    lon,
+    speed: sog,
+    heading: cog ?? th,
+    shipName: staticData?.shipName,
+    imo: staticData?.imo ?? null,
+    callSign: staticData?.callSign,
+    destination: staticData?.destination,
+    navStatus: num(pr.NavigationalStatus),
+    aisType: staticData?.aisType ?? null,
+    updatedAt: ts != null ? (ts < 1e12 ? ts * 1000 : ts) : now,
     stale: false,
   };
 }
