@@ -21,7 +21,7 @@
 - **Secrets:** `AISSTREAM_API_KEY` lives only in `.env` (git-ignored). Never import it into `src/`.
 - **14 craft kinds** (exact): air `commercial, business, military, general`; sea `cargo, tanker, passenger, military_vessel, fishing, sailing, pleasure, tug_work, service, other`.
 - **Graceful degradation:** a dead feed never crashes the process; it dims (stale) then empties, with a HUD warning.
-- **Run mode (primary, tested):** `npm run dev` (concurrently: backend `:8787` + Vite `:5173`). A prod build (`npm run build` → `vite build`; `npm start` → serve `dist/` + WS on `:8787`) is provided but the dev flow is the verified deliverable for this local tool.
+- **Run mode (primary, tested):** `npm run dev` (concurrently: backend `:8787` + Vite `:5173`). `npm run build` (→ `dist/`) and `npm start` (backend API + WS on `:8787`) are provided; the built frontend is NOT auto-served (out of scope for this local tool) — the dev flow is the verified deliverable.
 - **Commit style:** conventional commits (`feat:`, `test:`, `chore:`, `docs:`).
 
 ---
@@ -1125,14 +1125,15 @@ describe("OpenSkyPoller", () => {
   it("does not prune on a failed poll", async () => {
     const store = new CraftStore();
     let t = 0;
-    const poller = new OpenSkyPoller({ url: "http://127.0.0.1:1", pollMs: 1000, graceMs: 30000, store, now: () => t });
+    const good = new OpenSkyPoller({ url, pollMs: 1000, graceMs: 30000, store, now: () => t });
     current = { data: [PLANE] };
     t = 0;
-    await poller.pollOnce();
+    await good.pollOnce();
     expect(store.size).toBe(1);
+    const dead = new OpenSkyPoller({ url: "http://127.0.0.1:1", pollMs: 1000, graceMs: 30000, store, now: () => t });
     t = 999999;
-    await expect(poller.pollOnce()).rejects.toThrow();
-    expect(store.size).toBe(1); // unchanged
+    await expect(dead.pollOnce()).rejects.toThrow();
+    expect(store.size).toBe(1); // unchanged — a failed poll must not prune
   });
 });
 ```
@@ -3191,7 +3192,7 @@ panel, and a kind filter drawer.
 | `npm test`          | Unit + integration tests (Vitest)         |
 | `npm run typecheck` | `tsc --noEmit`                            |
 | `npm run build`     | Production frontend build → `dist/`       |
-| `npm start`         | Serve `dist/` + WS on `:8787` (prod)      |
+| `npm start`         | Backend API + WS on `:8787` (prod)        |
 
 ## How it works
 
