@@ -7,7 +7,8 @@ export type RadarMessage =
 export function parseRadarMessage(raw: string): RadarMessage | null {
   try {
     const msg = JSON.parse(raw) as RadarMessage;
-    if (msg.type === "snapshot" || msg.type === "update") return msg;
+    if (msg.type === "snapshot" && Array.isArray(msg.craft)) return msg;
+    if (msg.type === "update" && Array.isArray(msg.upsert) && Array.isArray(msg.remove)) return msg;
     return null;
   } catch {
     return null;

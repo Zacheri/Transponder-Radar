@@ -38,4 +38,9 @@ describe("parseRadarMessage", () => {
     expect(parseRadarMessage("nope")).toBeNull();
     expect(parseRadarMessage(JSON.stringify({ type: "bogus" }))).toBeNull();
   });
+  it("returns null on typed-but-malformed payloads", () => {
+    expect(parseRadarMessage(JSON.stringify({ type: "snapshot", craft: {} }))).toBeNull();
+    expect(parseRadarMessage(JSON.stringify({ type: "update", upsert: null, remove: [] }))).toBeNull();
+    expect(parseRadarMessage(JSON.stringify({ type: "update", upsert: [air("a1")], remove: "a1" }))).toBeNull();
+  });
 });
