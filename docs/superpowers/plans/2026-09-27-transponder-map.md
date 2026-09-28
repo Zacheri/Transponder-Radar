@@ -1258,7 +1258,7 @@ Create `test/ais.test.ts`:
 
 ```ts
 import { describe, it, expect, afterAll } from "vitest";
-import WebSocket, { WebSocketServer } from "ws";
+import { WebSocketServer } from "ws";
 import { AisClient } from "../server/ais.js";
 import { CraftStore } from "../server/store.js";
 import { waitFor } from "./util.js";
