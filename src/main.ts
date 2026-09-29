@@ -9,6 +9,7 @@ import { AIR_KINDS, SEA_KINDS } from "../shared/craft.js";
 import type { CraftKind } from "../shared/craft.js";
 import { createPanel } from "./ui/panel.js";
 import { createFilters } from "./ui/filters.js";
+import { createHud } from "./ui/hud.js";
 
 const container = document.getElementById("map");
 if (!container) throw new Error("#map missing");
@@ -16,10 +17,18 @@ if (!container) throw new Error("#map missing");
 const map = createMap(container);
 const store = new ClientStore();
 const panel = createPanel(document.getElementById("app") as HTMLElement);
+const hud = createHud(document.getElementById("app") as HTMLElement);
 let visible = new Set<CraftKind>([...AIR_KINDS, ...SEA_KINDS]);
 
 function refresh(): void {
   setCraftData(map, buildFeatureCollection(store.all()));
+  let air = 0;
+  let sea = 0;
+  for (const c of store.all()) {
+    if (c.domain === "air") air++;
+    else sea++;
+  }
+  hud.setCounts(air, sea);
 }
 
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
@@ -43,6 +52,7 @@ map.on("load", async () => {
       store.applyUpdate(upsert, remove);
       refresh();
     },
+    onStatus: (s) => hud.setStatus(s),
   });
   socket.connect();
   store.subscribe(refresh);
