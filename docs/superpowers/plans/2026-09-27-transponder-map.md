@@ -2458,20 +2458,11 @@ import { ICON_URLS } from "./icon-urls.js";
 
 export function registerIcons(map: maplibregl.Map): Promise<void> {
   return Promise.all(
-    Object.entries(ICON_URLS).map(
-      ([name, url]) =>
-        new Promise<void>((resolve, reject) => {
-          map.loadImage(url, (err, image) => {
-            if (err || !image) {
-              reject(err ?? new Error(`failed to load icon ${name}`));
-              return;
-            }
-            if (!map.hasImage(name)) map.addImage(name, image);
-            resolve();
-          });
-        }),
-    ),
-  );
+    Object.entries(ICON_URLS).map(async ([name, url]) => {
+      const { data } = await map.loadImage(url);
+      if (!map.hasImage(name)) map.addImage(name, data);
+    }),
+  ).then(() => undefined);
 }
 ```
 
