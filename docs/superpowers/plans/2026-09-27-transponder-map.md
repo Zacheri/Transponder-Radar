@@ -2887,8 +2887,6 @@ git commit -m "feat: detail panel with per-domain fields on craft click"
 import type { CraftKind } from "../../shared/craft.js";
 import { KINDS, AIR_KINDS, SEA_KINDS } from "../../shared/craft.js";
 
-const ORDER: CraftKind[] = [...AIR_KINDS, ...SEA_KINDS];
-
 export function createFilters(
   root: HTMLElement,
   initial: Set<CraftKind>,
