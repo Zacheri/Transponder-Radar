@@ -2846,7 +2846,8 @@ map.on("click", "craft-icons", (e) => {
   if (craft) panel.show(craft);
 });
 map.on("click", (e) => {
-  if (!e.features?.length) panel.hide();
+  const features = map.queryRenderedFeatures(e.point, { layers: ["craft-icons"] });
+  if (!features.length) panel.hide();
 });
 map.on("mouseenter", "craft-icons", () => {
   map.getCanvas().style.cursor = "pointer";
