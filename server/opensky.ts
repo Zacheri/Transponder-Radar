@@ -1,6 +1,8 @@
 import type { CraftStore } from "./store.js";
 import { normalizeOpenSky } from "./normalize.js";
 
+export const BACKOFF_CAP_MS = 300000;
+
 export interface OpenSkyPollerOpts {
   url?: string;
   pollMs: number;
@@ -9,36 +11,98 @@ export interface OpenSkyPollerOpts {
   fetchImpl?: typeof fetch;
   now?: () => number;
   log?: (msg: string) => void;
+  timeoutMs?: number;
+}
+
+export interface PollResult {
+  upserted: number;
+  nextDelayMs: number;
 }
 
 export class OpenSkyPoller {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private consecutiveErrors = 0;
 
   constructor(private opts: OpenSkyPollerOpts) {}
 
   start(): void {
     if (this.running) return;
     this.running = true;
-    void this.pollOnce().catch((e) => this.opts.log?.(`opensky: ${e.message}`));
-    this.timer = setInterval(() => {
-      void this.pollOnce().catch((e) => this.opts.log?.(`opensky: ${e.message}`));
-    }, this.opts.pollMs);
+    void this.loop();
   }
 
   stop(): void {
     this.running = false;
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) clearTimeout(this.timer);
     this.timer = null;
   }
 
-  async pollOnce(): Promise<number> {
+  private async loop(): Promise<void> {
+    if (!this.running) return;
+    let nextDelayMs: number;
+    try {
+      nextDelayMs = (await this.pollOnce()).nextDelayMs;
+    } catch (e) {
+      this.opts.log?.(`opensky: ${e instanceof Error ? e.message : String(e)}`);
+      nextDelayMs = this.backoffDelay();
+    }
+    this.schedule(nextDelayMs);
+  }
+
+  private schedule(delayMs: number): void {
+    if (!this.running) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.loop();
+    }, delayMs);
+  }
+
+  private backoffDelay(): number {
+    this.consecutiveErrors += 1;
+    return Math.min(BACKOFF_CAP_MS, this.opts.pollMs * 2 ** this.consecutiveErrors);
+  }
+
+  async pollOnce(): Promise<PollResult> {
     const now = this.opts.now?.() ?? Date.now();
     const fetchImpl = this.opts.fetchImpl ?? fetch;
-    const res = await fetchImpl(this.opts.url ?? "https://opensky-network.org/api/states/all");
-    if (!res.ok) throw new Error(`OpenSky HTTP ${res.status}`);
-    const body = (await res.json()) as { states?: (string | number | boolean | null)[][] };
-    const rows = body.states ?? [];
+    const url = this.opts.url ?? "https://opensky-network.org/api/states/all";
+    let res: Response;
+    try {
+      res = await fetchImpl(url, { signal: AbortSignal.timeout(this.opts.timeoutMs ?? 10000) });
+    } catch (e) {
+      const nextDelayMs = this.backoffDelay();
+      const msg = e instanceof Error ? e.message : String(e);
+      this.opts.log?.(`opensky: ${msg} — backing off ${nextDelayMs}ms`);
+      return { upserted: 0, nextDelayMs };
+    }
+    if (res.status === 429) {
+      this.consecutiveErrors += 1;
+      const retryAfterRaw = res.headers.get("retry-after");
+      const nextDelayMs =
+        retryAfterRaw !== null && Number.isFinite(Number(retryAfterRaw))
+          ? Math.min(BACKOFF_CAP_MS, Math.max(this.opts.pollMs, Number(retryAfterRaw) * 1000))
+          : Math.min(BACKOFF_CAP_MS, this.opts.pollMs * 2 ** this.consecutiveErrors);
+      this.opts.log?.(`opensky: 429 — backing off ${nextDelayMs}ms`);
+      return { upserted: 0, nextDelayMs };
+    }
+    if (!res.ok) {
+      const nextDelayMs = this.backoffDelay();
+      this.opts.log?.(`opensky: HTTP ${res.status} — backing off ${nextDelayMs}ms`);
+      return { upserted: 0, nextDelayMs };
+    }
+    let body: { states?: unknown };
+    try {
+      body = (await res.json()) as { states?: unknown };
+    } catch {
+      this.opts.log?.("opensky: malformed body — skipping poll");
+      return { upserted: 0, nextDelayMs: this.opts.pollMs };
+    }
+    if (!Array.isArray(body.states)) {
+      this.opts.log?.("opensky: malformed body — skipping poll");
+      return { upserted: 0, nextDelayMs: this.opts.pollMs };
+    }
+    const rows = body.states as (string | number | boolean | null)[][];
     const crafts = [];
     const present = new Set<string>();
     for (const row of rows) {
@@ -50,6 +114,7 @@ export class OpenSkyPoller {
     }
     this.opts.store.upsert(crafts, now);
     this.opts.store.pruneAir(present, now, this.opts.graceMs);
-    return crafts.length;
+    this.consecutiveErrors = 0;
+    return { upserted: crafts.length, nextDelayMs: this.opts.pollMs };
   }
 }
