@@ -15,7 +15,7 @@
 - **ESM everywhere:** `package.json` has `"type": "module"`. All relative imports in `server/`, `shared/`, and `test/` use explicit `.js` extensions (Node/tsx ESM). `src/` (Vite) imports may omit extensions.
 - **TypeScript strict:** `tsconfig.json` has `strict: true`; `npm run typecheck` (`tsc --noEmit`) must pass before any commit.
 - **Ports:** backend `8787`, Vite dev `5173` (Vite proxies `/ws` + `/health` → `8787`).
-- **Thresholds (exact):** `STALE_MS = 120000`, `REMOVE_MS = 600000`, `OPENSKY_POLL_MS = 5000`, `BATCH_MS = 1000`, air fast-path grace `30000` ms.
+- **Thresholds (exact):** `STALE_MS = 120000`, `REMOVE_MS = 600000`, `OPENSKY_POLL_MS = 36000` (user decision: anonymous OpenSky is limited to ~100 req/hour, so 36 s keeps the feed alive; the spec's 5 s default 429s within minutes), `BATCH_MS = 1000`, air fast-path grace `30000` ms.
 - **Unit conversions (exact):** m/s→knots `×1.94384`; m→ft `×3.28084`; m/s→fpm `×196.850`.
 - **Stable IDs:** air = `icao24` (hex string); sea = `MMSI` (decimal string).
 - **Secrets:** `AISSTREAM_API_KEY` lives only in `.env` (git-ignored). Never import it into `src/`.
@@ -183,7 +183,8 @@ export default defineConfig({
 # Free key from https://aisstream.io/account (GitHub sign-in). Shown once.
 AISSTREAM_API_KEY=
 PORT=8787
-OPENSKY_POLL_MS=5000
+# Anonymous OpenSky is limited to ~100 req/hour, so 36 s keeps the aircraft feed alive; lower values will 429.
+OPENSKY_POLL_MS=36000
 BATCH_MS=1000
 STALE_MS=120000
 REMOVE_MS=600000
@@ -289,7 +290,7 @@ function int(name: string, def: number): number {
 
 export const config = {
   PORT: int("PORT", 8787),
-  OPENSKY_POLL_MS: int("OPENSKY_POLL_MS", 5000),
+  OPENSKY_POLL_MS: int("OPENSKY_POLL_MS", 36000),
   BATCH_MS: int("BATCH_MS", 1000),
   STALE_MS: int("STALE_MS", 120000),
   REMOVE_MS: int("REMOVE_MS", 600000),
@@ -684,7 +685,7 @@ const POS_ENV = {
   Message: {
     PositionReport: {
       Latitude: 51.5, Longitude: -0.1, Sog: 12.5, Cog: 90,
-      TrueHeading: 92, NavigationalStatus: 0, Timestamp: 1700000000,
+      TrueHeading: 92, NavigationalStatus: 0, Timestamp: 14,
     },
   },
 };
@@ -819,7 +820,6 @@ export function normalizePositionReport(env: any, staticData: AisStatic | undefi
   const sog = num(pr.Sog) ?? num(pr.SpeedOverGround);
   const cog = num(pr.Cog) ?? num(pr.CourseOverGround);
   const th = num(pr.TrueHeading);
-  const ts = num(pr.Timestamp);
 
   return {
     id: mmsi,
@@ -835,7 +835,7 @@ export function normalizePositionReport(env: any, staticData: AisStatic | undefi
     destination: staticData?.destination,
     navStatus: num(pr.NavigationalStatus),
     aisType: staticData?.aisType ?? null,
-    updatedAt: ts != null ? (ts < 1e12 ? ts * 1000 : ts) : now,
+    updatedAt: now,
     stale: false,
   };
 }
@@ -1080,7 +1080,7 @@ const PLANE: (string | number | boolean | null)[] = [
 describe("OpenSkyPoller", () => {
   let server: http.Server;
   let url: string;
-  let current: { data: (string | number | boolean | null)[][] } = { data: [] };
+  let current: { time: number; states: (string | number | boolean | null)[][] } = { time: 0, states: [] };
 
   beforeAll(async () => {
     server = http.createServer((_req, res) => {
@@ -1097,7 +1097,7 @@ describe("OpenSkyPoller", () => {
   });
 
   it("polls, normalizes, upserts into store", async () => {
-    current = { data: [PLANE] };
+    current = { time: 0, states: [PLANE] };
     const store = new CraftStore();
     const poller = new OpenSkyPoller({ url, pollMs: 1000, graceMs: 30000, store });
     const count = await poller.pollOnce();
@@ -1109,11 +1109,11 @@ describe("OpenSkyPoller", () => {
     const store = new CraftStore();
     let t = 0;
     const poller = new OpenSkyPoller({ url, pollMs: 1000, graceMs: 30000, store, now: () => t });
-    current = { data: [PLANE] };
+    current = { time: 0, states: [PLANE] };
     t = 0;
     await poller.pollOnce();
     expect(store.size).toBe(1);
-    current = { data: [] };
+    current = { time: 0, states: [] };
     t = 1000;
     await poller.pollOnce(); // within grace
     expect(store.size).toBe(1);
@@ -1126,7 +1126,7 @@ describe("OpenSkyPoller", () => {
     const store = new CraftStore();
     let t = 0;
     const good = new OpenSkyPoller({ url, pollMs: 1000, graceMs: 30000, store, now: () => t });
-    current = { data: [PLANE] };
+    current = { time: 0, states: [PLANE] };
     t = 0;
     await good.pollOnce();
     expect(store.size).toBe(1);
@@ -1187,8 +1187,8 @@ export class OpenSkyPoller {
     const fetchImpl = this.opts.fetchImpl ?? fetch;
     const res = await fetchImpl(this.opts.url ?? "https://opensky-network.org/api/states/all");
     if (!res.ok) throw new Error(`OpenSky HTTP ${res.status}`);
-    const body = (await res.json()) as { data?: (string | number | boolean | null)[][] };
-    const rows = body.data ?? [];
+    const body = (await res.json()) as { states?: (string | number | boolean | null)[][] };
+    const rows = body.states ?? [];
     const crafts = [];
     const present = new Set<string>();
     for (const row of rows) {
@@ -1385,16 +1385,18 @@ export class AisClient {
     if (this.closed) return;
     const WSImpl = this.opts.wsImpl ?? WebSocket;
     const url = this.opts.url ?? "wss://stream.aisstream.io/v0/stream";
-    const ws = new WSImpl(url, {
-      headers: {
-        APIKey: this.opts.apiKey,
-        FilterMessageTypes: "PositionReport,ShipStaticData",
-      },
-    });
+    const ws = new WSImpl(url);
     this.ws = ws;
     ws.on("open", () => {
       this.attempts = 0;
       this.opts.log?.("ais: connected");
+      ws.send(
+        JSON.stringify({
+          APIKey: this.opts.apiKey,
+          BoundingBoxes: [[[-90, -180], [90, 180]]],
+          FilterMessageTypes: ["PositionReport", "ShipStaticData"],
+        }),
+      );
     });
     ws.on("message", (data: WebSocket.RawData) => {
       this.handleMessage(data.toString());
@@ -1672,7 +1674,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
   let wsServer: WebSocketServer;
   let server: Awaited<ReturnType<typeof buildApp>>;
   let port: number;
-  let current: { data: (string | number | boolean | null)[][] } = { data: [] };
+  let current: { time: number; states: (string | number | boolean | null)[][] } = { time: 0, states: [] };
 
   beforeAll(async () => {
     httpServer = http.createServer((_req, res) => {
@@ -1718,7 +1720,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
   });
 
   it("streams a snapshot and updates for both domains", async () => {
-    current = { data: [PLANE] };
+    current = { time: 0, states: [PLANE] };
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
     const messages: any[] = [];
     ws.on("message", (d) => messages.push(JSON.parse(d.toString())));
@@ -3175,7 +3177,7 @@ panel, and a kind filter drawer.
 3. `cp .env.example .env` and paste your key into `AISSTREAM_API_KEY`.
    (Aircraft work without a key; vessels need it.)
 4. `npm run dev`
-5. Open <http://127.0.0.1:5173>.
+5. Open <http://localhost:5173>.
 
 ## Scripts
 
@@ -3228,7 +3230,7 @@ Expected: `{"ok":true,"craft":N,"clients":0}` with `N` growing over ~10 s (OpenS
 
 - [ ] **Step 5: Live smoke test (frontend, manual)**
 
-Open <http://127.0.0.1:5173> in a browser and verify:
+Open <http://localhost:5173> in a browser and verify:
 - [ ] Dark world map renders (Carto basemap).
 - [ ] Aircraft icons appear and move; zoom in → labels, then sublabels.
 - [ ] (With AIS key) vessel icons appear.
