@@ -22,7 +22,11 @@ function refresh(): void {
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 
 map.on("load", async () => {
-  await registerIcons(map);
+  try {
+    await registerIcons(map);
+  } catch (err) {
+    console.error("icon registration failed", err);
+  }
   addCraftSource(map);
   addCraftLayers(map, buildIconFilter(visible));
   refresh();
