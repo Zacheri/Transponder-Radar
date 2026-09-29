@@ -1,0 +1,32 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0e14;
+  --panel: rgba(17, 20, 28, 0.92);
+  --border: #232838;
+  --text: #e6e9f0;
+  --muted: #8b93a7;
+  --accent: #4fc3f7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app,
+#map {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  overflow: hidden;
+}
+
+.maplibregl-canvas {
+  outline: none;
+}
