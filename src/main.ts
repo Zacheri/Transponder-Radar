@@ -52,6 +52,10 @@ map.on("load", async () => {
     const craft = store.get(f.properties.id as string);
     if (craft) panel.show(craft);
   });
+  map.on("click", (e) => {
+    const features = map.queryRenderedFeatures(e.point, { layers: ["craft-icons"] });
+    if (!features.length) panel.hide();
+  });
   map.on("mouseenter", "craft-icons", () => {
     map.getCanvas().style.cursor = "pointer";
   });
