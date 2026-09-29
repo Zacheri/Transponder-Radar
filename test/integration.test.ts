@@ -18,7 +18,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
   let wsServer: WebSocketServer;
   let server: Awaited<ReturnType<typeof buildApp>>;
   let port: number;
-  let current: { data: (string | number | boolean | null)[][] } = { data: [] };
+  let current: { time: number; states: (string | number | boolean | null)[][] } = { time: 0, states: [] };
 
   beforeAll(async () => {
     httpServer = http.createServer((_req, res) => {
@@ -64,7 +64,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
   });
 
   it("streams a snapshot and updates for both domains", async () => {
-    current = { data: [PLANE] };
+    current = { time: 0, states: [PLANE] };
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
     const messages: any[] = [];
     ws.on("message", (d) => messages.push(JSON.parse(d.toString())));

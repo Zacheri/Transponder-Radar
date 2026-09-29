@@ -11,7 +11,7 @@ const PLANE: (string | number | boolean | null)[] = [
 describe("OpenSkyPoller", () => {
   let server: http.Server;
   let url: string;
-  let current: { data: (string | number | boolean | null)[][] } = { data: [] };
+  let current: { time: number; states: (string | number | boolean | null)[][] } = { time: 0, states: [] };
 
   beforeAll(async () => {
     server = http.createServer((_req, res) => {
@@ -28,7 +28,7 @@ describe("OpenSkyPoller", () => {
   });
 
   it("polls, normalizes, upserts into store", async () => {
-    current = { data: [PLANE] };
+    current = { time: 0, states: [PLANE] };
     const store = new CraftStore();
     const poller = new OpenSkyPoller({ url, pollMs: 1000, graceMs: 30000, store });
     const count = await poller.pollOnce();
@@ -40,11 +40,11 @@ describe("OpenSkyPoller", () => {
     const store = new CraftStore();
     let t = 0;
     const poller = new OpenSkyPoller({ url, pollMs: 1000, graceMs: 30000, store, now: () => t });
-    current = { data: [PLANE] };
+    current = { time: 0, states: [PLANE] };
     t = 0;
     await poller.pollOnce();
     expect(store.size).toBe(1);
-    current = { data: [] };
+    current = { time: 0, states: [] };
     t = 1000;
     await poller.pollOnce(); // within grace
     expect(store.size).toBe(1);
@@ -57,7 +57,7 @@ describe("OpenSkyPoller", () => {
     const store = new CraftStore();
     let t = 0;
     const good = new OpenSkyPoller({ url, pollMs: 1000, graceMs: 30000, store, now: () => t });
-    current = { data: [PLANE] };
+    current = { time: 0, states: [PLANE] };
     t = 0;
     await good.pollOnce();
     expect(store.size).toBe(1);

@@ -37,8 +37,8 @@ export class OpenSkyPoller {
     const fetchImpl = this.opts.fetchImpl ?? fetch;
     const res = await fetchImpl(this.opts.url ?? "https://opensky-network.org/api/states/all");
     if (!res.ok) throw new Error(`OpenSky HTTP ${res.status}`);
-    const body = (await res.json()) as { data?: (string | number | boolean | null)[][] };
-    const rows = body.data ?? [];
+    const body = (await res.json()) as { states?: (string | number | boolean | null)[][] };
+    const rows = body.states ?? [];
     const crafts = [];
     const present = new Set<string>();
     for (const row of rows) {
