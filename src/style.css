@@ -92,3 +92,56 @@ body {
   text-align: right;
   word-break: break-word;
 }
+
+.drawer {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 200px;
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  backdrop-filter: blur(8px);
+  z-index: 10;
+}
+.drawer-head {
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.drawer-body {
+  padding: 8px 12px 12px;
+}
+.drawer-group {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 8px 0 4px;
+}
+.drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.drawer-item input {
+  accent-color: var(--accent);
+}
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+.drawer-label {
+  flex: 1;
+}

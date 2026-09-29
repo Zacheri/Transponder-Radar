@@ -8,6 +8,7 @@ import { buildIconFilter } from "./data/filter.js";
 import { AIR_KINDS, SEA_KINDS } from "../shared/craft.js";
 import type { CraftKind } from "../shared/craft.js";
 import { createPanel } from "./ui/panel.js";
+import { createFilters } from "./ui/filters.js";
 
 const container = document.getElementById("map");
 if (!container) throw new Error("#map missing");
@@ -15,7 +16,7 @@ if (!container) throw new Error("#map missing");
 const map = createMap(container);
 const store = new ClientStore();
 const panel = createPanel(document.getElementById("app") as HTMLElement);
-const visible = new Set<CraftKind>([...AIR_KINDS, ...SEA_KINDS]);
+let visible = new Set<CraftKind>([...AIR_KINDS, ...SEA_KINDS]);
 
 function refresh(): void {
   setCraftData(map, buildFeatureCollection(store.all()));
@@ -45,6 +46,14 @@ map.on("load", async () => {
   });
   socket.connect();
   store.subscribe(refresh);
+
+  createFilters(document.getElementById("app") as HTMLElement, visible, (v) => {
+    visible = v;
+    const f = buildIconFilter(v);
+    map.setFilter("craft-icons", f);
+    map.setFilter("craft-labels", f);
+    map.setFilter("craft-sublabels", f);
+  });
 
   map.on("click", "craft-icons", (e) => {
     const f = e.features?.[0];
