@@ -3276,3 +3276,224 @@ git commit -m "docs: README + setup; polish styles"
 **No placeholders:** every task has complete file contents and exact commands. Rendering tasks (12-14, 15-17) are verified by `typecheck` + `build` + the Task 18 live smoke, since they require a browser.
 
 **Execution note:** Tasks 1-10 are strictly sequential (each builds on prior modules). Tasks 11-14 are sequential (11 → 12 → 13 → 14). Tasks 15-17 are sequential (each edits `main.ts`). Task 18 is last. A single implementer subagent can run them in order; a fresh reviewer subagent verifies each task's diff + tests before the next begins.
+
+---
+
+## Scope Round 2 (post-final-review, user-approved)
+
+**Context:** the final whole-branch review (verdict: ready with fixes) confirmed the 18-task build is functionally complete and cross-task consistent, but found spec features the plan scoped down. The user approved adding all six, plus a hygiene pass. These tasks run sequentially on the same branch after Task 18.
+
+**Inherited global constraints:** strict TS, ESM, Node 20+; gates `npm test && npm run typecheck && npm run build` (maplibre-gl >500 kB chunk warning is the accepted exception); MapLibre GL v4 (promise-only APIs); `.env` is never committed; follow existing patterns; no comments unless the task says so.
+
+### Task 19: Icon rotation (craft point along track)
+
+**Files:**
+- Modify: `src/map/layers.ts`
+
+**Spec:** design.md §9 — `icon-rotate: ["get","heading"]` + `icon-rotation-alignment: "map"`.
+
+- [ ] **Step 1:** In `addCraftLayers`, add to the `craft-icons` layer's `layout` (the `heading` property already exists on every feature via `features.ts`):
+
+```ts
+      "icon-rotate": ["get", "heading"],
+      "icon-rotation-alignment": "map",
+```
+
+  (A null heading is treated as 0 by MapLibre — fine.)
+- [ ] **Step 2: Gates** `npm run typecheck && npm run build` — both pristine.
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/map/layers.ts
+git commit -m "feat: rotate craft icons along heading (map-aligned)"
+```
+
+### Task 20: OpenSky resilience (timeout, 429 Retry-After, capped backoff)
+
+**Files:**
+- Modify: `server/opensky.ts`, `test/poller.test.ts`
+
+**Spec:** design.md §10 — "network error/timeout → log, keep last-good, backoff (capped). 429 → honor `Retry-After`, back off longer. Malformed body → log + skip poll. Never throws out of the poll loop."
+
+**Design (testable without real timers):**
+- Replace the fixed `setInterval` loop with a self-rescheduling `setTimeout`: `start()` kicks the loop; after each poll, schedule the next with the delay `pollOnce` returns. `stop()` clears the pending timeout.
+- `pollOnce(): Promise<{ upserted: number; nextDelayMs: number }>`:
+  - Fetch with a timeout: `fetchImpl(url, { signal: AbortSignal.timeout(this.opts.timeoutMs ?? 10000) })`.
+  - Success (200 + `body.states` is an array): upsert + prune as today; reset the consecutive-error counter; `nextDelayMs = pollMs`.
+  - HTTP 429: read the `Retry-After` header (seconds); `nextDelayMs = min(BACKOFF_CAP_MS, max(pollMs, retryAfterSec * 1000))`; if the header is absent, `nextDelayMs = min(BACKOFF_CAP_MS, pollMs * 2 ** n)` where `n` = consecutive 429s. Log `opensky: 429 — backing off <ms>ms`.
+  - Network error / timeout (fetch rejects): log, keep last-good (store untouched), `nextDelayMs = min(BACKOFF_CAP_MS, pollMs * 2 ** n)`.
+  - Malformed body (200 but `body.states` not an array): log + skip (no upsert, no prune), `nextDelayMs = pollMs`.
+  - `BACKOFF_CAP_MS = 300000` (5 min).
+- Add `timeoutMs?: number` to `OpenSkyPollerOpts`. Keep `url`, `pollMs`, `graceMs`, `store`, `fetchImpl`, `now`, `log` and the `start`/`stop` signatures. The loop must never throw (keep the catch-and-log).
+
+**Tests** (`test/poller.test.ts` — update the existing 3 tests for the new return shape, then add):
+- 429 with `Retry-After: 5` → `nextDelayMs === 5000`.
+- 429 without the header, second consecutive 429 → `nextDelayMs === pollMs * 4`.
+- Cap: enough consecutive errors → `nextDelayMs === 300000`.
+- Network error (fetch rejects) → first error gives `nextDelayMs === pollMs * 2`; store unchanged (last-good kept).
+- Malformed body `{ states: "nope" }` → `upserted === 0`, `nextDelayMs === pollMs`, no throw.
+- `fetchImpl` is called with an `AbortSignal` (`options.signal instanceof AbortSignal`).
+
+- [ ] **Step 1:** Rewrite `server/opensky.ts` per the design.
+- [ ] **Step 2:** Update/extend `test/poller.test.ts` per the list.
+- [ ] **Step 3: Gates** `npm test && npm run typecheck && npm run build`.
+- [ ] **Step 4: Commit**
+
+```bash
+git add server/opensky.ts test/poller.test.ts
+git commit -m "feat: OpenSky poller timeout + 429 Retry-After + capped backoff"
+```
+
+### Task 21: Feed status frames + HUD clock & per-feed state
+
+**Files:**
+- Modify: `server/hub.ts`, `server/opensky.ts`, `server/ais.ts`, `server/index.ts`, `src/data/ws.ts`, `src/ui/hud.ts`, `src/main.ts`, `src/style.css`, `test/hub.test.ts`
+- Create: `test/ws.test.ts`
+
+**Spec:** design.md §9 HUD — "total air/sea counts, feed state (OpenSky last-poll OK/stale, aisstream connected/dropped), clock; a 'reconnecting…' banner when the WS is down." (The banner already exists as the connection status.)
+
+**Wire protocol (same shape on both ends, mirroring the existing snapshot/update pattern):**
+
+```ts
+interface FeedStatus {
+  opensky: { lastOkAt: number | null; lastError: string | null };
+  ais: { connected: boolean; enabled: boolean };
+}
+// frame: { type: "status"; feeds: FeedStatus; serverTime: number }
+```
+
+**Server:**
+- `server/opensky.ts`: track `lastOkAt: number | null` (set on every successful poll — 200 with an array body, even 0 rows) and `lastError: string | null` (set on 429/error/malformed, cleared on success). Expose `get feedStatus(): { lastOkAt: number | null; lastError: string | null }`.
+- `server/ais.ts`: track `connected: boolean` (true on `open`, false on `close`). Expose `get isConnected(): boolean`.
+- `server/hub.ts`: add `feedStatus?: () => FeedStatus` to `HubOpts`. Restructure `tick()` so it does NOT early-return before the status check: (1) build the status, and if it differs from the last broadcast (JSON compare), broadcast `{ type: "status", feeds, serverTime: Date.now() }`; (2) drain dirty and broadcast the update as today. In `attach()`, send the current status frame right after the snapshot (when `feedStatus` is provided).
+- `server/index.ts`: pass `feedStatus: () => ({ opensky: opensky.feedStatus, ais: { connected: ais.isConnected, enabled: Boolean(config.AISSTREAM_API_KEY) } })` to the `Hub`.
+
+**Frontend:**
+- `src/data/ws.ts`: add `| { type: "status"; feeds: FeedStatus; serverTime: number }` to `RadarMessage`; `parseRadarMessage` accepts it when `type === "status" && msg.feeds != null && typeof msg.serverTime === "number"`; add `onFeeds?: (feeds: FeedStatus, serverTime: number) => void` to `RadarSocketHandlers`; dispatch in `onmessage`.
+- `src/ui/hud.ts`: add a clock span (local `HH:MM:SS`, updated every 1 s via `setInterval` — app-lifetime interval, no teardown needed) and a feeds span. Add `setFeeds(feeds: FeedStatus, serverTime: number): void`:
+  - OpenSky: `lastOkAt == null` → `OpenSky: no data`; `serverTime - lastOkAt <= 72000` (2× the 36 s poll) → `OpenSky: ok`; else → `OpenSky: stale`.
+  - AIS: `!enabled` → `AIS: off`; `connected` → `AIS: up`; else → `AIS: down`.
+  - Keep the existing connection dot/status + counts.
+- `src/main.ts`: wire `onFeeds: (feeds, t) => hud.setFeeds(feeds, t)`.
+- `src/style.css`: append `.hud-clock` / `.hud-feeds` styles (muted color, small font).
+
+**Tests:**
+- `test/ws.test.ts` (new): `parseRadarMessage` accepts a well-formed status frame and returns it; rejects malformed ones (missing `feeds`, missing `serverTime`, unknown `type`).
+- `test/hub.test.ts` (extend): with a `feedStatus` opt — a changed status triggers a status-frame broadcast on the next tick; an unchanged status is NOT re-broadcast; `attach` sends snapshot then status.
+
+- [ ] **Steps:** server (opensky, ais, hub, index) → frontend (ws, hud, main, css) → tests → gates `npm test && npm run typecheck && npm run build` → commit:
+
+```bash
+git add server/hub.ts server/opensky.ts server/ais.ts server/index.ts src/data/ws.ts src/ui/hud.ts src/main.ts src/style.css test/ws.test.ts test/hub.test.ts
+git commit -m "feat: feed status frames + HUD clock & per-feed state"
+```
+
+### Task 22: Detail panel extras (identity, position, freshness, raw, live updates)
+
+**Files:**
+- Modify: `src/ui/panel.ts`, `src/main.ts`, `src/style.css`
+
+**Spec:** design.md §9 panel — header (kind icon + name/callsign + domain badge), identity (ID), motion (formatted lat/lon), freshness (time-since-last-fix + stale flag), collapsible **raw** section, live-updates while open. The spec's "Optional Follow toggle" is explicitly optional — skip it.
+
+**Design:**
+- `createPanel` returns `{ show(craft: Craft): void; hide(): void; update(craft: Craft): void; selectedId(): string | null }`.
+  - `show(craft)`: set the selected id, render, open.
+  - `update(craft)`: if open and `craft.id === selectedId()`, re-render the body (stay open).
+  - `selectedId()`: the id of the open craft, or `null`.
+- Header: kind label + domain badge (an `air`/`sea` chip) + name/callsign (`craft.shipName ?? craft.callsign ?? craft.id`).
+- Body rows — keep the existing per-domain rows, and add:
+  - `ID` for air (`craft.id` = icao24; sea already shows MMSI).
+  - `Position`: formatted lat/lon, 4 decimals + hemisphere, e.g. `51.4700° N, 0.4543° W`.
+  - `Last fix`: time since `craft.updatedAt` (`12 s ago` / `3 m 20 s ago`) + ` (stale)` when `craft.stale`.
+  - Collapsible raw: `<details class="panel-raw">` with `<summary>Raw</summary>` + `<pre>` of `JSON.stringify(craft, null, 2)`.
+- Freshness tick: while open, a 1 s `setInterval` re-renders just the `Last fix` row (cleared on `hide()`).
+- `src/main.ts` `refresh()`: after `setCraftData`, do `const id = panel.selectedId(); if (id) { const c = store.get(id); if (c) panel.update(c); else panel.hide(); }` (closes the panel if the selected craft was removed).
+- `src/style.css`: append `.panel-name`, `.panel-badge`, `.panel-raw pre` (monospace, small, scrollable max-height), and a stale-flag style.
+
+- [ ] **Steps:** panel.ts → main.ts → css → gates `npm run typecheck && npm run build` (no new tests — DOM rendering is verified by the user's browser smoke) → commit:
+
+```bash
+git add src/ui/panel.ts src/main.ts src/style.css
+git commit -m "feat: detail panel — identity, position, freshness, raw section, live updates"
+```
+
+### Task 23: Filter drawer extras (collapse, live counts, quick actions, localStorage)
+
+**Files:**
+- Modify: `src/ui/filters.ts`, `src/main.ts`, `src/style.css`
+
+**Spec:** design.md §9 drawer — collapsible; a toggle per kind grouped under Aircraft / Vessels with a live count (e.g. `Cargo (1,234)`); quick actions All / None / Air-only / Sea-only; state persisted to `localStorage`.
+
+**Design:**
+- `createFilters(root, initial, onChange)` now returns `{ setCounts(counts: Map<CraftKind, number>): void }` (drop `setVisible` from the return; quick actions use an internal `apply(v)` that updates the checkboxes and calls `onChange`).
+- Collapse: clicking the head toggles `el.classList.toggle("collapsed")` (CSS hides `.drawer-body`); persist the collapsed state under the `localStorage` key `radar.drawerCollapsed`.
+- Counts: `setCounts` renders each kind's label as `Label (n)` with `n.toLocaleString("en-US")` (always shown, even 0).
+- Quick actions: a row of four small buttons under the head — All (all 14 kinds), None (empty set), Air-only (`AIR_KINDS`), Sea-only (`SEA_KINDS`) — each calls `apply(next)`.
+- `localStorage`: key `radar.visibleKinds` (JSON array of kinds). On init: if present and every entry is a known kind, use it as the visible set and call `onChange` once (syncs the map filter); otherwise use `initial`. Write on every change.
+- `src/main.ts`: capture the return (`const filters = createFilters(...)`; declare `let filters: { setCounts(c: Map<CraftKind, number>): void } | null = null` before `refresh` so it's in scope). In `refresh()`, compute per-kind counts in the same loop as the air/sea counts and call `filters?.setCounts(counts)`.
+- `src/style.css`: append `.drawer.collapsed .drawer-body { display: none }`, a head chevron, `.drawer-actions` (button row), and count styling.
+
+- [ ] **Steps:** filters.ts → main.ts → css → gates `npm run typecheck && npm run build` → commit:
+
+```bash
+git add src/ui/filters.ts src/main.ts src/style.css
+git commit -m "feat: filter drawer — collapse, live counts, quick actions, localStorage"
+```
+
+### Task 24: Prod mode (backend serves dist/)
+
+**Files:**
+- Modify: `server/index.ts`, `README.md`
+
+**Spec:** design.md §8 prod mode — "backend serves `dist/` + WS on one port."
+
+**Design:**
+- `server/index.ts`:
+  - `import fastifyStatic from "@fastify/static";` and `import { existsSync } from "node:fs";`
+  - In `buildApp`, after the `/health` route:
+
+    ```ts
+    const dist = resolve(process.cwd(), "dist");
+    if (existsSync(dist)) {
+      await app.register(fastifyStatic, { root: dist });
+    } else {
+      log("dist/ not found — run `npm run build` (API + WS only)");
+    }
+    ```
+
+    (Explicit routes `/ws` + `/health` take precedence over the static wildcard; `/` serves `dist/index.html`. Verify the installed `@fastify/static` version's option name — `root` on v7+.)
+  - `main()`: log `http://127.0.0.1:${config.PORT}` after listen.
+- `README.md`: add a **Production** section: `npm run build && npm start` → open `http://127.0.0.1:8787` (map + WS on one port).
+- No new tests (static serving is verified by the user's smoke); gates `npm run typecheck && npm run build`.
+
+- [ ] **Steps:** index.ts → README → gates → commit:
+
+```bash
+git add server/index.ts README.md
+git commit -m "feat: prod mode — backend serves dist/ on :8787"
+```
+
+### Task 25: Hygiene pass
+
+**Files:**
+- Modify: `server/hub.ts`, `server/classify.ts`, `server/ais.ts`, `server/normalize.ts`, `server/store.ts`, `server/index.ts`, `src/main.ts`, `src/data/store.ts`
+
+**Items (from the final review's minor list):**
+1. `server/hub.ts` — drop `removeListener` from the `WsLike` interface (never called).
+2. `server/classify.ts` — drop the dead `"VIPS"` entry from `BIZ_PREFIXES` (the lookup is a 3-char prefix).
+3. `server/ais.ts` — replace the 3-link MMSI chain with the shared `pickMmsi` (export it from `server/normalize.ts`) so the static join can't drift from the normalizer.
+4. `src/main.ts` — drop the explicit `refresh()` calls in `onSnapshot`/`onUpdate` (`ClientStore.applySnapshot`/`applyUpdate` already `emit()`, and `store.subscribe(refresh)` covers every change — the explicit calls double the feature build per message).
+5. `src/data/store.ts` — `applySnapshot`/`applyUpdate` skip malformed elements (`!c || typeof c.id !== "string"`) so a `craft:[null]` frame can't crash the client (trusted same-repo server, cheap insurance).
+6. `server/store.ts` — add a one-line comment on `sweep` noting that air craft with a stale `time_position` are also swept (intentional overlap with the `pruneAir` grace path).
+7. `server/index.ts` — clean shutdown: `main()` captures `stop` from `buildApp`; the SIGINT/SIGTERM handler runs `void stop().then(() => process.exit(0))` (close sockets, clear timers — spec §10) instead of a bare `process.exit(0)`.
+
+- [ ] **Steps:** apply items 1–7 → gates `npm test && npm run typecheck && npm run build` (all existing tests must still pass) → commit:
+
+```bash
+git add server/hub.ts server/classify.ts server/ais.ts server/normalize.ts server/store.ts server/index.ts src/main.ts src/data/store.ts
+git commit -m "chore: hygiene — dead code, shared pickMmsi, single-pass refresh, clean shutdown"
+```
+
+**Scope-round notes:**
+- The spec's "Optional Follow toggle" (panel) is explicitly optional — intentionally skipped.
+- After Task 25: re-run the full gates, a final re-review of the scope-round range (de33af4..HEAD), then finish the branch.
