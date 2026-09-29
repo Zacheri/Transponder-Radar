@@ -29,6 +29,8 @@ export function addCraftLayers(map: maplibregl.Map, filter: any): void {
       "icon-size": ["interpolate", ["linear"], ["zoom"], 0, 0.5, 9, 1.1],
       "icon-allow-overlap": true,
       "icon-ignore-placement": true,
+      "icon-rotate": ["get", "heading"],
+      "icon-rotation-alignment": "map",
     },
     paint: {
       "icon-opacity": ["case", ["get", "stale"], 0.3, 1],
