@@ -104,7 +104,6 @@ export function normalizePositionReport(env: any, staticData: AisStatic | undefi
   const sog = num(pr.Sog) ?? num(pr.SpeedOverGround);
   const cog = num(pr.Cog) ?? num(pr.CourseOverGround);
   const th = num(pr.TrueHeading);
-  const ts = num(pr.Timestamp);
 
   return {
     id: mmsi,
@@ -120,7 +119,7 @@ export function normalizePositionReport(env: any, staticData: AisStatic | undefi
     destination: staticData?.destination,
     navStatus: num(pr.NavigationalStatus),
     aisType: staticData?.aisType ?? null,
-    updatedAt: ts != null ? (ts < 1e12 ? ts * 1000 : ts) : now,
+    updatedAt: now,
     stale: false,
   };
 }

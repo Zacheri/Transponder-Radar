@@ -69,7 +69,7 @@ const POS_ENV = {
   Message: {
     PositionReport: {
       Latitude: 51.5, Longitude: -0.1, Sog: 12.5, Cog: 90,
-      TrueHeading: 92, NavigationalStatus: 0, Timestamp: 1700000000,
+      TrueHeading: 92, NavigationalStatus: 0, Timestamp: 14,
     },
   },
 };

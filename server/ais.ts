@@ -47,16 +47,18 @@ export class AisClient {
     if (this.closed) return;
     const WSImpl = this.opts.wsImpl ?? WebSocket;
     const url = this.opts.url ?? "wss://stream.aisstream.io/v0/stream";
-    const ws = new WSImpl(url, {
-      headers: {
-        APIKey: this.opts.apiKey,
-        FilterMessageTypes: "PositionReport,ShipStaticData",
-      },
-    });
+    const ws = new WSImpl(url);
     this.ws = ws;
     ws.on("open", () => {
       this.attempts = 0;
       this.opts.log?.("ais: connected");
+      ws.send(
+        JSON.stringify({
+          APIKey: this.opts.apiKey,
+          BoundingBoxes: [[[-90, -180], [90, 180]]],
+          FilterMessageTypes: ["PositionReport", "ShipStaticData"],
+        }),
+      );
     });
     ws.on("message", (data: WebSocket.RawData) => {
       this.handleMessage(data.toString());
