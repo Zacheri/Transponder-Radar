@@ -1,6 +1,8 @@
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import Fastify from "fastify";
+import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import { config } from "./config.js";
 import { CraftStore } from "./store.js";
@@ -48,6 +50,13 @@ export async function buildApp(deps: ServerDeps = {}) {
     clients: hub.clientCount,
   }));
 
+  const dist = resolve(process.cwd(), "dist");
+  if (existsSync(dist)) {
+    await app.register(fastifyStatic, { root: dist });
+  } else {
+    log("dist/ not found — run `npm run build` (API + WS only)");
+  }
+
   const sweeper = setInterval(() => {
     store.sweep(Date.now(), config.STALE_MS, config.REMOVE_MS);
   }, 5000);
@@ -73,6 +82,7 @@ export function main(): void {
     .then(({ app }) =>
       app.listen({ port: config.PORT, host: "127.0.0.1" }).then(() => {
         console.log(`[radar] backend on :${config.PORT}`);
+        console.log(`[radar] open http://127.0.0.1:${config.PORT}`);
       }),
     )
     .catch((err) => {

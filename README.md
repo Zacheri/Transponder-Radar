@@ -14,15 +14,20 @@ panel, and a kind filter drawer.
 4. `npm run dev`
 5. Open <http://localhost:5173>.
 
+## Production
+
+`npm run build && npm start` — the backend serves the built frontend from
+`dist/` plus the API + WS on one port. Open <http://127.0.0.1:8787>.
+
 ## Scripts
 
-| Command             | What it does                              |
-| ------------------- | ----------------------------------------- |
-| `npm run dev`       | Backend (`:8787`) + frontend (`:5173`)    |
-| `npm test`          | Unit + integration tests (Vitest)         |
-| `npm run typecheck` | `tsc --noEmit`                            |
-| `npm run build`     | Production frontend build → `dist/`       |
-| `npm start`         | Backend API + WS on `:8787` (prod)        |
+| Command             | What it does                                |
+| ------------------- | ------------------------------------------- |
+| `npm run dev`       | Backend (`:8787`) + frontend (`:5173`)      |
+| `npm test`          | Unit + integration tests (Vitest)           |
+| `npm run typecheck` | `tsc --noEmit`                              |
+| `npm run build`     | Production frontend build → `dist/`         |
+| `npm start`         | Serves `dist/` + API + WS on `:8787` (prod) |
 
 ## How it works
 
