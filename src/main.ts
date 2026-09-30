@@ -29,6 +29,12 @@ function refresh(): void {
     else sea++;
   }
   hud.setCounts(air, sea);
+  const id = panel.selectedId();
+  if (id) {
+    const c = store.get(id);
+    if (c) panel.update(c);
+    else panel.hide();
+  }
 }
 
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;

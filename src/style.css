@@ -52,13 +52,16 @@ body {
 .panel-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
 }
 .panel-kind {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex: none;
 }
 .panel-kind[data-domain="air"] {
   color: var(--accent);
@@ -90,6 +93,61 @@ body {
 }
 .panel-val {
   text-align: right;
+  word-break: break-word;
+}
+.panel-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel-badge {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+}
+.panel-badge[data-domain="air"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.panel-badge[data-domain="sea"] {
+  color: #ffb74d;
+  border-color: #ffb74d;
+}
+.panel-val.stale {
+  color: #ef5350;
+}
+.panel-raw {
+  margin-top: 8px;
+}
+.panel-raw summary {
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.panel-raw pre {
+  margin: 4px 0 0;
+  padding: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
   word-break: break-word;
 }
 
