@@ -11,8 +11,11 @@ panel, and a kind filter drawer.
    key is shown once — copy it now).
 3. `cp .env.example .env` and paste your key into `AISSTREAM_API_KEY`.
    (Aircraft work without a key; vessels need it.)
-4. `npm run dev`
-5. Open <http://localhost:5173>.
+4. Optional: paste a free Carto key (<https://account.carto.com>) into
+   `VITE_CARTO_API_KEY` for the Carto dark basemap. Without it (or if the key
+   is invalid), the map falls back to OpenFreeMap dark — no key needed.
+5. `npm run dev`
+6. Open <http://localhost:5173>.
 
 ## Production
 

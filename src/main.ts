@@ -14,7 +14,7 @@ import { createHud } from "./ui/hud.js";
 const container = document.getElementById("map");
 if (!container) throw new Error("#map missing");
 
-const map = createMap(container);
+const map = await createMap(container);
 const store = new ClientStore();
 const panel = createPanel(document.getElementById("app") as HTMLElement);
 const hud = createHud(document.getElementById("app") as HTMLElement);
