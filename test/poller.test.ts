@@ -146,4 +146,37 @@ describe("OpenSkyPoller", () => {
     await poller.pollOnce();
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
+
+  it("sends a Basic auth header when credentials are configured", async () => {
+    const store = new CraftStore();
+    let init: RequestInit | undefined;
+    const poller = new OpenSkyPoller({
+      pollMs: 1000, graceMs: 30000, store,
+      username: "user", password: "pass",
+      fetchImpl: (async (_url: string, options?: RequestInit) => {
+        init = options;
+        return jsonResponse({ states: [] });
+      }) as typeof fetch,
+    });
+    await poller.pollOnce();
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    expect(headers["Authorization"]).toBe(
+      "Basic " + Buffer.from("user:pass").toString("base64"),
+    );
+  });
+
+  it("omits the auth header when no credentials are configured", async () => {
+    const store = new CraftStore();
+    let init: RequestInit | undefined;
+    const poller = new OpenSkyPoller({
+      pollMs: 1000, graceMs: 30000, store,
+      fetchImpl: (async (_url: string, options?: RequestInit) => {
+        init = options;
+        return jsonResponse({ states: [] });
+      }) as typeof fetch,
+    });
+    await poller.pollOnce();
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    expect(headers["Authorization"]).toBeUndefined();
+  });
 });

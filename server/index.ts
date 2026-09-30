@@ -23,7 +23,14 @@ export async function buildApp(deps: ServerDeps = {}) {
   const store = deps.store ?? new CraftStore();
   const opensky =
     deps.opensky ??
-    new OpenSkyPoller({ pollMs: config.OPENSKY_POLL_MS, graceMs: 30000, store, log });
+    new OpenSkyPoller({
+      pollMs: config.OPENSKY_POLL_MS,
+      graceMs: 30000,
+      store,
+      log,
+      username: config.OPENSKY_USERNAME,
+      password: config.OPENSKY_PASSWORD,
+    });
   const ais = deps.ais ?? new AisClient({ apiKey: config.AISSTREAM_API_KEY, store, log });
   const hub =
     deps.hub ??

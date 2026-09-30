@@ -12,6 +12,8 @@ export interface OpenSkyPollerOpts {
   now?: () => number;
   log?: (msg: string) => void;
   timeoutMs?: number;
+  username?: string;
+  password?: string;
 }
 
 export interface PollResult {
@@ -73,9 +75,14 @@ export class OpenSkyPoller {
     const now = this.opts.now?.() ?? Date.now();
     const fetchImpl = this.opts.fetchImpl ?? fetch;
     const url = this.opts.url ?? "https://opensky-network.org/api/states/all";
+    const headers: Record<string, string> = {};
+    if (this.opts.username && this.opts.password) {
+      headers["Authorization"] =
+        "Basic " + Buffer.from(`${this.opts.username}:${this.opts.password}`).toString("base64");
+    }
     let res: Response;
     try {
-      res = await fetchImpl(url, { signal: AbortSignal.timeout(this.opts.timeoutMs ?? 10000) });
+      res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(this.opts.timeoutMs ?? 10000) });
     } catch (e) {
       const nextDelayMs = this.backoffDelay();
       const msg = e instanceof Error ? e.message : String(e);
