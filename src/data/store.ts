@@ -17,13 +17,16 @@ export class ClientStore {
   }
 
   applySnapshot(crafts: Craft[]): void {
-    this.crafts = new Map(crafts.map((c) => [c.id, c]));
+    this.crafts = new Map(
+      crafts.filter((c) => c && typeof c.id === "string").map((c) => [c.id, c]),
+    );
     this.emit();
   }
 
   applyUpdate(upsert: Craft[], remove: string[]): void {
     let changed = false;
     for (const c of upsert) {
+      if (!c || typeof c.id !== "string") continue;
       this.crafts.set(c.id, c);
       changed = true;
     }

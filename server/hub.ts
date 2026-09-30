@@ -3,7 +3,6 @@ import type { CraftStore } from "./store.js";
 export interface WsLike {
   send(data: string): void;
   on(event: string, cb: (...args: any[]) => void): void;
-  removeListener(event: string, cb: (...args: any[]) => void): void;
   close(): void;
 }
 

@@ -46,6 +46,7 @@ export class CraftStore {
     return { upsert, remove };
   }
 
+  // Air craft with a stale time_position are also swept here (intentional overlap with the pruneAir grace path).
   sweep(now: number, staleMs: number, removeMs: number): string[] {
     const removed: string[] = [];
     for (const [id, c] of this.craft) {

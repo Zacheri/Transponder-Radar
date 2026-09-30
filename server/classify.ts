@@ -16,7 +16,7 @@ export function classifySea(aisType: number | null | undefined): CraftKind {
 }
 
 const BIZ_PREFIXES = new Set([
-  "EJA", "GTF", "LEG", "RJS", "FGE", "N7B", "CFS", "VIPS", "MTE", "JBP", "BEE",
+  "EJA", "GTF", "LEG", "RJS", "FGE", "N7B", "CFS", "MTE", "JBP", "BEE",
 ]);
 
 const MILITARY_RE =

@@ -54,14 +54,8 @@ map.on("load", async () => {
   refresh();
 
   const socket = new RadarSocket(wsUrl, {
-    onSnapshot: (crafts) => {
-      store.applySnapshot(crafts);
-      refresh();
-    },
-    onUpdate: (upsert, remove) => {
-      store.applyUpdate(upsert, remove);
-      refresh();
-    },
+    onSnapshot: (crafts) => store.applySnapshot(crafts),
+    onUpdate: (upsert, remove) => store.applyUpdate(upsert, remove),
     onFeeds: (feeds, t) => hud.setFeeds(feeds, t),
     onStatus: (s) => hud.setStatus(s),
   });

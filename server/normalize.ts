@@ -73,7 +73,7 @@ function str(v: unknown): string | undefined {
   return s ? s : undefined;
 }
 
-function pickMmsi(env: any): string | null {
+export function pickMmsi(env: any): string | null {
   const m =
     env?.MMSI ?? env?.mmsi ?? env?.metaData?.mmsi ??
     env?.Message?.PositionReport?.UserID ?? env?.Message?.ShipStaticData?.UserID;

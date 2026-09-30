@@ -3,6 +3,7 @@ import type { CraftStore } from "./store.js";
 import {
   normalizePositionReport,
   normalizeShipStaticData,
+  pickMmsi,
   type AisStatic,
 } from "./normalize.js";
 
@@ -99,9 +100,7 @@ export class AisClient {
       return;
     }
     if (type === "PositionReport") {
-      const mmsi = String(
-        env?.MMSI ?? env?.metaData?.mmsi ?? env?.Message?.PositionReport?.UserID ?? "",
-      );
+      const mmsi = pickMmsi(env);
       const sd = mmsi ? this.staticMap.get(mmsi) : undefined;
       const c = normalizePositionReport(env, sd, now);
       if (c) this.opts.store.upsert(c, now);

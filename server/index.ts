@@ -78,18 +78,23 @@ export async function buildApp(deps: ServerDeps = {}) {
 }
 
 export function main(): void {
+  let stop: (() => Promise<void>) | null = null;
   buildApp()
-    .then(({ app }) =>
-      app.listen({ port: config.PORT, host: "127.0.0.1" }).then(() => {
+    .then(({ app, stop: appStop }) => {
+      stop = appStop;
+      return app.listen({ port: config.PORT, host: "127.0.0.1" }).then(() => {
         console.log(`[radar] backend on :${config.PORT}`);
         console.log(`[radar] open http://127.0.0.1:${config.PORT}`);
-      }),
-    )
+      });
+    })
     .catch((err) => {
       console.error(err);
       process.exit(1);
     });
-  const shutdown = () => process.exit(0);
+  const shutdown = () => {
+    if (!stop) return process.exit(0);
+    void stop().then(() => process.exit(0));
+  };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }
