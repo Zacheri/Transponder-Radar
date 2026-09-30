@@ -11,7 +11,7 @@ function readSavedVisible(): Set<CraftKind> | null {
     const arr: unknown = JSON.parse(raw);
     if (!Array.isArray(arr)) return null;
     for (const v of arr) {
-      if (typeof v !== "string" || !(v in KINDS)) return null;
+      if (typeof v !== "string" || !Object.hasOwn(KINDS, v)) return null;
     }
     return new Set(arr as CraftKind[]);
   } catch {
@@ -28,6 +28,8 @@ export function createFilters(
   el.className = "drawer";
   const head = document.createElement("div");
   head.className = "drawer-head";
+  head.setAttribute("role", "button");
+  head.setAttribute("tabindex", "0");
   const title = document.createElement("span");
   title.textContent = "Filters";
   const chevron = document.createElement("span");
@@ -118,13 +120,22 @@ export function createFilters(
     collapsed = false;
   }
   el.classList.toggle("collapsed", collapsed);
-  head.addEventListener("click", () => {
+  head.setAttribute("aria-expanded", String(!collapsed));
+  function toggle(): void {
     collapsed = !collapsed;
     el.classList.toggle("collapsed", collapsed);
+    head.setAttribute("aria-expanded", String(!collapsed));
     try {
       localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0");
     } catch {
       // storage unavailable
+    }
+  }
+  head.addEventListener("click", toggle);
+  head.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      if (e.key === " ") e.preventDefault();
+      toggle();
     }
   });
 
