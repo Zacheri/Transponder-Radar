@@ -19,16 +19,20 @@ const store = new ClientStore();
 const panel = createPanel(document.getElementById("app") as HTMLElement);
 const hud = createHud(document.getElementById("app") as HTMLElement);
 let visible = new Set<CraftKind>([...AIR_KINDS, ...SEA_KINDS]);
+let filters: { setCounts(c: Map<CraftKind, number>): void } | null = null;
 
 function refresh(): void {
   setCraftData(map, buildFeatureCollection(store.all()));
   let air = 0;
   let sea = 0;
+  const counts = new Map<CraftKind, number>();
   for (const c of store.all()) {
     if (c.domain === "air") air++;
     else sea++;
+    counts.set(c.kind, (counts.get(c.kind) ?? 0) + 1);
   }
   hud.setCounts(air, sea);
+  filters?.setCounts(counts);
   const id = panel.selectedId();
   if (id) {
     const c = store.get(id);
@@ -64,7 +68,7 @@ map.on("load", async () => {
   socket.connect();
   store.subscribe(refresh);
 
-  createFilters(document.getElementById("app") as HTMLElement, visible, (v) => {
+  filters = createFilters(document.getElementById("app") as HTMLElement, visible, (v) => {
     visible = v;
     const f = buildIconFilter(v);
     map.setFilter("craft-icons", f);
