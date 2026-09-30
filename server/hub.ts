@@ -7,15 +7,22 @@ export interface WsLike {
   close(): void;
 }
 
+export interface FeedStatus {
+  opensky: { lastOkAt: number | null; lastError: string | null };
+  ais: { connected: boolean; enabled: boolean };
+}
+
 export interface HubOpts {
   store: CraftStore;
   batchMs: number;
   log?: (msg: string) => void;
+  feedStatus?: () => FeedStatus;
 }
 
 export class Hub {
   private clients = new Set<WsLike>();
   private timer: NodeJS.Timeout | null = null;
+  private lastStatusJson: string | null = null;
 
   constructor(private opts: HubOpts) {}
 
@@ -29,6 +36,10 @@ export class Hub {
     socket.on("close", onClose);
     socket.on("error", onClose);
     socket.send(JSON.stringify({ type: "snapshot", craft: this.opts.store.all() }));
+    const feeds = this.opts.feedStatus?.();
+    if (feeds) {
+      socket.send(JSON.stringify({ type: "status", feeds, serverTime: Date.now() }));
+    }
   }
 
   private detach(socket: WsLike): void {
@@ -54,6 +65,21 @@ export class Hub {
   }
 
   private tick(): void {
+    const feeds = this.opts.feedStatus?.();
+    if (feeds) {
+      const json = JSON.stringify(feeds);
+      if (this.lastStatusJson !== json) {
+        this.lastStatusJson = json;
+        const statusPayload = JSON.stringify({ type: "status", feeds, serverTime: Date.now() });
+        for (const c of this.clients) {
+          try {
+            c.send(statusPayload);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
     const { upsert, remove } = this.opts.store.drainDirty();
     if (upsert.length === 0 && remove.length === 0) return;
     const payload = JSON.stringify({ type: "update", upsert, remove });

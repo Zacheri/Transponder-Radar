@@ -19,10 +19,15 @@ export class AisClient {
   private staticMap = new Map<string, AisStatic>();
   private ws: WebSocket | null = null;
   private closed = false;
+  private connected = false;
   private retry: NodeJS.Timeout | null = null;
   private attempts = 0;
 
   constructor(private opts: AisClientOpts) {}
+
+  get isConnected(): boolean {
+    return this.connected;
+  }
 
   start(): void {
     this.closed = false;
@@ -31,6 +36,7 @@ export class AisClient {
 
   stop(): void {
     this.closed = true;
+    this.connected = false;
     if (this.retry) clearTimeout(this.retry);
     this.retry = null;
     if (this.ws) {
@@ -51,6 +57,7 @@ export class AisClient {
     this.ws = ws;
     ws.on("open", () => {
       this.attempts = 0;
+      this.connected = true;
       this.opts.log?.("ais: connected");
       ws.send(
         JSON.stringify({
@@ -63,7 +70,10 @@ export class AisClient {
     ws.on("message", (data: WebSocket.RawData) => {
       this.handleMessage(data.toString());
     });
-    ws.on("close", () => this.scheduleReconnect());
+    ws.on("close", () => {
+      this.connected = false;
+      this.scheduleReconnect();
+    });
     ws.on("error", (err: Error) => this.opts.log?.(`ais: error ${err.message}`));
   }
 

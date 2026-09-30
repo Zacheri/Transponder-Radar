@@ -23,8 +23,14 @@ export class OpenSkyPoller {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private consecutiveErrors = 0;
+  private lastOkAt: number | null = null;
+  private lastError: string | null = null;
 
   constructor(private opts: OpenSkyPollerOpts) {}
+
+  get feedStatus(): { lastOkAt: number | null; lastError: string | null } {
+    return { lastOkAt: this.lastOkAt, lastError: this.lastError };
+  }
 
   start(): void {
     if (this.running) return;
@@ -73,6 +79,7 @@ export class OpenSkyPoller {
     } catch (e) {
       const nextDelayMs = this.backoffDelay();
       const msg = e instanceof Error ? e.message : String(e);
+      this.lastError = msg;
       this.opts.log?.(`opensky: ${msg} — backing off ${nextDelayMs}ms`);
       return { upserted: 0, nextDelayMs };
     }
@@ -83,11 +90,13 @@ export class OpenSkyPoller {
         retryAfterRaw !== null && Number.isFinite(Number(retryAfterRaw))
           ? Math.min(BACKOFF_CAP_MS, Math.max(this.opts.pollMs, Number(retryAfterRaw) * 1000))
           : Math.min(BACKOFF_CAP_MS, this.opts.pollMs * 2 ** this.consecutiveErrors);
+      this.lastError = "HTTP 429";
       this.opts.log?.(`opensky: 429 — backing off ${nextDelayMs}ms`);
       return { upserted: 0, nextDelayMs };
     }
     if (!res.ok) {
       const nextDelayMs = this.backoffDelay();
+      this.lastError = `HTTP ${res.status}`;
       this.opts.log?.(`opensky: HTTP ${res.status} — backing off ${nextDelayMs}ms`);
       return { upserted: 0, nextDelayMs };
     }
@@ -95,10 +104,12 @@ export class OpenSkyPoller {
     try {
       body = (await res.json()) as { states?: unknown };
     } catch {
+      this.lastError = "malformed body";
       this.opts.log?.("opensky: malformed body — skipping poll");
       return { upserted: 0, nextDelayMs: this.opts.pollMs };
     }
     if (!Array.isArray(body.states)) {
+      this.lastError = "malformed body";
       this.opts.log?.("opensky: malformed body — skipping poll");
       return { upserted: 0, nextDelayMs: this.opts.pollMs };
     }
@@ -115,6 +126,8 @@ export class OpenSkyPoller {
     this.opts.store.upsert(crafts, now);
     this.opts.store.pruneAir(present, now, this.opts.graceMs);
     this.consecutiveErrors = 0;
+    this.lastOkAt = now;
+    this.lastError = null;
     return { upserted: crafts.length, nextDelayMs: this.opts.pollMs };
   }
 }

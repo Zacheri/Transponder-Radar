@@ -1,14 +1,23 @@
 import type { Craft } from "../../shared/craft.js";
 
+export interface FeedStatus {
+  opensky: { lastOkAt: number | null; lastError: string | null };
+  ais: { connected: boolean; enabled: boolean };
+}
+
 export type RadarMessage =
   | { type: "snapshot"; craft: Craft[] }
-  | { type: "update"; upsert: Craft[]; remove: string[] };
+  | { type: "update"; upsert: Craft[]; remove: string[] }
+  | { type: "status"; feeds: FeedStatus; serverTime: number };
 
 export function parseRadarMessage(raw: string): RadarMessage | null {
   try {
     const msg = JSON.parse(raw) as RadarMessage;
     if (msg.type === "snapshot" && Array.isArray(msg.craft)) return msg;
     if (msg.type === "update" && Array.isArray(msg.upsert) && Array.isArray(msg.remove)) return msg;
+    if (msg.type === "status" && msg.feeds != null && typeof msg.serverTime === "number") {
+      return msg;
+    }
     return null;
   } catch {
     return null;
@@ -18,6 +27,7 @@ export function parseRadarMessage(raw: string): RadarMessage | null {
 export interface RadarSocketHandlers {
   onSnapshot: (craft: Craft[]) => void;
   onUpdate: (upsert: Craft[], remove: string[]) => void;
+  onFeeds?: (feeds: FeedStatus, serverTime: number) => void;
   onStatus?: (status: "connecting" | "open" | "closed") => void;
 }
 
@@ -57,7 +67,8 @@ export class RadarSocket {
       const msg = parseRadarMessage(ev.data as string);
       if (!msg) return;
       if (msg.type === "snapshot") this.handlers.onSnapshot(msg.craft);
-      else this.handlers.onUpdate(msg.upsert, msg.remove);
+      else if (msg.type === "update") this.handlers.onUpdate(msg.upsert, msg.remove);
+      else this.handlers.onFeeds?.(msg.feeds, msg.serverTime);
     };
     ws.onclose = () => {
       this.handlers.onStatus?.("closed");

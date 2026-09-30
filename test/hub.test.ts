@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { Hub } from "../server/hub.js";
+import { Hub, type FeedStatus } from "../server/hub.js";
 import { CraftStore } from "../server/store.js";
 import type { Craft } from "../shared/craft.js";
-import { sleep } from "./util.js";
+import { sleep, waitFor } from "./util.js";
 
 function air(id: string): Craft {
   return { id, domain: "air", kind: "commercial", lat: 0, lon: 0, speed: null, heading: null, updatedAt: 0, stale: false };
@@ -27,6 +27,12 @@ function fakeSocket() {
       (handlers[event] ?? []).forEach((h) => h(...args));
     },
   };
+}
+
+function statusFrames(sent: string[]) {
+  return sent
+    .map((s) => JSON.parse(s) as { type: string; feeds?: any; serverTime?: number })
+    .filter((m) => m.type === "status");
 }
 
 describe("Hub", () => {
@@ -66,5 +72,62 @@ describe("Hub", () => {
     expect(hub.clientCount).toBe(1);
     sock.emit("close");
     expect(hub.clientCount).toBe(0);
+  });
+
+  it("broadcasts a status frame when the feed status changes", async () => {
+    const store = new CraftStore();
+    let feeds: FeedStatus = {
+      opensky: { lastOkAt: null, lastError: null },
+      ais: { connected: false, enabled: false },
+    };
+    const hub = new Hub({ store, batchMs: 20, feedStatus: () => feeds });
+    const sock = fakeSocket();
+    hub.attach(sock);
+    hub.start();
+    feeds = {
+      opensky: { lastOkAt: 123, lastError: null },
+      ais: { connected: true, enabled: true },
+    };
+    await waitFor(() => statusFrames(sock.sent).length >= 2);
+    const frames = statusFrames(sock.sent);
+    const last = frames[frames.length - 1];
+    expect(last.feeds.opensky.lastOkAt).toBe(123);
+    expect(last.feeds.ais.connected).toBe(true);
+    expect(typeof last.serverTime).toBe("number");
+    hub.stop();
+  });
+
+  it("does not re-broadcast an unchanged feed status", async () => {
+    const store = new CraftStore();
+    const feeds = {
+      opensky: { lastOkAt: null, lastError: null },
+      ais: { connected: false, enabled: false },
+    };
+    const hub = new Hub({ store, batchMs: 20, feedStatus: () => feeds });
+    const sock = fakeSocket();
+    hub.attach(sock);
+    hub.start();
+    await waitFor(() => statusFrames(sock.sent).length >= 2);
+    const count = statusFrames(sock.sent).length;
+    await sleep(80);
+    expect(statusFrames(sock.sent)).toHaveLength(count);
+    hub.stop();
+  });
+
+  it("attach sends the snapshot then the status", () => {
+    const store = new CraftStore();
+    const feeds = {
+      opensky: { lastOkAt: null, lastError: "HTTP 429" },
+      ais: { connected: false, enabled: true },
+    };
+    const hub = new Hub({ store, batchMs: 1000, feedStatus: () => feeds });
+    const sock = fakeSocket();
+    hub.attach(sock);
+    expect(sock.sent).toHaveLength(2);
+    expect(JSON.parse(sock.sent[0]).type).toBe("snapshot");
+    const st = JSON.parse(sock.sent[1]);
+    expect(st.type).toBe("status");
+    expect(st.feeds).toEqual(feeds);
+    expect(typeof st.serverTime).toBe("number");
   });
 });

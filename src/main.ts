@@ -52,6 +52,7 @@ map.on("load", async () => {
       store.applyUpdate(upsert, remove);
       refresh();
     },
+    onFeeds: (feeds, t) => hud.setFeeds(feeds, t),
     onStatus: (s) => hud.setStatus(s),
   });
   socket.connect();

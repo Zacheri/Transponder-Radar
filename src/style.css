@@ -180,3 +180,12 @@ body {
 .hud-counts {
   color: var(--text);
 }
+.hud-feeds {
+  color: var(--muted);
+  font-size: 11px;
+}
+.hud-clock {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}

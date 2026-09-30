@@ -19,11 +19,21 @@ export interface ServerDeps {
 export async function buildApp(deps: ServerDeps = {}) {
   const log = deps.log ?? ((m: string) => console.log(`[radar] ${m}`));
   const store = deps.store ?? new CraftStore();
-  const hub = deps.hub ?? new Hub({ store, batchMs: config.BATCH_MS, log });
   const opensky =
     deps.opensky ??
     new OpenSkyPoller({ pollMs: config.OPENSKY_POLL_MS, graceMs: 30000, store, log });
   const ais = deps.ais ?? new AisClient({ apiKey: config.AISSTREAM_API_KEY, store, log });
+  const hub =
+    deps.hub ??
+    new Hub({
+      store,
+      batchMs: config.BATCH_MS,
+      log,
+      feedStatus: () => ({
+        opensky: opensky.feedStatus,
+        ais: { connected: ais.isConnected, enabled: Boolean(config.AISSTREAM_API_KEY) },
+      }),
+    });
 
   const app = Fastify({ logger: false });
   await app.register(websocket);
