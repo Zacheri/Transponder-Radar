@@ -73,6 +73,7 @@ export function createPanel(root: HTMLElement): {
   }
 
   function renderBody(craft: Craft): void {
+    const rawOpen = body.querySelector<HTMLDetailsElement>(".panel-raw")?.open ?? false;
     body.textContent = "";
     if (craft.domain === "air") {
       body.append(
@@ -106,6 +107,7 @@ export function createPanel(root: HTMLElement): {
     body.append(fixRow);
     const raw = document.createElement("details");
     raw.className = "panel-raw";
+    raw.open = rawOpen;
     const summary = document.createElement("summary");
     summary.textContent = "Raw";
     const pre = document.createElement("pre");
