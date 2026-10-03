@@ -9,6 +9,9 @@ export function cartoStyle(apiKey: string): maplibregl.StyleSpecification {
   );
   return {
     version: 8,
+    // Raster styles carry no glyphs of their own; text layers need an external
+    // source. demotiles serves "Noto Sans Regular" (see CRAFT_TEXT_FONT).
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
     sources: {
       carto: {
         type: "raster",

@@ -62,6 +62,10 @@ describe("cartoStyle", () => {
     expect(s.layers?.[0]).toEqual({ id: "carto", type: "raster", source: "carto" });
   });
 
+  it("includes a glyphs source so text layers can render on the raster basemap", () => {
+    expect(cartoStyle("abc").glyphs).toContain("{fontstack}/{range}.pbf");
+  });
+
   it("openfreemap fallback is a style URL", () => {
     expect(OPENFREEMAP_STYLE_URL).toBe("https://tiles.openfreemap.org/styles/dark");
   });

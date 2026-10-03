@@ -7,6 +7,6 @@ export function buildIconFilter(visible: Set<CraftKind>): any {
   return [
     "all",
     ["in", ["get", "kind"], ["literal", [...visible]]],
-    ["any", [">=", ["zoom"], TINY_ZOOM], ["not", ["in", ["get", "kind"], ["literal", TINY_KINDS]]]],
+    ["any", [">=", ["zoom"], TINY_ZOOM], ["!", ["in", ["get", "kind"], ["literal", TINY_KINDS]]]],
   ];
 }
