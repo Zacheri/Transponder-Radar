@@ -11,9 +11,12 @@ panel, and a kind filter drawer.
    key is shown once — copy it now).
 3. `cp .env.example .env` and paste your key into `AISSTREAM_API_KEY`.
    (Aircraft work without a key; vessels need it.)
-   Optional: add free OpenSky credentials (`OPENSKY_USERNAME` / `OPENSKY_PASSWORD`
-   from <https://opensky-network.org>) — anonymous is capped at ~100 req/hour and
-   will 429; credentials raise the limit far higher.
+   Optional (recommended): create an OpenSky OAuth2 API client
+   (<https://opensky-network.org/my-opensky/account> → API clients → download
+   `credentials.json`) and set `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET`.
+   OpenSky charges 4 credits per full-globe poll; the standard tier gets 4,000
+   credits/day, so `OPENSKY_POLL_MS=120000` keeps the feed alive 24/7.
+   Anonymous access only gets 400 credits/day (~100 globe polls) and will 429.
 4. Optional: paste a free Carto key (<https://account.carto.com>) into
    `VITE_CARTO_API_KEY` for the Carto dark basemap. Without it (or if the key
    is invalid), the map falls back to OpenFreeMap dark — no key needed.

@@ -7,6 +7,7 @@ import websocket from "@fastify/websocket";
 import { config } from "./config.js";
 import { CraftStore } from "./store.js";
 import { OpenSkyPoller } from "./opensky.js";
+import { createTokenProvider } from "./opensky-auth.js";
 import { AisClient } from "./ais.js";
 import { Hub } from "./hub.js";
 
@@ -28,8 +29,13 @@ export async function buildApp(deps: ServerDeps = {}) {
       graceMs: 30000,
       store,
       log,
-      username: config.OPENSKY_USERNAME,
-      password: config.OPENSKY_PASSWORD,
+      tokenProvider:
+        config.OPENSKY_CLIENT_ID && config.OPENSKY_CLIENT_SECRET
+          ? createTokenProvider({
+              clientId: config.OPENSKY_CLIENT_ID,
+              clientSecret: config.OPENSKY_CLIENT_SECRET,
+            })
+          : undefined,
     });
   const ais = deps.ais ?? new AisClient({ apiKey: config.AISSTREAM_API_KEY, store, log });
   const hub =

@@ -147,12 +147,12 @@ describe("OpenSkyPoller", () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("sends a Basic auth header when credentials are configured", async () => {
+  it("sends a Bearer token when a token provider is configured", async () => {
     const store = new CraftStore();
     let init: RequestInit | undefined;
     const poller = new OpenSkyPoller({
       pollMs: 1000, graceMs: 30000, store,
-      username: "user", password: "pass",
+      tokenProvider: { getToken: async () => "tok123", invalidate: () => {} },
       fetchImpl: (async (_url: string, options?: RequestInit) => {
         init = options;
         return jsonResponse({ states: [] });
@@ -160,12 +160,10 @@ describe("OpenSkyPoller", () => {
     });
     await poller.pollOnce();
     const headers = (init?.headers ?? {}) as Record<string, string>;
-    expect(headers["Authorization"]).toBe(
-      "Basic " + Buffer.from("user:pass").toString("base64"),
-    );
+    expect(headers["Authorization"]).toBe("Bearer tok123");
   });
 
-  it("omits the auth header when no credentials are configured", async () => {
+  it("omits the auth header when no token provider is configured", async () => {
     const store = new CraftStore();
     let init: RequestInit | undefined;
     const poller = new OpenSkyPoller({
@@ -178,5 +176,40 @@ describe("OpenSkyPoller", () => {
     await poller.pollOnce();
     const headers = (init?.headers ?? {}) as Record<string, string>;
     expect(headers["Authorization"]).toBeUndefined();
+  });
+
+  it("invalidates the token and retries once on 401", async () => {
+    const store = new CraftStore();
+    let invalidated = 0;
+    let calls = 0;
+    const poller = new OpenSkyPoller({
+      pollMs: 1000, graceMs: 30000, store,
+      tokenProvider: {
+        getToken: async () => "stale",
+        invalidate: () => {
+          invalidated += 1;
+        },
+      },
+      fetchImpl: (async () => {
+        calls += 1;
+        return calls === 1 ? jsonResponse(null, 401) : jsonResponse({ states: [PLANE] });
+      }) as typeof fetch,
+    });
+    const { upserted } = await poller.pollOnce();
+    expect(upserted).toBe(1);
+    expect(invalidated).toBe(1);
+    expect(calls).toBe(2);
+  });
+
+  it("backs off when a 401 persists after a token refresh", async () => {
+    const store = new CraftStore();
+    const poller = new OpenSkyPoller({
+      pollMs: 1000, graceMs: 30000, store,
+      tokenProvider: { getToken: async () => "bad", invalidate: () => {} },
+      fetchImpl: (async () => jsonResponse(null, 401)) as typeof fetch,
+    });
+    const { upserted, nextDelayMs } = await poller.pollOnce();
+    expect(upserted).toBe(0);
+    expect(nextDelayMs).toBe(2000);
   });
 });

@@ -9,6 +9,7 @@ dist-ssr/
 .env
 .env.*
 !.env.example
+credentials.json
 
 # logs
 *.log
