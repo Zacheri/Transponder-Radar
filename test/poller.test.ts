@@ -238,5 +238,15 @@ describe("OpenSkyPoller", () => {
       current = { time: 0, states: [PLANE] };
       expect((await p.pollOnce()).nextDelayMs).toBe(30000);
     });
+
+    it("backoff base tracks the live interval", async () => {
+      const store = new CraftStore();
+      const p = new OpenSkyPoller({
+        pollMs: 120000, graceMs: 30000, store,
+        fetchImpl: (async () => { throw new Error("ECONNRESET"); }) as typeof fetch,
+      });
+      p.setInterval(30000);
+      expect((await p.pollOnce()).nextDelayMs).toBe(60000); // 1st error: 30000 * 2
+    });
   });
 });
