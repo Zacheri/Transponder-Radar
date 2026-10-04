@@ -637,7 +637,8 @@ export class HistoryRecorder {
 
   private async evict(): Promise<void> {
     let total = this.index.reduce((s, m) => s + m.size, 0);
-    while (total > this.opts.maxBytes && this.index.length > 0) {
+    // Always keep at least the newest snapshot, even below the cap.
+    while (total > this.opts.maxBytes && this.index.length > 1) {
       const oldest = this.index.shift()!;
       total -= oldest.size;
       await unlink(join(this.opts.dir, `${oldest.ts}.json.gz`)).catch(() => {});
@@ -1409,11 +1410,15 @@ export class FaaLoader implements FaaProvider {
   async init(): Promise<void> {
     await mkdir(this.opts.dir, { recursive: true });
     if (await this.diskFresh()) {
-      await this.loadFromDisk();
+      try {
+        await this.loadFromDisk();
+        this.state = this.index.size ? "ready" : "error";
+      } catch {
+        this.state = "error";
+      }
     } else {
       await this.refresh();
     }
-    this.loading = false;
     this.timer = setInterval(() => {
       this.refresh().catch((e) => this.opts.log?.(`faa: refresh failed: ${e instanceof Error ? e.message : String(e)}`));
     }, this.opts.refreshMs);
@@ -1432,28 +1437,29 @@ export class FaaLoader implements FaaProvider {
     return true;
   }
 
+  /** Loads + parses disk data. Does NOT set `state` — the caller decides
+   *  ready (fresh) vs stale (fallback after a failed download). */
   private async loadFromDisk(): Promise<void> {
     const master = await readFile(join(this.opts.dir, MASTER_NAME), "utf8");
     const ref = await readFile(join(this.opts.dir, REF_NAME), "utf8");
     this.index = buildIndex(master, ref);
-    this.state = this.index.size ? "ready" : "error";
     this.updatedAt = this.now();
-    this.lastError = null;
   }
 
   async refresh(): Promise<void> {
+    let downloaded = false;
     try {
       await this.downloadAndExtract();
-      await this.loadFromDisk(); // sets state "ready" (or "error" if empty)
+      downloaded = true;
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e);
-      try {
-        await this.loadFromDisk(); // stale disk data, if any
-      } catch {
-        /* no disk data */
-      }
-      if (this.state !== "ready") this.state = this.index.size ? "stale" : "error";
     }
+    try {
+      await this.loadFromDisk();
+    } catch {
+      if (!this.lastError) this.lastError = "no disk data";
+    }
+    this.state = downloaded ? "ready" : this.index.size ? "stale" : "error";
   }
 
   private async downloadAndExtract(): Promise<void> {
@@ -1505,7 +1511,7 @@ export class FaaLoader implements FaaProvider {
 }
 ```
 
-State machine note: `state` is explicit, never derived — `loadFromDisk()` sets `ready`/`error`; a failed `refresh()` that fell back to disk data ends `stale` (data present) or `error` (none). The constructor starts `loading`.
+State machine note: `state` is explicit, never derived — the constructor starts `loading`; the fresh-disk path in `init()` sets `ready`/`error`; `refresh()` sets `ready` only when the download succeeded, otherwise `stale` (disk fallback present) or `error` (none).
 
 Run: `npx vitest run test/faa.test.ts` → PASS (all 7 tests).
 
