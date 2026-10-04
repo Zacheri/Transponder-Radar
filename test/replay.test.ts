@@ -27,4 +27,16 @@ describe("ReplayGate", () => {
     expect(g.rewound).toBe(false);
     expect(g.onUpdate()).toBe(true);
   });
+
+  it("exitReplay leaves rewind immediately and cancels a pending requestLive", () => {
+    const g = new ReplayGate();
+    g.enterReplay();
+    g.requestLive();
+    g.exitReplay();
+    expect(g.rewound).toBe(false);
+    expect(g.onUpdate()).toBe(true);
+    // a later snapshot must not re-enter rewind
+    expect(g.onSnapshot()).toBe(true);
+    expect(g.rewound).toBe(false);
+  });
 });

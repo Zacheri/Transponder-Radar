@@ -40,7 +40,7 @@ export async function buildApp(deps: ServerDeps = {}) {
           : undefined,
     });
   const ais = deps.ais ?? new AisClient({ apiKey: config.AISSTREAM_API_KEY, store, log });
-  const recorder =
+  let recorder: HistoryRecorder | null =
     deps.recorder === undefined
       ? new HistoryRecorder({
           dir: resolve(process.cwd(), "data/history"),
@@ -49,7 +49,14 @@ export async function buildApp(deps: ServerDeps = {}) {
           log,
         })
       : deps.recorder;
-  if (recorder) await recorder.init();
+  if (recorder) {
+    try {
+      await recorder.init();
+    } catch (e) {
+      log(`history: init failed — timeline rewind disabled (${e instanceof Error ? e.message : String(e)})`);
+      recorder = null;
+    }
+  }
   const emptyRange: HistoryRange = { from: null, to: null, snapshots: 0 };
   const hub =
     deps.hub ??
@@ -75,6 +82,14 @@ export async function buildApp(deps: ServerDeps = {}) {
     ws.on("message", (data: Buffer | string) => {
       const msg = parseClientMessage(data.toString());
       if (!msg) return;
+      const reply = (obj: unknown) => {
+        if (ws.readyState !== ws.OPEN) return;
+        try {
+          ws.send(JSON.stringify(obj));
+        } catch {
+          /* socket closed mid-send */
+        }
+      };
       switch (msg.type) {
         case "poll.rate":
           opensky.setInterval(msg.ms);
@@ -82,13 +97,17 @@ export async function buildApp(deps: ServerDeps = {}) {
         case "timeline.seek": {
           const r = recorder;
           if (!r) break;
-          void r.seek(msg.time).then((res) => {
-            ws.send(JSON.stringify({ type: "timeline.state", time: res.time, craft: res.craft }));
-          });
+          void r.seek(msg.time).then(
+            (res) => reply({ type: "timeline.state", time: res.time, craft: res.craft }),
+            (e: unknown) => {
+              log(`history: seek failed: ${e instanceof Error ? e.message : String(e)}`);
+              reply({ type: "timeline.state", time: null, craft: [] });
+            },
+          );
           break;
         }
         case "timeline.live":
-          ws.send(JSON.stringify({ type: "snapshot", craft: store.all() }));
+          reply({ type: "snapshot", craft: store.all() });
           break;
         // "aircraft.info": wired by later tasks
         default:

@@ -82,13 +82,26 @@ map.on("load", async () => {
     onUpdate: (upsert, remove) => {
       if (replay.onUpdate()) store.applyUpdate(upsert, remove);
     },
-    onConnection: (s) => hud.setStatus(s),
+    onConnection: (s) => {
+      hud.setStatus(s);
+      if (s === "open" && replay.rewound) {
+        replay.exitReplay();
+        hud.setReplay(null);
+        timeline.setLive();
+      }
+    },
     onStatus: (s) => {
       hud.setFeeds(s.feeds, s.serverTime);
       pollRate.setPollMs(s.feeds.opensky.pollMs);
       timeline.setRange(s.history.from, s.history.to);
     },
     onTimelineState: (time, crafts) => {
+      if (time === null) {
+        replay.exitReplay();
+        hud.setReplay(null);
+        timeline.setLive();
+        return;
+      }
       store.applySnapshot(crafts);
       hud.setReplay(time);
     },

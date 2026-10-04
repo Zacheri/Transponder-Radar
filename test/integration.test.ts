@@ -1,11 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import WebSocket, { WebSocketServer } from "ws";
 import { buildApp } from "../server/index.js";
 import { CraftStore } from "../server/store.js";
 import { OpenSkyPoller } from "../server/opensky.js";
 import { AisClient } from "../server/ais.js";
 import { Hub } from "../server/hub.js";
+import { HistoryRecorder } from "../server/history.js";
+import type { Craft } from "../shared/craft.js";
 import { waitFor } from "./util.js";
 
 const PLANE: (string | number | boolean | null)[] = [
@@ -18,6 +23,8 @@ describe("full pipeline (stub feeds -> hub)", () => {
   let wsServer: WebSocketServer;
   let server: Awaited<ReturnType<typeof buildApp>>;
   let port: number;
+  let hport: number;
+  let wport: number;
   let current: { time: number; states: (string | number | boolean | null)[][] } = { time: 0, states: [] };
 
   beforeAll(async () => {
@@ -26,11 +33,11 @@ describe("full pipeline (stub feeds -> hub)", () => {
       res.end(JSON.stringify(current));
     });
     await new Promise<void>((r) => httpServer.listen(0, () => r()));
-    const hport = (httpServer.address() as { port: number }).port;
+    hport = (httpServer.address() as { port: number }).port;
 
     wsServer = new WebSocketServer({ port: 0 });
     await new Promise<void>((r) => wsServer.once("listening", () => r()));
-    const wport = (wsServer.address() as { port: number }).port;
+    wport = (wsServer.address() as { port: number }).port;
     wsServer.on("connection", (socket) => {
       socket.send(JSON.stringify({
         MessageType: "ShipStaticData", MMSI: 999,
@@ -113,5 +120,68 @@ describe("full pipeline (stub feeds -> hub)", () => {
     await waitFor(() => server.opensky.feedStatus.pollMs === 60000, 3000);
     expect(server.opensky.feedStatus.pollMs).toBe(60000);
     ws.close();
+  });
+
+  it("timeline.seek / timeline.live end-to-end (real recorder, incl. missing-snapshot error path)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "radar-hist-it-"));
+    let t = Date.now();
+    const histCraft = (id: string): Craft => ({
+      id, domain: "air", kind: "commercial", lat: 1, lon: 2, speed: null, heading: null, updatedAt: 0, stale: false,
+    });
+    const recorder = new HistoryRecorder({
+      dir,
+      snapshotMs: 60000,
+      maxBytes: 10_000_000,
+      now: () => (t += 1000),
+    });
+    await recorder.recordNow(() => [histCraft("h1")]);
+    await recorder.recordNow(() => [histCraft("h2")]);
+    const t2 = t;
+
+    const store = new CraftStore();
+    const hub = new Hub({ store, batchMs: 50 });
+    const opensky = new OpenSkyPoller({
+      url: `http://127.0.0.1:${hport}/states/all`,
+      pollMs: 60000,
+      graceMs: 30000,
+      store,
+    });
+    const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
+    const app2 = await buildApp({ store, hub, opensky, ais, recorder });
+    await app2.app.listen({ port: 0, host: "127.0.0.1" });
+    const port2 = (app2.app.server.address() as { port: number }).port;
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port2}/ws`);
+    const messages: any[] = [];
+    ws.on("message", (d) => messages.push(JSON.parse(d.toString())));
+    let opened = false;
+    ws.on("open", () => {
+      opened = true;
+    });
+    await waitFor(() => opened, 3000);
+
+    ws.send(JSON.stringify({ type: "timeline.seek", time: t2 }));
+    await waitFor(() => messages.some((m) => m.type === "timeline.state"), 3000);
+    const st = messages.find((m) => m.type === "timeline.state");
+    expect(st.time).toBe(t2);
+    expect(st.craft.map((c: any) => c.id)).toEqual(["h2"]);
+
+    await rm(join(dir, `${t2}.json.gz`));
+    ws.send(JSON.stringify({ type: "timeline.seek", time: t2 }));
+    await waitFor(() => messages.filter((m) => m.type === "timeline.state").length >= 2, 3000);
+    const st2 = messages.filter((m) => m.type === "timeline.state").pop();
+    expect(st2.time).toBeNull();
+    expect(st2.craft).toEqual([]);
+
+    const snapsBefore = messages.filter((m) => m.type === "snapshot").length;
+    ws.send(JSON.stringify({ type: "timeline.live" }));
+    await waitFor(() => messages.filter((m) => m.type === "snapshot").length > snapsBefore, 3000);
+    const live = messages.filter((m) => m.type === "snapshot").pop();
+    expect(Array.isArray(live.craft)).toBe(true);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+
+    ws.close();
+    await app2.stop();
+    await rm(dir, { recursive: true, force: true });
   });
 });

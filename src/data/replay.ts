@@ -10,6 +10,12 @@ export class ReplayGate {
     this.expectLive = true;
   }
 
+  /** Leave rewind immediately (reconnect delivered live data; seek failed). */
+  exitReplay(): void {
+    this.rewound = false;
+    this.expectLive = false;
+  }
+
   /** Snapshot frames are always applied; the one answering requestLive() exits rewind. */
   onSnapshot(): boolean {
     if (this.expectLive) {

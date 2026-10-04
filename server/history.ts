@@ -1,5 +1,5 @@
 import { gzipSync, gunzipSync } from "node:zlib";
-import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Craft } from "../shared/craft.js";
 
@@ -61,7 +61,9 @@ export class HistoryRecorder {
   async recordNow(getCrafts: () => Craft[]): Promise<void> {
     const ts = this.now();
     const buf = gzipSync(Buffer.from(JSON.stringify(getCrafts())));
-    await writeFile(join(this.opts.dir, `${ts}.json.gz`), buf);
+    const final = join(this.opts.dir, `${ts}.json.gz`);
+    await writeFile(join(this.opts.dir, `${ts}.json.gz.tmp`), buf);
+    await rename(join(this.opts.dir, `${ts}.json.gz.tmp`), final);
     this.index.push({ ts, size: buf.length });
     this.index.sort((a, b) => a.ts - b.ts);
     await this.evict();
