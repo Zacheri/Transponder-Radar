@@ -8,6 +8,7 @@ export function createHud(root: HTMLElement): {
   setCounts(air: number, sea: number): void;
   setStatus(s: ConnStatus): void;
   setFeeds(feeds: FeedStatus, serverTime: number): void;
+  setReplay(t: number | null): void;
 } {
   const el = document.createElement("div");
   el.className = "hud";
@@ -22,12 +23,24 @@ export function createHud(root: HTMLElement): {
   feedsEl.className = "hud-feeds";
   const clock = document.createElement("span");
   clock.className = "hud-clock";
-  el.append(dot, status, counts, feedsEl, clock);
+  const replayBadge = document.createElement("span");
+  replayBadge.className = "hud-replay";
+  replayBadge.textContent = "REPLAY";
+  el.append(dot, replayBadge, status, counts, feedsEl, clock);
   root.appendChild(el);
 
+  let replayT: number | null = null;
+
   function renderClock(): void {
-    const d = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
+    if (replayT != null) {
+      const d = new Date(replayT);
+      clock.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      clock.classList.add("replay");
+      return;
+    }
+    clock.classList.remove("replay");
+    const d = new Date();
     clock.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
   renderClock();
@@ -53,5 +66,11 @@ export function createHud(root: HTMLElement): {
     feedsEl.textContent = `${os} · ${ai}`;
   }
 
-  return { setCounts, setStatus, setFeeds };
+  function setReplay(t: number | null): void {
+    replayT = t;
+    replayBadge.classList.toggle("visible", t != null);
+    renderClock();
+  }
+
+  return { setCounts, setStatus, setFeeds, setReplay };
 }

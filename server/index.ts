@@ -10,12 +10,14 @@ import { OpenSkyPoller } from "./opensky.js";
 import { createTokenProvider } from "./opensky-auth.js";
 import { AisClient } from "./ais.js";
 import { Hub, parseClientMessage } from "./hub.js";
+import { HistoryRecorder, type HistoryRange } from "./history.js";
 
 export interface ServerDeps {
   store?: CraftStore;
   hub?: Hub;
   opensky?: OpenSkyPoller;
   ais?: AisClient;
+  recorder?: HistoryRecorder | null;
   log?: (msg: string) => void;
 }
 
@@ -38,15 +40,29 @@ export async function buildApp(deps: ServerDeps = {}) {
           : undefined,
     });
   const ais = deps.ais ?? new AisClient({ apiKey: config.AISSTREAM_API_KEY, store, log });
+  const recorder =
+    deps.recorder === undefined
+      ? new HistoryRecorder({
+          dir: resolve(process.cwd(), "data/history"),
+          snapshotMs: config.HISTORY_SNAPSHOT_MS,
+          maxBytes: config.HISTORY_MAX_BYTES,
+          log,
+        })
+      : deps.recorder;
+  if (recorder) await recorder.init();
+  const emptyRange: HistoryRange = { from: null, to: null, snapshots: 0 };
   const hub =
     deps.hub ??
     new Hub({
       store,
       batchMs: config.BATCH_MS,
       log,
-      feedStatus: () => ({
-        opensky: opensky.feedStatus,
-        ais: { connected: ais.isConnected, enabled: Boolean(config.AISSTREAM_API_KEY) },
+      statusPayload: () => ({
+        feeds: {
+          opensky: opensky.feedStatus,
+          ais: { connected: ais.isConnected, enabled: Boolean(config.AISSTREAM_API_KEY) },
+        },
+        history: recorder ? recorder.range() : emptyRange,
       }),
     });
 
@@ -63,7 +79,18 @@ export async function buildApp(deps: ServerDeps = {}) {
         case "poll.rate":
           opensky.setInterval(msg.ms);
           break;
-        // "timeline.seek", "timeline.live", "aircraft.info": wired by later tasks
+        case "timeline.seek": {
+          const r = recorder;
+          if (!r) break;
+          void r.seek(msg.time).then((res) => {
+            ws.send(JSON.stringify({ type: "timeline.state", time: res.time, craft: res.craft }));
+          });
+          break;
+        }
+        case "timeline.live":
+          ws.send(JSON.stringify({ type: "snapshot", craft: store.all() }));
+          break;
+        // "aircraft.info": wired by later tasks
         default:
           break;
       }
@@ -88,6 +115,7 @@ export async function buildApp(deps: ServerDeps = {}) {
   }, 5000);
 
   hub.start();
+  recorder?.start(() => store.all());
   opensky.start();
   if (deps.ais || config.AISSTREAM_API_KEY) ais.start();
   else log("ais: AISSTREAM_API_KEY not set — vessel feed disabled");
@@ -95,6 +123,7 @@ export async function buildApp(deps: ServerDeps = {}) {
   const stop = async () => {
     clearInterval(sweeper);
     hub.stop();
+    recorder?.stop();
     opensky.stop();
     ais.stop();
     await app.close();

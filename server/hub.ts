@@ -1,4 +1,5 @@
 import type { CraftStore } from "./store.js";
+import type { HistoryRange } from "./history.js";
 
 export interface WsLike {
   send(data: string): void;
@@ -30,11 +31,16 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   }
 }
 
+export interface StatusPayload {
+  feeds: FeedStatus;
+  history: HistoryRange;
+}
+
 export interface HubOpts {
   store: CraftStore;
   batchMs: number;
   log?: (msg: string) => void;
-  feedStatus?: () => FeedStatus;
+  statusPayload?: () => StatusPayload;
 }
 
 export class Hub {
@@ -54,9 +60,9 @@ export class Hub {
     socket.on("close", onClose);
     socket.on("error", onClose);
     socket.send(JSON.stringify({ type: "snapshot", craft: this.opts.store.all() }));
-    const feeds = this.opts.feedStatus?.();
-    if (feeds) {
-      socket.send(JSON.stringify({ type: "status", feeds, serverTime: Date.now() }));
+    const payload = this.opts.statusPayload?.();
+    if (payload) {
+      socket.send(JSON.stringify({ type: "status", feeds: payload.feeds, history: payload.history, serverTime: Date.now() }));
     }
   }
 
@@ -83,15 +89,15 @@ export class Hub {
   }
 
   private tick(): void {
-    const feeds = this.opts.feedStatus?.();
-    if (feeds) {
-      const json = JSON.stringify(feeds);
+    const payload = this.opts.statusPayload?.();
+    if (payload) {
+      const json = JSON.stringify({ feeds: payload.feeds, history: payload.history });
       if (this.lastStatusJson !== json) {
         this.lastStatusJson = json;
-        const statusPayload = JSON.stringify({ type: "status", feeds, serverTime: Date.now() });
+        const frame = JSON.stringify({ type: "status", feeds: payload.feeds, history: payload.history, serverTime: Date.now() });
         for (const c of this.clients) {
           try {
-            c.send(statusPayload);
+            c.send(frame);
           } catch {
             /* ignore */
           }
@@ -100,10 +106,10 @@ export class Hub {
     }
     const { upsert, remove } = this.opts.store.drainDirty();
     if (upsert.length === 0 && remove.length === 0) return;
-    const payload = JSON.stringify({ type: "update", upsert, remove });
+    const update = JSON.stringify({ type: "update", upsert, remove });
     for (const c of this.clients) {
       try {
-        c.send(payload);
+        c.send(update);
       } catch {
         /* ignore */
       }

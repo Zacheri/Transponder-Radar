@@ -43,7 +43,6 @@ describe("full pipeline (stub feeds -> hub)", () => {
     });
 
     const store = new CraftStore();
-    const hub = new Hub({ store, batchMs: 50 });
     const opensky = new OpenSkyPoller({
       url: `http://127.0.0.1:${hport}/states/all`,
       pollMs: 50,
@@ -51,8 +50,19 @@ describe("full pipeline (stub feeds -> hub)", () => {
       store,
     });
     const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
+    const hub = new Hub({
+      store,
+      batchMs: 50,
+      statusPayload: () => ({
+        feeds: {
+          opensky: opensky.feedStatus,
+          ais: { connected: ais.isConnected, enabled: true },
+        },
+        history: { from: null, to: null, snapshots: 0 },
+      }),
+    });
 
-    server = await buildApp({ store, hub, opensky, ais });
+    server = await buildApp({ store, hub, opensky, ais, recorder: null });
     await server.app.listen({ port: 0, host: "127.0.0.1" });
     port = (server.app.server.address() as { port: number }).port;
   });
@@ -72,6 +82,11 @@ describe("full pipeline (stub feeds -> hub)", () => {
     await waitFor(() => messages.length > 0, 3000);
     expect(messages[0].type).toBe("snapshot");
 
+    await waitFor(() => messages.some((m) => m.type === "status"), 3000);
+    const st = messages.find((m) => m.type === "status");
+    expect(st.feeds.opensky.pollMs).toBeTypeOf("number");
+    expect(st.history).toEqual({ from: null, to: null, snapshots: 0 });
+
     await waitFor(() => {
       const all = messages.flatMap((m) => m.upsert ?? (m.type === "snapshot" ? m.craft : []));
       return all.some((c: any) => c.id === "ac4963") && all.some((c: any) => c.id === "999");
@@ -84,6 +99,19 @@ describe("full pipeline (stub feeds -> hub)", () => {
     expect(ship.domain).toBe("sea");
     expect(ship.kind).toBe("cargo");
     expect(ship.shipName).toBe("PIPELINE SHIP");
+    ws.close();
+  });
+
+  it("poll.rate frame changes the effective poll interval", async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    let opened = false;
+    ws.on("open", () => {
+      opened = true;
+    });
+    await waitFor(() => opened, 3000);
+    ws.send(JSON.stringify({ type: "poll.rate", ms: 60000 }));
+    await waitFor(() => server.opensky.feedStatus.pollMs === 60000, 3000);
+    expect(server.opensky.feedStatus.pollMs).toBe(60000);
     ws.close();
   });
 });

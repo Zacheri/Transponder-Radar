@@ -11,6 +11,8 @@ import { createPanel } from "./ui/panel.js";
 import { createFilters } from "./ui/filters.js";
 import { createHud } from "./ui/hud.js";
 import { createPollRate } from "./ui/pollrate.js";
+import { createTimeline } from "./ui/timeline.js";
+import { ReplayGate } from "./data/replay.js";
 
 const container = document.getElementById("map");
 if (!container) throw new Error("#map missing");
@@ -48,6 +50,18 @@ let socket: RadarSocket | null = null;
 const pollRate = createPollRate(document.getElementById("app") as HTMLElement, (ms) => {
   socket?.sendPollRate(ms);
 });
+const replay = new ReplayGate();
+const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
+  seek: (t) => {
+    replay.enterReplay();
+    hud.setReplay(t);
+    socket?.sendTimelineSeek(t);
+  },
+  goLive: () => {
+    replay.requestLive();
+    socket?.sendTimelineLive();
+  },
+});
 
 map.on("load", async () => {
   try {
@@ -60,13 +74,24 @@ map.on("load", async () => {
   refresh();
 
   socket = new RadarSocket(wsUrl, {
-    onSnapshot: (crafts) => store.applySnapshot(crafts),
-    onUpdate: (upsert, remove) => store.applyUpdate(upsert, remove),
-    onFeeds: (feeds, t) => {
-      hud.setFeeds(feeds, t);
-      pollRate.setPollMs(feeds.opensky.pollMs);
+    onSnapshot: (crafts) => {
+      replay.onSnapshot();
+      if (!replay.rewound) timeline.setLive();
+      store.applySnapshot(crafts);
     },
-    onStatus: (s) => hud.setStatus(s),
+    onUpdate: (upsert, remove) => {
+      if (replay.onUpdate()) store.applyUpdate(upsert, remove);
+    },
+    onConnection: (s) => hud.setStatus(s),
+    onStatus: (s) => {
+      hud.setFeeds(s.feeds, s.serverTime);
+      pollRate.setPollMs(s.feeds.opensky.pollMs);
+      timeline.setRange(s.history.from, s.history.to);
+    },
+    onTimelineState: (time, crafts) => {
+      store.applySnapshot(crafts);
+      hud.setReplay(time);
+    },
   });
   socket.connect();
   store.subscribe(refresh);

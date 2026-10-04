@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Hub, parseClientMessage, type FeedStatus } from "../server/hub.js";
+import type { HistoryRange } from "../server/history.js";
 import { CraftStore } from "../server/store.js";
 import type { Craft } from "../shared/craft.js";
 import { sleep, waitFor } from "./util.js";
@@ -31,7 +32,7 @@ function fakeSocket() {
 
 function statusFrames(sent: string[]) {
   return sent
-    .map((s) => JSON.parse(s) as { type: string; feeds?: any; serverTime?: number })
+    .map((s) => JSON.parse(s) as { type: string; feeds?: any; history?: any; serverTime?: number })
     .filter((m) => m.type === "status");
 }
 
@@ -80,7 +81,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
       ais: { connected: false, enabled: false },
     };
-    const hub = new Hub({ store, batchMs: 20, feedStatus: () => feeds });
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 } }) });
     const sock = fakeSocket();
     hub.attach(sock);
     hub.start();
@@ -103,7 +104,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
       ais: { connected: false, enabled: false },
     };
-    const hub = new Hub({ store, batchMs: 20, feedStatus: () => feeds });
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 } }) });
     const sock = fakeSocket();
     hub.attach(sock);
     hub.start();
@@ -120,7 +121,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: "HTTP 429", pollMs: 120000 },
       ais: { connected: false, enabled: true },
     };
-    const hub = new Hub({ store, batchMs: 1000, feedStatus: () => feeds });
+    const hub = new Hub({ store, batchMs: 1000, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 } }) });
     const sock = fakeSocket();
     hub.attach(sock);
     expect(sock.sent).toHaveLength(2);
@@ -129,6 +130,23 @@ describe("Hub", () => {
     expect(st.type).toBe("status");
     expect(st.feeds).toEqual(feeds);
     expect(typeof st.serverTime).toBe("number");
+  });
+
+  it("status frames carry history bounds", async () => {
+    const store = new CraftStore();
+    let history: HistoryRange = { from: null, to: null, snapshots: 0 };
+    const feeds = { opensky: { lastOkAt: null, lastError: null, pollMs: 120000 }, ais: { connected: false, enabled: false } };
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history }) });
+    const sock = fakeSocket();
+    hub.attach(sock);
+    const st = JSON.parse(sock.sent[1]);
+    expect(st.history).toEqual({ from: null, to: null, snapshots: 0 });
+    history = { from: 100, to: 200, snapshots: 2 };
+    hub.start();
+    await waitFor(() => statusFrames(sock.sent).length >= 2);
+    const last = statusFrames(sock.sent)[statusFrames(sock.sent).length - 1];
+    expect(last.history).toEqual({ from: 100, to: 200, snapshots: 2 });
+    hub.stop();
   });
 });
 

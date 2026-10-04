@@ -5,17 +5,38 @@ export interface FeedStatus {
   ais: { connected: boolean; enabled: boolean };
 }
 
+export interface HistoryRange {
+  from: number | null;
+  to: number | null;
+  snapshots: number;
+}
+
+export interface StatusMessage {
+  type: "status";
+  feeds: FeedStatus;
+  history: HistoryRange;
+  serverTime: number;
+}
+
 export type RadarMessage =
   | { type: "snapshot"; craft: Craft[] }
   | { type: "update"; upsert: Craft[]; remove: string[] }
-  | { type: "status"; feeds: FeedStatus; serverTime: number };
+  | StatusMessage
+  | { type: "timeline.state"; time: number | null; craft: Craft[] };
 
 export function parseRadarMessage(raw: string): RadarMessage | null {
   try {
     const msg = JSON.parse(raw) as RadarMessage;
     if (msg.type === "snapshot" && Array.isArray(msg.craft)) return msg;
     if (msg.type === "update" && Array.isArray(msg.upsert) && Array.isArray(msg.remove)) return msg;
-    if (msg.type === "status" && msg.feeds != null && typeof msg.serverTime === "number") {
+    if (msg.type === "status" && msg.feeds != null && msg.history != null && typeof msg.serverTime === "number") {
+      return msg;
+    }
+    if (
+      msg.type === "timeline.state" &&
+      (msg.time === null || typeof msg.time === "number") &&
+      Array.isArray(msg.craft)
+    ) {
       return msg;
     }
     return null;
@@ -27,8 +48,9 @@ export function parseRadarMessage(raw: string): RadarMessage | null {
 export interface RadarSocketHandlers {
   onSnapshot: (craft: Craft[]) => void;
   onUpdate: (upsert: Craft[], remove: string[]) => void;
-  onFeeds?: (feeds: FeedStatus, serverTime: number) => void;
-  onStatus?: (status: "connecting" | "open" | "closed") => void;
+  onConnection?: (status: "connecting" | "open" | "closed") => void;
+  onStatus?: (s: StatusMessage) => void;
+  onTimelineState?: (time: number | null, craft: Craft[]) => void;
 }
 
 export class RadarSocket {
@@ -40,11 +62,21 @@ export class RadarSocket {
   constructor(private url: string, private handlers: RadarSocketHandlers) {}
 
   send(obj: unknown): void {
-    this.ws?.send(JSON.stringify(obj));
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(obj));
+    }
   }
 
   sendPollRate(ms: number): void {
     this.send({ type: "poll.rate", ms });
+  }
+
+  sendTimelineSeek(time: number): void {
+    this.send({ type: "timeline.seek", time });
+  }
+
+  sendTimelineLive(): void {
+    this.send({ type: "timeline.live" });
   }
 
   connect(): void {
@@ -64,22 +96,23 @@ export class RadarSocket {
 
   private open(): void {
     if (this.closed) return;
-    this.handlers.onStatus?.("connecting");
+    this.handlers.onConnection?.("connecting");
     const ws = new WebSocket(this.url);
     this.ws = ws;
     ws.onopen = () => {
       this.attempts = 0;
-      this.handlers.onStatus?.("open");
+      this.handlers.onConnection?.("open");
     };
     ws.onmessage = (ev) => {
       const msg = parseRadarMessage(ev.data as string);
       if (!msg) return;
       if (msg.type === "snapshot") this.handlers.onSnapshot(msg.craft);
       else if (msg.type === "update") this.handlers.onUpdate(msg.upsert, msg.remove);
-      else this.handlers.onFeeds?.(msg.feeds, msg.serverTime);
+      else if (msg.type === "status") this.handlers.onStatus?.(msg);
+      else this.handlers.onTimelineState?.(msg.time, msg.craft);
     };
     ws.onclose = () => {
-      this.handlers.onStatus?.("closed");
+      this.handlers.onConnection?.("closed");
       this.scheduleReconnect();
     };
     ws.onerror = () => {
