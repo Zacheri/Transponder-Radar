@@ -10,6 +10,7 @@ import type { CraftKind } from "../shared/craft.js";
 import { createPanel } from "./ui/panel.js";
 import { createFilters } from "./ui/filters.js";
 import { createHud } from "./ui/hud.js";
+import { createPollRate } from "./ui/pollrate.js";
 
 const container = document.getElementById("map");
 if (!container) throw new Error("#map missing");
@@ -43,6 +44,11 @@ function refresh(): void {
 
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 
+let socket: RadarSocket | null = null;
+const pollRate = createPollRate(document.getElementById("app") as HTMLElement, (ms) => {
+  socket?.sendPollRate(ms);
+});
+
 map.on("load", async () => {
   try {
     await registerIcons(map);
@@ -53,10 +59,13 @@ map.on("load", async () => {
   addCraftLayers(map, buildIconFilter(visible));
   refresh();
 
-  const socket = new RadarSocket(wsUrl, {
+  socket = new RadarSocket(wsUrl, {
     onSnapshot: (crafts) => store.applySnapshot(crafts),
     onUpdate: (upsert, remove) => store.applyUpdate(upsert, remove),
-    onFeeds: (feeds, t) => hud.setFeeds(feeds, t),
+    onFeeds: (feeds, t) => {
+      hud.setFeeds(feeds, t);
+      pollRate.setPollMs(feeds.opensky.pollMs);
+    },
     onStatus: (s) => hud.setStatus(s),
   });
   socket.connect();

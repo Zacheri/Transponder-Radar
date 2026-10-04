@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Hub, type FeedStatus } from "../server/hub.js";
+import { Hub, parseClientMessage, type FeedStatus } from "../server/hub.js";
 import { CraftStore } from "../server/store.js";
 import type { Craft } from "../shared/craft.js";
 import { sleep, waitFor } from "./util.js";
@@ -77,7 +77,7 @@ describe("Hub", () => {
   it("broadcasts a status frame when the feed status changes", async () => {
     const store = new CraftStore();
     let feeds: FeedStatus = {
-      opensky: { lastOkAt: null, lastError: null },
+      opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
       ais: { connected: false, enabled: false },
     };
     const hub = new Hub({ store, batchMs: 20, feedStatus: () => feeds });
@@ -85,7 +85,7 @@ describe("Hub", () => {
     hub.attach(sock);
     hub.start();
     feeds = {
-      opensky: { lastOkAt: 123, lastError: null },
+      opensky: { lastOkAt: 123, lastError: null, pollMs: 120000 },
       ais: { connected: true, enabled: true },
     };
     await waitFor(() => statusFrames(sock.sent).length >= 2);
@@ -100,7 +100,7 @@ describe("Hub", () => {
   it("does not re-broadcast an unchanged feed status", async () => {
     const store = new CraftStore();
     const feeds = {
-      opensky: { lastOkAt: null, lastError: null },
+      opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
       ais: { connected: false, enabled: false },
     };
     const hub = new Hub({ store, batchMs: 20, feedStatus: () => feeds });
@@ -117,7 +117,7 @@ describe("Hub", () => {
   it("attach sends the snapshot then the status", () => {
     const store = new CraftStore();
     const feeds = {
-      opensky: { lastOkAt: null, lastError: "HTTP 429" },
+      opensky: { lastOkAt: null, lastError: "HTTP 429", pollMs: 120000 },
       ais: { connected: false, enabled: true },
     };
     const hub = new Hub({ store, batchMs: 1000, feedStatus: () => feeds });
@@ -129,5 +129,24 @@ describe("Hub", () => {
     expect(st.type).toBe("status");
     expect(st.feeds).toEqual(feeds);
     expect(typeof st.serverTime).toBe("number");
+  });
+});
+
+describe("parseClientMessage", () => {
+  it("accepts well-formed control frames", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "poll.rate", ms: 60000 }))).toEqual({ type: "poll.rate", ms: 60000 });
+    expect(parseClientMessage(JSON.stringify({ type: "timeline.seek", time: 123 }))).toEqual({ type: "timeline.seek", time: 123 });
+    expect(parseClientMessage(JSON.stringify({ type: "timeline.live" }))).toEqual({ type: "timeline.live" });
+    expect(parseClientMessage(JSON.stringify({ type: "aircraft.info", id: "ac4963" }))).toEqual({ type: "aircraft.info", id: "ac4963" });
+  });
+
+  it("rejects malformed frames", () => {
+    expect(parseClientMessage("not json")).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "poll.rate" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "poll.rate", ms: -5 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "poll.rate", ms: "60000" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "timeline.seek" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "aircraft.info", id: "" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "bogus" }))).toBeNull();
   });
 });

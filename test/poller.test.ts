@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
-import { OpenSkyPoller, BACKOFF_CAP_MS } from "../server/opensky.js";
+import { OpenSkyPoller, BACKOFF_CAP_MS, POLL_MIN_MS, POLL_MAX_MS } from "../server/opensky.js";
 import { CraftStore } from "../server/store.js";
 
 const PLANE: (string | number | boolean | null)[] = [
@@ -211,5 +211,32 @@ describe("OpenSkyPoller", () => {
     const { upserted, nextDelayMs } = await poller.pollOnce();
     expect(upserted).toBe(0);
     expect(nextDelayMs).toBe(2000);
+  });
+
+  describe("setInterval", () => {
+    it("reports the current interval in feedStatus", () => {
+      const store = new CraftStore();
+      const p = new OpenSkyPoller({ url, pollMs: 120000, graceMs: 30000, store });
+      expect(p.feedStatus.pollMs).toBe(120000);
+    });
+
+    it("clamps below POLL_MIN_MS and above POLL_MAX_MS", () => {
+      const store = new CraftStore();
+      const p = new OpenSkyPoller({ url, pollMs: 120000, graceMs: 30000, store });
+      p.setInterval(1000);
+      expect(p.feedStatus.pollMs).toBe(POLL_MIN_MS);
+      p.setInterval(999999999);
+      expect(p.feedStatus.pollMs).toBe(POLL_MAX_MS);
+      p.setInterval(45000);
+      expect(p.feedStatus.pollMs).toBe(45000);
+    });
+
+    it("applies the new interval to the next successful poll", async () => {
+      const store = new CraftStore();
+      const p = new OpenSkyPoller({ url, pollMs: 120000, graceMs: 30000, store });
+      p.setInterval(30000);
+      current = { time: 0, states: [PLANE] };
+      expect((await p.pollOnce()).nextDelayMs).toBe(30000);
+    });
   });
 });

@@ -9,7 +9,7 @@ import { CraftStore } from "./store.js";
 import { OpenSkyPoller } from "./opensky.js";
 import { createTokenProvider } from "./opensky-auth.js";
 import { AisClient } from "./ais.js";
-import { Hub } from "./hub.js";
+import { Hub, parseClientMessage } from "./hub.js";
 
 export interface ServerDeps {
   store?: CraftStore;
@@ -54,7 +54,20 @@ export async function buildApp(deps: ServerDeps = {}) {
   await app.register(websocket);
 
   app.get("/ws", { websocket: true }, (socket) => {
-    hub.attach(socket as any);
+    const ws = socket as any;
+    hub.attach(ws);
+    ws.on("message", (data: Buffer | string) => {
+      const msg = parseClientMessage(data.toString());
+      if (!msg) return;
+      switch (msg.type) {
+        case "poll.rate":
+          opensky.setInterval(msg.ms);
+          break;
+        // "timeline.seek", "timeline.live", "aircraft.info": wired by later tasks
+        default:
+          break;
+      }
+    });
   });
 
   app.get("/health", async () => ({

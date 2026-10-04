@@ -1,7 +1,7 @@
 import type { Craft } from "../../shared/craft.js";
 
 export interface FeedStatus {
-  opensky: { lastOkAt: number | null; lastError: string | null };
+  opensky: { lastOkAt: number | null; lastError: string | null; pollMs: number };
   ais: { connected: boolean; enabled: boolean };
 }
 
@@ -38,6 +38,14 @@ export class RadarSocket {
   private attempts = 0;
 
   constructor(private url: string, private handlers: RadarSocketHandlers) {}
+
+  send(obj: unknown): void {
+    this.ws?.send(JSON.stringify(obj));
+  }
+
+  sendPollRate(ms: number): void {
+    this.send({ type: "poll.rate", ms });
+  }
 
   connect(): void {
     this.closed = false;

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { parseRadarMessage } from "../src/data/ws.js";
 
 const feeds = {
-  opensky: { lastOkAt: 1000, lastError: null },
+  opensky: { lastOkAt: 1000, lastError: null, pollMs: 120000 },
   ais: { connected: true, enabled: true },
 };
 

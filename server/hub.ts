@@ -7,8 +7,27 @@ export interface WsLike {
 }
 
 export interface FeedStatus {
-  opensky: { lastOkAt: number | null; lastError: string | null };
+  opensky: { lastOkAt: number | null; lastError: string | null; pollMs: number };
   ais: { connected: boolean; enabled: boolean };
+}
+
+export type ClientMessage =
+  | { type: "poll.rate"; ms: number }
+  | { type: "timeline.seek"; time: number }
+  | { type: "timeline.live" }
+  | { type: "aircraft.info"; id: string };
+
+export function parseClientMessage(raw: string): ClientMessage | null {
+  try {
+    const m = JSON.parse(raw) as ClientMessage;
+    if (m.type === "poll.rate" && typeof m.ms === "number" && Number.isFinite(m.ms) && m.ms > 0) return m;
+    if (m.type === "timeline.seek" && typeof m.time === "number" && Number.isFinite(m.time)) return m;
+    if (m.type === "timeline.live") return m;
+    if (m.type === "aircraft.info" && typeof m.id === "string" && m.id.length > 0) return m;
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export interface HubOpts {

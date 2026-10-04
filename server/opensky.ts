@@ -3,6 +3,8 @@ import { normalizeOpenSky } from "./normalize.js";
 import type { TokenProvider } from "./opensky-auth.js";
 
 export const BACKOFF_CAP_MS = 300000;
+export const POLL_MIN_MS = 15000;
+export const POLL_MAX_MS = 3600000;
 
 export interface OpenSkyPollerOpts {
   url?: string;
@@ -30,8 +32,15 @@ export class OpenSkyPoller {
 
   constructor(private opts: OpenSkyPollerOpts) {}
 
-  get feedStatus(): { lastOkAt: number | null; lastError: string | null } {
-    return { lastOkAt: this.lastOkAt, lastError: this.lastError };
+  get feedStatus(): { lastOkAt: number | null; lastError: string | null; pollMs: number } {
+    return { lastOkAt: this.lastOkAt, lastError: this.lastError, pollMs: this.opts.pollMs };
+  }
+
+  setInterval(ms: number): void {
+    const n = Math.round(ms);
+    if (Number.isFinite(n)) {
+      this.opts.pollMs = Math.min(POLL_MAX_MS, Math.max(POLL_MIN_MS, n));
+    }
   }
 
   start(): void {
