@@ -31,8 +31,9 @@ The gate is run after every change: `npm test` then `npm run typecheck` then
 All live in `.env` (gitignored). `credentials.json` (OpenSky OAuth2 client) is
 in the repo root and gitignored. Values: `AISSTREAM_API_KEY`,
 `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET`, `VITE_CARTO_API_KEY`.
-`.env.example` holds the empty template. When reporting or committing, never
-print these values.
+`.env.example` holds empty secrets plus non-secret defaults (`PORT`,
+`OPENSKY_POLL_MS`, `BATCH_MS`, `STALE_MS`, `REMOVE_MS`). When reporting or
+committing, never print the secret values.
 
 ## Execution conventions (established with the user)
 
@@ -61,9 +62,11 @@ print these values.
     **4,000/day**; active feeder 8,000/day; licensed 14,400/hour.
   - `/states/all` cost by bounding-box area: ≤25 sq° = 1, ≤100 = 2, ≤400 = 3,
     **>400 or global = 4**.
-  - `X-Rate-Limit-Remaining` header = credits left; exhaustion → 429 with
-    `X-Rate-Limit-Retry-After-Seconds` (poller honors it, else exponential
-    backoff, cap 5 min).
+  - `X-Rate-Limit-Remaining` header = credits left; exhaustion → 429. Docs
+    say the 429 carries `X-Rate-Limit-Retry-After-Seconds`, but the poller
+    only reads the standard `retry-after` header (`server/opensky.ts:102`) —
+    so in practice exponential backoff applies (cap 5 min,
+    `BACKOFF_CAP_MS=300000`).
 - Practical numbers: standard tier full-globe = 1,000 polls/day →
   `OPENSKY_POLL_MS=120000` (720/day) is sustainable 24/7. Shorter intervals
   exhaust the daily budget.
@@ -96,7 +99,7 @@ print these values.
   `map.addImage(name, data, { pixelRatio: 2 })` — see `src/map/icons.ts`.
 - Logical NOT in expressions is **`["!", op]`**. `["not", …]` throws
   "Unknown expression" at `addLayer`/`setFilter` time (legacy v6-only
-  keyword).
+  keyword). In use: `src/data/filter.ts` (`buildIconFilter`).
 - `text-field` requires a style `glyphs` property (see above).
 - `validateStyleMin` from `@maplibre/maplibre-gl-style-spec` (devDependency)
   is the same validator the runtime uses — `test/style-validation.test.ts`
@@ -124,10 +127,15 @@ print these values.
   shutdown), `config.ts` (env), `store.ts` (CraftStore: upsert/prune/sweep),
   `hub.ts` (WS broadcast: `snapshot`, `update`, `status` frames),
   `opensky.ts` (poller), `opensky-auth.ts` (OAuth2 token provider), `ais.ts`
-  (AIS WS client), `normalize.ts` (raw → `Craft`).
+  (AIS WS client), `normalize.ts` (raw → `Craft`), `classify.ts` (kind
+  inference from callsign/`aisType`).
 - `src/` — `main.ts` (top-level await; wiring), `map/` (basemap probe, map
-  creation, icon rasterization, layer defs), `data/` (socket client, client
-  store, feature building, icon filter), `ui/` (panel, filters, HUD).
+  creation, icon rasterization, `icon-urls.ts` = Vite SVG import map, layer
+  defs), `data/` (socket client, client store, feature building, icon filter),
+  `ui/` (panel, filters, HUD).
+- `README.md` "How it works" is partly stale: it still says aircraft poll
+  every 36 s under the anonymous limit; current reality is OAuth2 auth with
+  `OPENSKY_POLL_MS` default 120 s (`server/config.ts`).
 - WS protocol (both ends mirror it, no shared file):
   `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`,
   `{type:"status",feeds:{opensky:{lastOkAt,lastError},ais:{connected,enabled}},serverTime}`.
