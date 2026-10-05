@@ -11,10 +11,29 @@ export interface HistoryRange {
   snapshots: number;
 }
 
+export interface FaaStatus {
+  state: "loading" | "ready" | "stale" | "error";
+  updatedAt: number | null;
+  aircraft: number;
+  lastError: string | null;
+}
+
+export interface AircraftInfo {
+  nNumber: string;
+  year: number | null;
+  mfr: string | null;
+  model: string | null;
+  owner: string | null;
+  city: string | null;
+  state: string | null;
+  source: "db" | "live";
+}
+
 export interface StatusMessage {
   type: "status";
   feeds: FeedStatus;
   history: HistoryRange;
+  faa: FaaStatus;
   serverTime: number;
 }
 
@@ -22,14 +41,15 @@ export type RadarMessage =
   | { type: "snapshot"; craft: Craft[] }
   | { type: "update"; upsert: Craft[]; remove: string[] }
   | StatusMessage
-  | { type: "timeline.state"; time: number | null; craft: Craft[] };
+  | { type: "timeline.state"; time: number | null; craft: Craft[] }
+  | { type: "aircraft.info"; id: string; info: AircraftInfo | null };
 
 export function parseRadarMessage(raw: string): RadarMessage | null {
   try {
     const msg = JSON.parse(raw) as RadarMessage;
     if (msg.type === "snapshot" && Array.isArray(msg.craft)) return msg;
     if (msg.type === "update" && Array.isArray(msg.upsert) && Array.isArray(msg.remove)) return msg;
-    if (msg.type === "status" && msg.feeds != null && msg.history != null && typeof msg.serverTime === "number") {
+    if (msg.type === "status" && msg.feeds != null && msg.history != null && msg.faa != null && typeof msg.serverTime === "number") {
       return msg;
     }
     if (
@@ -39,6 +59,7 @@ export function parseRadarMessage(raw: string): RadarMessage | null {
     ) {
       return msg;
     }
+    if (msg.type === "aircraft.info" && typeof msg.id === "string" && (msg.info === null || (msg.info && typeof msg.info.nNumber === "string"))) return msg;
     return null;
   } catch {
     return null;
@@ -51,6 +72,7 @@ export interface RadarSocketHandlers {
   onConnection?: (status: "connecting" | "open" | "closed") => void;
   onStatus?: (s: StatusMessage) => void;
   onTimelineState?: (time: number | null, craft: Craft[]) => void;
+  onAircraftInfo?: (id: string, info: AircraftInfo | null) => void;
 }
 
 export class RadarSocket {
@@ -77,6 +99,10 @@ export class RadarSocket {
 
   sendTimelineLive(): void {
     this.send({ type: "timeline.live" });
+  }
+
+  sendAircraftInfo(id: string): void {
+    this.send({ type: "aircraft.info", id });
   }
 
   connect(): void {
@@ -109,6 +135,7 @@ export class RadarSocket {
       if (msg.type === "snapshot") this.handlers.onSnapshot(msg.craft);
       else if (msg.type === "update") this.handlers.onUpdate(msg.upsert, msg.remove);
       else if (msg.type === "status") this.handlers.onStatus?.(msg);
+      else if (msg.type === "aircraft.info") this.handlers.onAircraftInfo?.(msg.id, msg.info);
       else this.handlers.onTimelineState?.(msg.time, msg.craft);
     };
     ws.onclose = () => {

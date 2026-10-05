@@ -11,6 +11,7 @@ import { createTokenProvider } from "./opensky-auth.js";
 import { AisClient } from "./ais.js";
 import { Hub, parseClientMessage } from "./hub.js";
 import { HistoryRecorder, type HistoryRange } from "./history.js";
+import { FaaLoader, type FaaProvider } from "./faa.js";
 
 export interface ServerDeps {
   store?: CraftStore;
@@ -18,6 +19,7 @@ export interface ServerDeps {
   opensky?: OpenSkyPoller;
   ais?: AisClient;
   recorder?: HistoryRecorder | null;
+  faa?: FaaProvider | null;
   log?: (msg: string) => void;
 }
 
@@ -58,6 +60,12 @@ export async function buildApp(deps: ServerDeps = {}) {
     }
   }
   const emptyRange: HistoryRange = { from: null, to: null, snapshots: 0 };
+  const faaDir = resolve(process.cwd(), "data/faa");
+  const faa: FaaProvider | null =
+    deps.faa === undefined
+      ? new FaaLoader({ dir: faaDir, refreshMs: config.FAA_REFRESH_MS, log })
+      : deps.faa;
+  if (faa) void faa.init();
   const hub =
     deps.hub ??
     new Hub({
@@ -70,6 +78,7 @@ export async function buildApp(deps: ServerDeps = {}) {
           ais: { connected: ais.isConnected, enabled: Boolean(config.AISSTREAM_API_KEY) },
         },
         history: recorder ? recorder.range() : emptyRange,
+        faa: faa?.status() ?? { state: "loading", updatedAt: null, aircraft: 0, lastError: null },
       }),
     });
 
@@ -109,7 +118,19 @@ export async function buildApp(deps: ServerDeps = {}) {
         case "timeline.live":
           reply({ type: "snapshot", craft: store.all() });
           break;
-        // "aircraft.info": wired by later tasks
+        case "aircraft.info": {
+          const provider = faa;
+          if (!provider) break;
+          const rec = provider.lookup(msg.id);
+          ws.send(
+            JSON.stringify({
+              type: "aircraft.info",
+              id: msg.id,
+              info: rec ? { ...rec, source: "db" as const } : null,
+            }),
+          );
+          break;
+        }
         default:
           break;
       }
@@ -143,6 +164,7 @@ export async function buildApp(deps: ServerDeps = {}) {
     clearInterval(sweeper);
     hub.stop();
     recorder?.stop();
+    faa?.stop();
     opensky.stop();
     ais.stop();
     await app.close();

@@ -8,9 +8,11 @@ const feeds = {
 
 const history = { from: null, to: null, snapshots: 0 };
 
+const faa = { state: "ready", updatedAt: null, aircraft: 0, lastError: null };
+
 describe("parseRadarMessage status frames", () => {
   it("accepts a well-formed status frame", () => {
-    const raw = JSON.stringify({ type: "status", feeds, history, serverTime: 2000 });
+    const raw = JSON.stringify({ type: "status", feeds, history, faa, serverTime: 2000 });
     const msg = parseRadarMessage(raw);
     expect(msg).not.toBeNull();
     expect(msg?.type).toBe("status");
@@ -49,6 +51,23 @@ describe("parseRadarMessage status frames", () => {
 
   it("rejects a status frame missing history", () => {
     const raw = JSON.stringify({ type: "status", feeds, serverTime: 2000 });
+    expect(parseRadarMessage(raw)).toBeNull();
+  });
+
+  it("accepts an aircraft.info frame with a record", () => {
+    const info = { nNumber: "N100GX", year: 2007, mfr: "IAI", model: "G150", owner: "X LLC", city: "PARK CITY", state: "UT", source: "db" };
+    const msg = parseRadarMessage(JSON.stringify({ type: "aircraft.info", id: "a00560", info }));
+    expect(msg?.type).toBe("aircraft.info");
+    if (msg?.type === "aircraft.info") expect(msg.info?.nNumber).toBe("N100GX");
+  });
+
+  it("accepts an aircraft.info frame with null info", () => {
+    const raw = JSON.stringify({ type: "aircraft.info", id: "a00560", info: null });
+    expect(parseRadarMessage(raw)?.type).toBe("aircraft.info");
+  });
+
+  it("rejects a status frame missing faa", () => {
+    const raw = JSON.stringify({ type: "status", feeds, history: { from: null, to: null, snapshots: 0 }, serverTime: 2000 });
     expect(parseRadarMessage(raw)).toBeNull();
   });
 });

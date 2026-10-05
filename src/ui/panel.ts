@@ -1,5 +1,6 @@
 import type { Craft } from "../../shared/craft.js";
 import { KINDS } from "../../shared/craft.js";
+import type { AircraftInfo } from "../data/ws.js";
 
 function row(label: string, value: string | number | null | undefined): HTMLDivElement {
   const d = document.createElement("div");
@@ -30,11 +31,17 @@ function timeSince(ts: number): string {
   return `${sec} s ago`;
 }
 
-export function createPanel(root: HTMLElement): {
+export interface PanelHooks {
+  getInfo?: (id: string) => AircraftInfo | null | undefined;
+  requestInfo?: (id: string) => void;
+}
+
+export function createPanel(root: HTMLElement, hooks: PanelHooks = {}): {
   show(craft: Craft): void;
   hide(): void;
   update(craft: Craft): void;
   selectedId(): string | null;
+  setInfo(id: string, info: AircraftInfo | null): void;
 } {
   const el = document.createElement("aside");
   el.className = "panel";
@@ -59,6 +66,23 @@ export function createPanel(root: HTMLElement): {
   let selected: Craft | null = null;
   let lastFixVal: HTMLSpanElement | null = null;
   let tick: number | null = null;
+  const requestedInfo = new Set<string>();
+
+  function infoRows(craft: Craft): HTMLDivElement[] {
+    const info = hooks.getInfo?.(craft.id);
+    if (info === undefined) {
+      if (!requestedInfo.has(craft.id)) {
+        requestedInfo.add(craft.id);
+        hooks.requestInfo?.(craft.id);
+      }
+      return [row("Type", "…"), row("N-number", "…"), row("Owner", "…")];
+    }
+    if (info === null) return [row("Type", null), row("N-number", null), row("Owner", null)];
+    const typeText = [info.mfr, info.model].filter(Boolean).join(" ") + (info.year ? `, ${info.year}` : "");
+    const where = [info.city, info.state].filter(Boolean).join(", ");
+    const ownerText = info.owner ? (where ? `${info.owner} — ${where}` : info.owner) : null;
+    return [row("Type", typeText || null), row("N-number", info.nNumber), row("Owner", ownerText)];
+  }
 
   function lastFixText(craft: Craft): string {
     return timeSince(craft.updatedAt) + (craft.stale ? " (stale)" : "");
@@ -88,6 +112,7 @@ export function createPanel(root: HTMLElement): {
         row("SPI (military)", craft.spi ? "yes" : "no"),
         row("Origin", craft.originCountry),
       );
+      body.append(...infoRows(craft));
     } else {
       body.append(
         row("Name", craft.shipName),
@@ -163,6 +188,10 @@ export function createPanel(root: HTMLElement): {
     return selected ? selected.id : null;
   }
 
+  function setInfo(id: string, _info: AircraftInfo | null): void {
+    if (selected && selected.id === id) render(selected);
+  }
+
   closeBtn.addEventListener("click", hide);
-  return { show, hide, update, selectedId };
+  return { show, hide, update, selectedId, setInfo };
 }

@@ -3,6 +3,7 @@ import { registerIcons } from "./map/icons.js";
 import { addCraftSource, addCraftLayers, setCraftData } from "./map/layers.js";
 import { ClientStore } from "./data/store.js";
 import { RadarSocket } from "./data/ws.js";
+import type { AircraftInfo } from "./data/ws.js";
 import { buildFeatureCollection } from "./data/features.js";
 import { buildIconFilter } from "./data/filter.js";
 import { AIR_KINDS, SEA_KINDS } from "../shared/craft.js";
@@ -19,7 +20,11 @@ if (!container) throw new Error("#map missing");
 
 const map = await createMap(container);
 const store = new ClientStore();
-const panel = createPanel(document.getElementById("app") as HTMLElement);
+const infoCache = new Map<string, AircraftInfo | null>();
+const panel = createPanel(document.getElementById("app") as HTMLElement, {
+  getInfo: (id) => infoCache.get(id),
+  requestInfo: (id) => socket?.sendAircraftInfo(id),
+});
 const hud = createHud(document.getElementById("app") as HTMLElement);
 let visible = new Set<CraftKind>([...AIR_KINDS, ...SEA_KINDS]);
 let filters: { setCounts(c: Map<CraftKind, number>): void } | null = null;
@@ -104,6 +109,10 @@ map.on("load", async () => {
       }
       store.applySnapshot(crafts);
       hud.setReplay(time);
+    },
+    onAircraftInfo: (id, info) => {
+      infoCache.set(id, info);
+      panel.setInfo(id, info);
     },
   });
   socket.connect();

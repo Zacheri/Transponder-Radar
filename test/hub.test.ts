@@ -81,7 +81,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
       ais: { connected: false, enabled: false },
     };
-    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 } }) });
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
     const sock = fakeSocket();
     hub.attach(sock);
     hub.start();
@@ -104,7 +104,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
       ais: { connected: false, enabled: false },
     };
-    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 } }) });
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
     const sock = fakeSocket();
     hub.attach(sock);
     hub.start();
@@ -121,7 +121,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: "HTTP 429", pollMs: 120000 },
       ais: { connected: false, enabled: true },
     };
-    const hub = new Hub({ store, batchMs: 1000, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 } }) });
+    const hub = new Hub({ store, batchMs: 1000, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
     const sock = fakeSocket();
     hub.attach(sock);
     expect(sock.sent).toHaveLength(2);
@@ -136,11 +136,12 @@ describe("Hub", () => {
     const store = new CraftStore();
     let history: HistoryRange = { from: null, to: null, snapshots: 0 };
     const feeds = { opensky: { lastOkAt: null, lastError: null, pollMs: 120000 }, ais: { connected: false, enabled: false } };
-    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history }) });
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
     const sock = fakeSocket();
     hub.attach(sock);
     const st = JSON.parse(sock.sent[1]);
     expect(st.history).toEqual({ from: null, to: null, snapshots: 0 });
+    expect(st.faa.state).toBe("ready");
     history = { from: 100, to: 200, snapshots: 2 };
     hub.start();
     await waitFor(() => statusFrames(sock.sent).length >= 2);

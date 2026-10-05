@@ -10,6 +10,7 @@ import { OpenSkyPoller } from "../server/opensky.js";
 import { AisClient } from "../server/ais.js";
 import { Hub } from "../server/hub.js";
 import { HistoryRecorder } from "../server/history.js";
+import type { FaaProvider } from "../server/faa.js";
 import type { Craft } from "../shared/craft.js";
 import { waitFor } from "./util.js";
 
@@ -17,6 +18,17 @@ const PLANE: (string | number | boolean | null)[] = [
   "ac4963", "DAL539", "United States", 1700000000, 1700000000,
   -73.7, 40.6, 10000, false, 250, 90, 10, null, 10050, "1200", false, 2,
 ];
+
+const fakeFaa: FaaProvider = {
+  lookup: (hex: string) =>
+    hex === "ac4963"
+      ? { nNumber: "N123A", year: 2001, mfr: "BOEING", model: "737-8DR", owner: "TEST LLC", city: "KANSAS CITY", state: "MO" }
+      : null,
+  merge: () => {},
+  status: () => ({ state: "ready", updatedAt: null, aircraft: 1, lastError: null }),
+  init: async () => {},
+  stop: () => {},
+};
 
 describe("full pipeline (stub feeds -> hub)", () => {
   let httpServer: http.Server;
@@ -66,10 +78,11 @@ describe("full pipeline (stub feeds -> hub)", () => {
           ais: { connected: ais.isConnected, enabled: true },
         },
         history: { from: null, to: null, snapshots: 0 },
+        faa: fakeFaa.status(),
       }),
     });
 
-    server = await buildApp({ store, hub, opensky, ais, recorder: null });
+    server = await buildApp({ store, hub, opensky, ais, recorder: null, faa: fakeFaa });
     await server.app.listen({ port: 0, host: "127.0.0.1" });
     port = (server.app.server.address() as { port: number }).port;
   });
@@ -122,6 +135,23 @@ describe("full pipeline (stub feeds -> hub)", () => {
     ws.close();
   });
 
+  it("aircraft.info frame returns the provider record end-to-end", async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const frames: any[] = [];
+    ws.on("message", (d) => frames.push(JSON.parse(d.toString())));
+    let opened = false;
+    ws.on("open", () => {
+      opened = true;
+    });
+    await waitFor(() => opened, 3000);
+    ws.send(JSON.stringify({ type: "aircraft.info", id: "ac4963" }));
+    await waitFor(() => frames.some((f) => f.type === "aircraft.info"), 3000);
+    const infoMsg = frames.find((f) => f.type === "aircraft.info")!;
+    expect(infoMsg.info.nNumber).toBe("N123A");
+    expect(infoMsg.info.source).toBe("db");
+    ws.close();
+  });
+
   it("timeline.seek / timeline.live end-to-end (real recorder, incl. missing-snapshot error path)", async () => {
     const dir = await mkdtemp(join(tmpdir(), "radar-hist-it-"));
     let t = Date.now();
@@ -147,7 +177,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
       store,
     });
     const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
-    const app2 = await buildApp({ store, hub, opensky, ais, recorder });
+    const app2 = await buildApp({ store, hub, opensky, ais, recorder, faa: fakeFaa });
     await app2.app.listen({ port: 0, host: "127.0.0.1" });
     const port2 = (app2.app.server.address() as { port: number }).port;
 
