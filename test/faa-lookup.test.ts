@@ -84,6 +84,15 @@ describe("FaaLookup", () => {
     dir = await mkdtemp(join(tmpdir(), "radar-faalk-"));
   });
   afterEach(async () => {
+    // a fire-and-forget persist may still be mid tmp→rename; retry until it settles
+    for (let i = 0; i < 100; i++) {
+      try {
+        await rm(dir, { recursive: true, force: true });
+        return;
+      } catch {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    }
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -102,6 +111,23 @@ describe("FaaLookup", () => {
     expect(calls.current).toBe(2);
     const cached = JSON.parse(await readWhenExists(cacheFile())) as Record<string, unknown>;
     expect(cached["a1b2c3"]).toBeDefined();
+  });
+
+  it("reloads a persisted cache on restart and serves it without fetching", async () => {
+    const provider = fakeProvider();
+    const { fetchImpl, calls } = seqFetchImpl([inquiryResponse, () => new Response(POSITIVE_HTML, { status: 200 })]);
+    const lookup = new FaaLookup(provider, { cacheFile: cacheFile(), fetchImpl, now: () => t });
+    await lookup.init();
+    const rec = await lookup.lookup(craft());
+    expect(rec?.nNumber).toBe("N100GX");
+    expect(calls.current).toBe(2);
+    await readWhenExists(cacheFile()); // let the fire-and-forget persist land
+    const lookup2 = new FaaLookup(provider, { cacheFile: cacheFile(), fetchImpl, now: () => t });
+    await lookup2.init();
+    const again = await lookup2.lookup(craft());
+    expect(again?.nNumber).toBe("N100GX");
+    expect(again?.source).toBe("live");
+    expect(calls.current).toBe(2); // no new fetches on the reloaded instance
   });
 
   it("serves repeat lookups from the positive cache without fetching", async () => {

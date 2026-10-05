@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Craft } from "../shared/craft.js";
 import { N_NUMBER_RE } from "./classify.js";
@@ -127,7 +127,10 @@ export class FaaLookup {
 
   private async fetchRecord(n: string): Promise<FaaRecord | null> {
     const fetchImpl = this.opts.fetchImpl ?? fetch;
-    const page = await fetchImpl(this.opts.inquiryUrl ?? DEFAULT_INQUIRY_URL, { headers: { "user-agent": UA } });
+    const page = await fetchImpl(this.opts.inquiryUrl ?? DEFAULT_INQUIRY_URL, {
+      headers: { "user-agent": UA },
+      signal: AbortSignal.timeout(15_000),
+    });
     if (!page.ok) throw new Error(`FAA inquiry page HTTP ${page.status}`);
     const pageHtml = await page.text();
     const token = pageHtml.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/)?.[1];
@@ -142,6 +145,7 @@ export class FaaLookup {
         ...(cookie ? { cookie } : {}),
       },
       body: body.toString(),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error(`FAA result HTTP ${res.status}`);
     const rec = parseNResult(await res.text());
@@ -158,7 +162,9 @@ export class FaaLookup {
   private async persist(): Promise<void> {
     try {
       await mkdir(dirname(this.opts.cacheFile), { recursive: true });
-      await writeFile(this.opts.cacheFile, JSON.stringify(Object.fromEntries(this.cache), null, 1));
+      const tmp = `${this.opts.cacheFile}.tmp`;
+      await writeFile(tmp, JSON.stringify(Object.fromEntries(this.cache), null, 1));
+      await rename(tmp, this.opts.cacheFile);
     } catch (e) {
       this.opts.log?.(`faa-lookup: cache persist failed: ${e instanceof Error ? e.message : String(e)}`);
     }
