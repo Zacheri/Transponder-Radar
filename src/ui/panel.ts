@@ -42,6 +42,7 @@ export function createPanel(root: HTMLElement, hooks: PanelHooks = {}): {
   update(craft: Craft): void;
   selectedId(): string | null;
   setInfo(id: string, info: AircraftInfo | null): void;
+  resetInfoRequests(ids: string[]): void;
 } {
   const el = document.createElement("aside");
   el.className = "panel";
@@ -78,7 +79,8 @@ export function createPanel(root: HTMLElement, hooks: PanelHooks = {}): {
       return [row("Type", "…"), row("N-number", "…"), row("Owner", "…")];
     }
     if (info === null) return [row("Type", null), row("N-number", null), row("Owner", null)];
-    const typeText = [info.mfr, info.model].filter(Boolean).join(" ") + (info.year ? `, ${info.year}` : "");
+    const base = [info.mfr, info.model].filter(Boolean).join(" ");
+    const typeText = base + (base && info.year ? `, ${info.year}` : "");
     const where = [info.city, info.state].filter(Boolean).join(", ");
     const ownerText = info.owner ? (where ? `${info.owner} — ${where}` : info.owner) : null;
     return [row("Type", typeText || null), row("N-number", info.nNumber), row("Owner", ownerText)];
@@ -192,6 +194,10 @@ export function createPanel(root: HTMLElement, hooks: PanelHooks = {}): {
     if (selected && selected.id === id) render(selected);
   }
 
+  function resetInfoRequests(ids: string[]): void {
+    for (const id of ids) requestedInfo.delete(id);
+  }
+
   closeBtn.addEventListener("click", hide);
-  return { show, hide, update, selectedId, setInfo };
+  return { show, hide, update, selectedId, setInfo, resetInfoRequests };
 }

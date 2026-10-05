@@ -65,7 +65,7 @@ export async function buildApp(deps: ServerDeps = {}) {
     deps.faa === undefined
       ? new FaaLoader({ dir: faaDir, refreshMs: config.FAA_REFRESH_MS, log })
       : deps.faa;
-  if (faa) void faa.init();
+  if (faa) void faa.init().catch((e) => log(`faa: init failed — enrichment disabled (${e instanceof Error ? e.message : String(e)})`));
   const hub =
     deps.hub ??
     new Hub({
@@ -122,13 +122,7 @@ export async function buildApp(deps: ServerDeps = {}) {
           const provider = faa;
           if (!provider) break;
           const rec = provider.lookup(msg.id);
-          ws.send(
-            JSON.stringify({
-              type: "aircraft.info",
-              id: msg.id,
-              info: rec ? { ...rec, source: "db" as const } : null,
-            }),
-          );
+          reply({ type: "aircraft.info", id: msg.id, info: rec ? { ...rec, source: "db" as const } : null });
           break;
         }
         default:

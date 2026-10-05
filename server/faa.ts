@@ -1,5 +1,5 @@
 import yauzl from "yauzl";
-import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Buffer } from "node:buffer";
 
@@ -93,7 +93,7 @@ export function buildIndex(masterText: string, refText: string): Map<string, Faa
   for (const r of parseCsv(masterText).slice(1)) {
     const hex = (r[C_MODES_HEX] ?? "").toUpperCase();
     const n = r[C_N] ?? "";
-    if (!n) continue;
+    if (!n || !hex) continue;
     const codeInfo = ref.get(r[C_MFR_MDL_CODE] ?? "");
     const yearRaw = r[C_YEAR] ?? "";
     idx.set(hex.toLowerCase(), {
@@ -143,20 +143,26 @@ export class FaaLoader implements FaaProvider {
   }
 
   async init(): Promise<void> {
-    await mkdir(this.opts.dir, { recursive: true });
-    if (await this.diskFresh()) {
-      try {
-        await this.loadFromDisk();
-        this.state = this.index.size ? "ready" : "error";
-      } catch {
-        this.state = "error";
+    try {
+      await mkdir(this.opts.dir, { recursive: true });
+      if (await this.diskFresh()) {
+        try {
+          await this.loadFromDisk();
+          this.state = this.index.size ? "ready" : "error";
+        } catch {
+          this.state = "error";
+        }
+      } else {
+        await this.refresh();
       }
-    } else {
-      await this.refresh();
+      this.timer = setInterval(() => {
+        this.refresh().catch((e) => this.opts.log?.(`faa: refresh failed: ${e instanceof Error ? e.message : String(e)}`));
+      }, this.opts.refreshMs);
+    } catch (e) {
+      this.state = "error";
+      this.lastError = e instanceof Error ? e.message : String(e);
+      throw e;
     }
-    this.timer = setInterval(() => {
-      this.refresh().catch((e) => this.opts.log?.(`faa: refresh failed: ${e instanceof Error ? e.message : String(e)}`));
-    }, this.opts.refreshMs);
   }
 
   stop(): void {
@@ -207,7 +213,9 @@ export class FaaLoader implements FaaProvider {
     try {
       const entries = await this.extractEntries(zipPath, [MASTER_NAME, REF_NAME]);
       for (const name of [MASTER_NAME, REF_NAME]) {
-        await writeFile(join(this.opts.dir, name), entries[name]);
+        const tmp = join(this.opts.dir, `${name}.tmp`);
+        await writeFile(tmp, entries[name]);
+        await rename(tmp, join(this.opts.dir, name));
       }
     } finally {
       await unlink(zipPath).catch(() => {});
@@ -227,14 +235,20 @@ export class FaaLoader implements FaaProvider {
             return;
           }
           zip.openReadStream(entry, (err, rs) => {
-            if (err) return reject(err);
+            if (err) {
+              zip.close();
+              return reject(err);
+            }
             const chunks: Buffer[] = [];
             rs.on("data", (c: Buffer) => chunks.push(c));
             rs.on("end", () => {
               out[entry.fileName] = Buffer.concat(chunks);
               zip.readEntry();
             });
-            rs.on("error", reject);
+            rs.on("error", (e) => {
+              zip.close();
+              reject(e);
+            });
           });
         });
         zip.on("end", () => {

@@ -21,6 +21,7 @@ if (!container) throw new Error("#map missing");
 const map = await createMap(container);
 const store = new ClientStore();
 const infoCache = new Map<string, AircraftInfo | null>();
+let lastFaaState: string | null = null;
 const panel = createPanel(document.getElementById("app") as HTMLElement, {
   getInfo: (id) => infoCache.get(id),
   requestInfo: (id) => socket?.sendAircraftInfo(id),
@@ -99,6 +100,17 @@ map.on("load", async () => {
       hud.setFeeds(s.feeds, s.serverTime);
       pollRate.setPollMs(s.feeds.opensky.pollMs);
       timeline.setRange(s.history.from, s.history.to);
+      if (s.faa.state === "ready" && lastFaaState !== "ready") {
+        const purged: string[] = [];
+        for (const [id, v] of infoCache) {
+          if (v === null) {
+            infoCache.delete(id);
+            purged.push(id);
+          }
+        }
+        if (purged.length) panel.resetInfoRequests(purged);
+      }
+      lastFaaState = s.faa.state;
     },
     onTimelineState: (time, crafts) => {
       if (time === null) {

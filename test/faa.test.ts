@@ -121,4 +121,15 @@ describe("FaaLoader", () => {
     expect(loader.lookup("a00560")).toBeNull();
     loader.stop();
   });
+
+  it("reports error state when the data directory cannot be created", async () => {
+    const blocker = join(dir, "blocker");
+    await writeFile(blocker, "x");
+    const loader = new FaaLoader({ dir: join(blocker, "sub"), refreshMs: 3600000, now: () => t, fetchImpl: (async () => { throw new Error("no network in this test"); }) as typeof fetch });
+    await expect(loader.init()).rejects.toThrow();
+    expect(loader.status().state).toBe("error");
+    expect(loader.status().lastError).not.toBeNull();
+    expect(loader.lookup("a00560")).toBeNull();
+    loader.stop();
+  });
 });
