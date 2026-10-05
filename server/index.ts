@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
@@ -11,7 +11,8 @@ import { createTokenProvider } from "./opensky-auth.js";
 import { AisClient } from "./ais.js";
 import { Hub, parseClientMessage } from "./hub.js";
 import { HistoryRecorder, type HistoryRange } from "./history.js";
-import { FaaLoader, type FaaProvider } from "./faa.js";
+import { FaaLoader, type FaaProvider, type FaaRecord } from "./faa.js";
+import { FaaLookup } from "./faa-lookup.js";
 
 export interface ServerDeps {
   store?: CraftStore;
@@ -66,6 +67,10 @@ export async function buildApp(deps: ServerDeps = {}) {
       ? new FaaLoader({ dir: faaDir, refreshMs: config.FAA_REFRESH_MS, log })
       : deps.faa;
   if (faa) void faa.init().catch((e) => log(`faa: init failed — enrichment disabled (${e instanceof Error ? e.message : String(e)})`));
+  const faaLookup = faa
+    ? new FaaLookup(faa, { cacheFile: join(faaDir, "enrichment.json"), log })
+    : null;
+  if (faaLookup) await faaLookup.init();
   const hub =
     deps.hub ??
     new Hub({
@@ -121,8 +126,14 @@ export async function buildApp(deps: ServerDeps = {}) {
         case "aircraft.info": {
           const provider = faa;
           if (!provider) break;
-          const rec = provider.lookup(msg.id);
-          reply({ type: "aircraft.info", id: msg.id, info: rec ? { ...rec, source: "db" as const } : null });
+          const craft = store.get(msg.id);
+          void (async () => {
+            let info: (FaaRecord & { source: "db" | "live" }) | null = null;
+            const db = provider.lookup(msg.id);
+            if (db) info = { ...db, source: "db" };
+            else if (craft && faaLookup) info = await faaLookup.lookup(craft);
+            reply({ type: "aircraft.info", id: msg.id, info });
+          })();
           break;
         }
         default:
@@ -159,6 +170,7 @@ export async function buildApp(deps: ServerDeps = {}) {
     hub.stop();
     recorder?.stop();
     faa?.stop();
+    faaLookup?.stop();
     opensky.stop();
     ais.stop();
     await app.close();
