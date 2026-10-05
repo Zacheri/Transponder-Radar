@@ -8,7 +8,9 @@ Orientation for agents working in this repo. Full history: git log +
 
 Local, single-user web app: live world map of **aircraft** (OpenSky ADS-B) and
 **vessels** (aisstream.io AIS) on a dark MapLibre GL map, with per-kind icons,
-click-to-open detail panel, kind filter drawer, and a status HUD.
+click-to-open detail panel (FAA type/year/owner for US-registered aircraft),
+kind filter drawer, live aircraft poll-rate slider, timeline rewind, and a
+status HUD.
 
 ## Commands
 
@@ -32,8 +34,13 @@ All live in `.env` (gitignored). `credentials.json` (OpenSky OAuth2 client) is
 in the repo root and gitignored. Values: `AISSTREAM_API_KEY`,
 `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET`, `VITE_CARTO_API_KEY`.
 `.env.example` holds empty secrets plus non-secret defaults (`PORT`,
-`OPENSKY_POLL_MS`, `BATCH_MS`, `STALE_MS`, `REMOVE_MS`). When reporting or
-committing, never print the secret values.
+`OPENSKY_POLL_MS`, `BATCH_MS`, `STALE_MS`, `REMOVE_MS`, `HISTORY_SNAPSHOT_MS`,
+`HISTORY_MAX_BYTES`, `FAA_REFRESH_MS`). When reporting or committing, never
+print the secret values.
+
+`data/` (gitignored) is a local runtime cache — `data/faa/` (FAA registry
+cache + `enrichment.json`), `data/history/` (timeline snapshots). Never
+commit it; delete it to reset all cached data.
 
 ## Execution conventions (established with the user)
 
@@ -117,27 +124,62 @@ committing, never print the secret values.
 - `PositionReport.Timestamp` is a small counter, **not** epoch — vessel
   `updatedAt` is set to receive time.
 
+### FAA registry (`server/faa.ts`, `server/faa-lookup.ts`)
+
+- Bulk: `https://registry.faa.gov/database/ReleasableAircraft.zip` (~73 MB,
+  data refreshed daily 11:30 pm CT). Files are comma-delimited, space-padded,
+  BOM-prefixed; a few rows have quoted fields (`parseCsv` handles all).
+  `MASTER.txt` (~317k rows): col 1 N-NUMBER, col 3 MFR MDL CODE, col 5
+  YEAR MFR (~78% populated), col 7 NAME (registrant; blank when redacted per
+  49 U.S.C. §44114(b) — render "—", never fabricate), col 10 CITY, col 11
+  STATE, col 34 MODE S CODE HEX (= icao24, 100% populated). `ACFTREF.txt`
+  (~94k): CODE → MFR + MODEL at subvariant quality (e.g. `737-8DR`,
+  `A320-214`), joined on MASTER's MFR MDL CODE. In-memory index is keyed by
+  lowercased icao24 hex; refresh failure keeps serving the stale index.
+  Verified sample: N100GX = hex A00560, 2007, GULFSTREAM G150,
+  BRULECREEK AVIATION LLC, PARK CITY UTAH.
+- Per-click fallback: GET `.../aircraftinquiry/Search/NNumberInquiry` (yields
+  cookie + `__RequestVerificationToken`) then POST `.../Search/NNumberResult`
+  with `NNumbertxt` + token; needs a browser-like UA (plain clients get
+  rejected). Result page status line is `<N> is Assigned` / `has
+  Assigned/Multiple Records` / `is Deregistered`; invalid formats return the
+  form page (no "Inquiry Results"). Lookups merge into the in-memory index and
+  persist to `data/faa/enrichment.json` (hex → record; misses negative-cached
+  1 h). Fixtures in `test/fixtures/` are recorded real responses — tests run
+  offline; never re-record casually.
+- Coverage: US-registered aircraft only (v1 ruling).
+
 ## Architecture at a glance
 
 - `shared/craft.ts` — `Craft` type, 14 `KINDS` (air: commercial, business,
   military, general; sea: cargo, tanker, passenger, military_vessel, fishing,
   sailing, pleasure, tug_work, service, other), `AIR_KINDS`/`SEA_KINDS`.
   Icon image names are 1:1 with kinds (`src/assets/icons/*.svg`, 24×24).
-- `server/` — Fastify + `ws`: `index.ts` (wiring, prod static serving, clean
-  shutdown), `config.ts` (env), `store.ts` (CraftStore: upsert/prune/sweep),
-  `hub.ts` (WS broadcast: `snapshot`, `update`, `status` frames),
-  `opensky.ts` (poller), `opensky-auth.ts` (OAuth2 token provider), `ais.ts`
-  (AIS WS client), `normalize.ts` (raw → `Craft`), `classify.ts` (kind
-  inference from callsign/`aisType`).
-- `src/` — `main.ts` (top-level await; wiring), `map/` (basemap probe, map
-  creation, icon rasterization, `icon-urls.ts` = Vite SVG import map, layer
-  defs), `data/` (socket client, client store, feature building, icon filter),
-  `ui/` (panel, filters, HUD).
-- `README.md` "How it works" is partly stale: it still says aircraft poll
-  every 36 s under the anonymous limit; current reality is OAuth2 auth with
-  `OPENSKY_POLL_MS` default 120 s (`server/config.ts`).
+- `server/` — Fastify + `ws`: `index.ts` (wiring, client-frame dispatch, prod
+  static serving, clean shutdown), `config.ts` (env), `store.ts`
+  (CraftStore: upsert/prune/sweep), `hub.ts` (WS broadcast: `snapshot`,
+  `update`, `status` frames), `opensky.ts` (poller; live `setInterval`),
+  `opensky-auth.ts` (OAuth2 token provider), `ais.ts` (AIS WS client),
+  `normalize.ts` (raw → `Craft`), `classify.ts` (kind inference from
+  callsign/`aisType`; exports `N_NUMBER_RE`), `history.ts` (HistoryRecorder:
+  gzipped snapshots to `data/history/`, size-capped eviction, `seek()`),
+  `faa.ts` (FaaLoader: daily bulk registry download + hex→record index),
+  `faa-lookup.ts` (FaaLookup: per-click N-number web fallback + enrichment
+  cache).
+- `src/` — `main.ts` (top-level await; wiring, rewind mode, info cache),
+  `map/` (basemap probe, map creation, icon rasterization, `icon-urls.ts` =
+  Vite SVG import map, layer defs), `data/` (socket client, client store,
+  feature building, icon filter, `replay.ts` = client-side update suppression
+  gate for rewind), `ui/` (panel (FAA info rows), filters, HUD,
+  `timeline.ts` (scrubber + REPLAY badge + LIVE), `pollrate.ts` (slider pill
+  with credit warnings)).
 - WS protocol (both ends mirror it, no shared file):
-  `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`,
-  `{type:"status",feeds:{opensky:{lastOkAt,lastError},ais:{connected,enabled}},serverTime}`.
-- `test/` — 16 files, 80 tests. Node-environment Vitest; browser-only code
+  client → server: `{type:"poll.rate",ms}`, `{type:"timeline.seek",time}`,
+  `{type:"timeline.live"}`, `{type:"aircraft.info",id}`;
+  server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`,
+  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled}},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},serverTime}`,
+  `{type:"timeline.state",time,craft}` (`time:null` = return to live / seek
+  error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
+  `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`).
+- `test/` — 20 files, 122 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

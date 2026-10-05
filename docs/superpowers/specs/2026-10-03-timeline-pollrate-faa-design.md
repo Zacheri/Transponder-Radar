@@ -44,8 +44,9 @@ database (verified available 2026-10-03).
 
 ### Protocol
 
-- Client → server: `{type:"poll.rate", ms:number}`. Invalid/absent/`ms` outside
-  clamp → ignored (no error frame).
+- Client → server: `{type:"poll.rate", ms:number}`. Invalid/absent frames are
+  ignored (no error frame). `ms` outside the clamp is **clamped** to
+  `POLL_MIN_MS`…`POLL_MAX_MS` (15 000…3 600 000) — still no error frame.
 - `status` frame: `feeds.opensky` gains `pollMs:number` (current effective
   interval) so any client can render the true state.
 
