@@ -213,7 +213,7 @@ describe("OpenSkyPoller", () => {
     expect(nextDelayMs).toBe(2000);
   });
 
-  describe("setInterval", () => {
+  describe("setPollInterval", () => {
     it("reports the current interval in feedStatus", () => {
       const store = new CraftStore();
       const p = new OpenSkyPoller({ url, pollMs: 120000, graceMs: 30000, store });
@@ -223,18 +223,18 @@ describe("OpenSkyPoller", () => {
     it("clamps below POLL_MIN_MS and above POLL_MAX_MS", () => {
       const store = new CraftStore();
       const p = new OpenSkyPoller({ url, pollMs: 120000, graceMs: 30000, store });
-      p.setInterval(1000);
+      p.setPollInterval(1000);
       expect(p.feedStatus.pollMs).toBe(POLL_MIN_MS);
-      p.setInterval(999999999);
+      p.setPollInterval(999999999);
       expect(p.feedStatus.pollMs).toBe(POLL_MAX_MS);
-      p.setInterval(45000);
+      p.setPollInterval(45000);
       expect(p.feedStatus.pollMs).toBe(45000);
     });
 
     it("applies the new interval to the next successful poll", async () => {
       const store = new CraftStore();
       const p = new OpenSkyPoller({ url, pollMs: 120000, graceMs: 30000, store });
-      p.setInterval(30000);
+      p.setPollInterval(30000);
       current = { time: 0, states: [PLANE] };
       expect((await p.pollOnce()).nextDelayMs).toBe(30000);
     });
@@ -245,7 +245,7 @@ describe("OpenSkyPoller", () => {
         pollMs: 120000, graceMs: 30000, store,
         fetchImpl: (async () => { throw new Error("ECONNRESET"); }) as typeof fetch,
       });
-      p.setInterval(30000);
+      p.setPollInterval(30000);
       expect((await p.pollOnce()).nextDelayMs).toBe(60000); // 1st error: 30000 * 2
     });
   });

@@ -27,7 +27,7 @@ registry.
 6. Open <http://localhost:5173>.
 
 The first start also downloads the FAA aircraft registry in the background
-(one-time, ~73 MB) to power the aircraft type/owner panel rows.
+(~73 MB; refreshed automatically) to power the aircraft type/owner panel rows.
 
 ## Production
 

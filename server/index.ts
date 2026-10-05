@@ -106,7 +106,7 @@ export async function buildApp(deps: ServerDeps = {}) {
       };
       switch (msg.type) {
         case "poll.rate":
-          opensky.setInterval(msg.ms);
+          opensky.setPollInterval(msg.ms);
           break;
         case "timeline.seek": {
           const r = recorder;

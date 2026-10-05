@@ -36,7 +36,7 @@ export class OpenSkyPoller {
     return { lastOkAt: this.lastOkAt, lastError: this.lastError, pollMs: this.opts.pollMs };
   }
 
-  setInterval(ms: number): void {
+  setPollInterval(ms: number): void {
     const n = Math.round(ms);
     if (Number.isFinite(n)) {
       this.opts.pollMs = Math.min(POLL_MAX_MS, Math.max(POLL_MIN_MS, n));

@@ -92,12 +92,12 @@ export function buildIndex(masterText: string, refText: string): Map<string, Faa
   const idx = new Map<string, FaaRecord>();
   for (const r of parseCsv(masterText).slice(1)) {
     const hex = (r[C_MODES_HEX] ?? "").toUpperCase();
-    const n = r[C_N] ?? "";
-    if (!n || !hex) continue;
+    const rawN = r[C_N] ?? "";
+    if (!rawN || !hex) continue;
     const codeInfo = ref.get(r[C_MFR_MDL_CODE] ?? "");
     const yearRaw = r[C_YEAR] ?? "";
     idx.set(hex.toLowerCase(), {
-      nNumber: n,
+      nNumber: (rawN.startsWith("N") ? rawN : `N${rawN}`).toUpperCase(),
       year: yearRaw && Number.isInteger(Number(yearRaw)) ? Number(yearRaw) : null,
       mfr: codeInfo?.mfr || null,
       model: codeInfo?.model || null,

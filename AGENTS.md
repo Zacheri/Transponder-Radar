@@ -158,7 +158,8 @@ commit it; delete it to reset all cached data.
 - `server/` — Fastify + `ws`: `index.ts` (wiring, client-frame dispatch, prod
   static serving, clean shutdown), `config.ts` (env), `store.ts`
   (CraftStore: upsert/prune/sweep), `hub.ts` (WS broadcast: `snapshot`,
-  `update`, `status` frames), `opensky.ts` (poller; live `setInterval`),
+   `update`, `status` frames), `opensky.ts` (poller; setTimeout chain; live
+   `setPollInterval`),
   `opensky-auth.ts` (OAuth2 token provider), `ais.ts` (AIS WS client),
   `normalize.ts` (raw → `Craft`), `classify.ts` (kind inference from
   callsign/`aisType`; exports `N_NUMBER_RE`), `history.ts` (HistoryRecorder:

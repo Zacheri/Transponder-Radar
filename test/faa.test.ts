@@ -41,7 +41,7 @@ describe("buildIndex", () => {
 
   it("joins master + ref on MFR MDL CODE, keyed by lowercased hex", () => {
     expect(idx.get("a00560")).toEqual({
-      nNumber: "100GX",
+      nNumber: "N100GX",
       year: 2007,
       mfr: "ISRAEL AIRCRAFT INDUSTRIES",
       model: "GULFSTREAM G150",
@@ -53,7 +53,7 @@ describe("buildIndex", () => {
 
   it("nulls missing year and unknown model code; keeps owner", () => {
     expect(idx.get("a1b2c3")).toEqual({
-      nNumber: "1234A",
+      nNumber: "N1234A",
       year: null,
       mfr: null,
       model: null,
@@ -100,7 +100,7 @@ describe("FaaLoader", () => {
     expect(fetchCalls).toBe(0);
     expect(loader.status().state).toBe("ready");
     expect(loader.status().aircraft).toBe(3);
-    expect(loader.lookup("a00560")?.nNumber).toBe("100GX");
+    expect(loader.lookup("a00560")?.nNumber).toBe("N100GX");
     loader.stop();
   });
 
@@ -109,7 +109,7 @@ describe("FaaLoader", () => {
     const loader = new FaaLoader({ dir, refreshMs: 3600000, now: () => t, fetchImpl: (async () => { fetchCalls++; throw new Error("net down"); }) as typeof fetch });
     await loader.init();
     expect(loader.status().state).toBe("stale");
-    expect(loader.lookup("a00560")?.nNumber).toBe("100GX");
+    expect(loader.lookup("a00560")?.nNumber).toBe("N100GX");
     loader.stop();
   });
 
@@ -119,6 +119,14 @@ describe("FaaLoader", () => {
     expect(loader.status().state).toBe("error");
     expect(loader.status().lastError).toBe("net down");
     expect(loader.lookup("a00560")).toBeNull();
+    loader.stop();
+  });
+
+  it("refresh timer fires additional refreshes after init", async () => {
+    const loader = new FaaLoader({ dir, refreshMs: 50, now: () => t, fetchImpl: (async () => { fetchCalls++; throw new Error("net down"); }) as typeof fetch });
+    await loader.init();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(fetchCalls).toBeGreaterThanOrEqual(2);
     loader.stop();
   });
 

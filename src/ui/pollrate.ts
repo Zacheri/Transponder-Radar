@@ -34,15 +34,21 @@ export function createPollRate(
     credits.dataset.level = c >= DANGER_CREDITS_PER_DAY ? "danger" : c >= WARN_CREDITS_PER_DAY ? "warn" : "ok";
   }
 
+  let debounce: number | null = null;
+
   slider.addEventListener("input", () => {
     const ms = Number(slider.value);
     render(ms);
-    send(ms);
+    if (debounce != null) clearTimeout(debounce);
+    debounce = window.setTimeout(() => {
+      debounce = null;
+      send(ms);
+    }, 150);
   });
 
   function setPollMs(ms: number): void {
     slider.value = String(Math.min(MAX_MS, Math.max(MIN_MS, ms)));
-    render(Number(slider.value));
+    render(ms);
   }
 
   setPollMs(DEFAULT_MS);
