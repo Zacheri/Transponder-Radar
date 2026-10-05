@@ -29,3 +29,6 @@ coverage/
 
 # superpowers SDD scratch (ledger, briefs, reports) — never commit
 .superpowers/
+
+# runtime data (FAA registry cache, history snapshots) — never commit
+data/
