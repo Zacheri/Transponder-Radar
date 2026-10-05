@@ -72,7 +72,7 @@ and survives restarts.
 
 Clicking a US-registered aircraft shows its make/model (to subvariant),
 year, and registered owner. Source: the FAA's daily bulk "Releasable Aircraft
-Database" (one-time ~73 MB zip → ~200 MB in `data/faa/`, refreshed every
+Database" (~73 MB zip → ~200 MB in `data/faa/`, refreshed every
 `FAA_REFRESH_MS`). Aircraft missing from the bulk DB (e.g. registered after
 the last refresh) are resolved on click via the FAA N-number lookup, cached in
 `data/faa/enrichment.json`. Non-US aircraft — or records the FAA redacts —
