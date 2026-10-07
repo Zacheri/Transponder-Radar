@@ -5,10 +5,10 @@ export default defineConfig({
     target: "es2022",
   },
   server: {
-    port: 5173,
+    port: 1738,
     proxy: {
-      "/ws": { target: "ws://127.0.0.1:8787", ws: true },
-      "/health": { target: "http://127.0.0.1:8787" },
+      "/ws": { target: "ws://127.0.0.1:2001", ws: true },
+      "/health": { target: "http://127.0.0.1:2001" },
     },
   },
   test: {

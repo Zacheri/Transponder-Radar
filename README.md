@@ -24,7 +24,7 @@ registry.
    `VITE_CARTO_API_KEY` for the Carto dark basemap. Without it (or if the key
    is invalid), the map falls back to OpenFreeMap dark — no key needed.
 5. `npm run dev`
-6. Open <http://localhost:5173>.
+6. Open <http://localhost:1738>.
 
 The first start also downloads the FAA aircraft registry in the background
 (~73 MB; refreshed automatically) to power the aircraft type/owner panel rows.
@@ -32,17 +32,17 @@ The first start also downloads the FAA aircraft registry in the background
 ## Production
 
 `npm run build && npm start` — the backend serves the built frontend from
-`dist/` plus the API + WS on one port. Open <http://127.0.0.1:8787>.
+`dist/` plus the API + WS on one port. Open <http://127.0.0.1:2001>.
 
 ## Scripts
 
 | Command             | What it does                                |
 | ------------------- | ------------------------------------------- |
-| `npm run dev`       | Backend (`:8787`) + frontend (`:5173`)      |
+| `npm run dev`       | Backend (`:2001`) + frontend (`:1738`)      |
 | `npm test`          | Unit + integration tests (Vitest)           |
 | `npm run typecheck` | `tsc --noEmit`                              |
 | `npm run build`     | Production frontend build → `dist/`         |
-| `npm start`         | Serves `dist/` + API + WS on `:8787` (prod) |
+| `npm start`         | Serves `dist/` + API + WS on `:2001` (prod) |
 
 ## How it works
 

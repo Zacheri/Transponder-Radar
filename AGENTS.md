@@ -16,11 +16,11 @@ status HUD.
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Backend `:8787` (tsx watch) + Vite `:5173` (proxies `/ws`, `/health`) |
+| `npm run dev` | Backend `:2001` (tsx watch) + Vite `:1738` (proxies `/ws`, `/health`) |
 | `npm test` | Vitest, `test/**/*.test.ts` — **gate: all pass** |
 | `npm run typecheck` | `tsc --noEmit` — **gate: clean** |
 | `npm run build` | Vite build — **gate: succeeds** (maplibre-gl >500 kB chunk warning is an accepted exception) |
-| `npm start` | Prod: serves `dist/` + API + WS on `:8787` |
+| `npm start` | Prod: serves `dist/` + API + WS on `:2001` |
 
 `npm run lint` is broken repo-wide (pre-existing: no eslint config). It is NOT
 part of the gate.
