@@ -3,7 +3,7 @@ import { parseRadarMessage } from "../src/data/ws.js";
 
 const feeds = {
   opensky: { lastOkAt: 1000, lastError: null, pollMs: 120000 },
-  ais: { connected: true, enabled: true },
+  ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 900 },
 };
 
 const history = { from: null, to: null, snapshots: 0 };

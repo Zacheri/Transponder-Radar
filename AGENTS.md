@@ -120,7 +120,27 @@ commit it; delete it to reset all cached data.
 
 - Auth is an **in-band JSON subscription** sent after WS `open` (NOT headers):
   `{APIKey, BoundingBoxes: [[[-90,-180],[90,180]]], FilterMessageTypes:
-  ["PositionReport","ShipStaticData"]}`.
+  ["PositionReport","ShipStaticData"]}`. The first subscription must arrive
+  **within 3 s** of connecting or the server closes the connection.
+- **permessage-deflate is required**: beginning Sept 2026 uncompressed
+  connections are subject to per-user bandwidth limits and over-limit messages
+  are **dropped silently** (the stream just goes quiet — vessels then go stale
+  and are swept). We connect with `perMessageDeflate: true`; the
+  `SubscriptionConfirmation` frame logs its `CompressionEnabled` flag
+  (`ais: subscribed (compression: true)`).
+- **Keepalive**: the client pings every 20 s and `terminate()`s after 40 s
+  without a pong (catches half-open TCP), then reconnects with the usual
+  backoff.
+- **No documented usage quota** for the free key — limits are
+  connection-shaped: 3 subscribed connections/account, 3 open connections/IP,
+  subscription updates ≤ 1/s per connection (they replace, not merge),
+  200 MMSI filters.
+- Documented close causes: late/malformed subscription, invalid key,
+  connection-limit breach, update spam, fragmented client messages, missed
+  keepalive, slow reads. Close code + reason are logged (`ais: closed 4001: …`)
+  and surfaced in the `status` frame (`ais.lastError`); `ais.lastMessageAt`
+  feeds the HUD (`AIS: ok / waiting / stale Nm / down / off`, stale = 3 min
+  without data).
 - `PositionReport.Timestamp` is a small counter, **not** epoch — vessel
   `updatedAt` is set to receive time.
 
@@ -172,15 +192,19 @@ commit it; delete it to reset all cached data.
   Vite SVG import map, layer defs), `data/` (socket client, client store,
   feature building, icon filter, `replay.ts` = client-side update suppression
   gate for rewind), `ui/` (panel (FAA info rows), filters, HUD,
-  `timeline.ts` (scrubber + REPLAY badge + LIVE), `pollrate.ts` (slider pill
-  with credit warnings)).
+  `timeline.ts` (scrubber + REPLAY badge + LIVE), `pollrate.ts`
+  (`createFeedRate` factory — one slider per feed; the opensky instance shows
+  credit warnings)).
 - WS protocol (both ends mirror it, no shared file):
-  client → server: `{type:"poll.rate",ms}`, `{type:"timeline.seek",time}`,
-  `{type:"timeline.live"}`, `{type:"aircraft.info",id}`;
+  client → server: `{type:"feed.rate",feed,ms}` (`feed` ∈ hub `FEED_IDS` =
+  `["opensky"]`; a new service adds one `feedRate` handler entry in
+  `index.ts` + a slider via the `createFeedRate` factory),
+  `{type:"timeline.seek",time}`, `{type:"timeline.live"}`,
+  `{type:"aircraft.info",id}`;
   server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`,
-  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled}},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},serverTime}`,
+  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled,lastError,lastMessageAt}},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},serverTime}`,
   `{type:"timeline.state",time,craft}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
   `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`).
-- `test/` — 20 files, 122 tests. Node-environment Vitest; browser-only code
+- `test/` — 20 files, 128 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

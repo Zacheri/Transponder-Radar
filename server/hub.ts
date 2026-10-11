@@ -10,11 +10,14 @@ export interface WsLike {
 
 export interface FeedStatus {
   opensky: { lastOkAt: number | null; lastError: string | null; pollMs: number };
-  ais: { connected: boolean; enabled: boolean };
+  ais: { connected: boolean; enabled: boolean; lastError: string | null; lastMessageAt: number | null };
 }
 
+export const FEED_IDS = ["opensky"] as const;
+export type FeedId = (typeof FEED_IDS)[number];
+
 export type ClientMessage =
-  | { type: "poll.rate"; ms: number }
+  | { type: "feed.rate"; feed: FeedId; ms: number }
   | { type: "timeline.seek"; time: number }
   | { type: "timeline.live" }
   | { type: "aircraft.info"; id: string };
@@ -22,7 +25,15 @@ export type ClientMessage =
 export function parseClientMessage(raw: string): ClientMessage | null {
   try {
     const m = JSON.parse(raw) as ClientMessage;
-    if (m.type === "poll.rate" && typeof m.ms === "number" && Number.isFinite(m.ms) && m.ms > 0) return m;
+    if (
+      m.type === "feed.rate" &&
+      (FEED_IDS as readonly string[]).includes(m.feed) &&
+      typeof m.ms === "number" &&
+      Number.isFinite(m.ms) &&
+      m.ms > 0
+    ) {
+      return { type: "feed.rate", feed: m.feed as FeedId, ms: m.ms };
+    }
     if (m.type === "timeline.seek" && typeof m.time === "number" && Number.isFinite(m.time)) return m;
     if (m.type === "timeline.live") return m;
     if (m.type === "aircraft.info" && typeof m.id === "string" && m.id.length > 0) return m;

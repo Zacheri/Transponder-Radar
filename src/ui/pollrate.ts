@@ -1,35 +1,42 @@
-const MIN_MS = 30000;
-const MAX_MS = 900000;
-const STEP_MS = 15000;
-const DEFAULT_MS = 120000;
-
-const CREDITS_PER_POLL = 4;
 const WARN_CREDITS_PER_DAY = 2000;
 const DANGER_CREDITS_PER_DAY = 4000;
 
-export function createPollRate(
+export interface FeedRateOpts {
+  label: string;
+  ariaLabel: string;
+  minMs: number;
+  maxMs: number;
+  stepMs: number;
+  defaultMs: number;
+  creditsPerPoll?: number;
+  send: (ms: number) => void;
+}
+
+export function createFeedRate(
   root: HTMLElement,
-  send: (ms: number) => void,
-): { setPollMs: (ms: number) => void } {
+  opts: FeedRateOpts,
+): { setMs: (ms: number) => void } {
+  const { minMs, maxMs, stepMs, defaultMs, creditsPerPoll } = opts;
   const el = document.createElement("div");
   el.className = "pollrate";
   const label = document.createElement("span");
   label.className = "pollrate-label";
   const slider = document.createElement("input");
   slider.type = "range";
-  slider.min = String(MIN_MS);
-  slider.max = String(MAX_MS);
-  slider.step = String(STEP_MS);
-  slider.value = String(DEFAULT_MS);
-  slider.setAttribute("aria-label", "Aircraft poll interval");
+  slider.min = String(minMs);
+  slider.max = String(maxMs);
+  slider.step = String(stepMs);
+  slider.value = String(defaultMs);
+  slider.setAttribute("aria-label", opts.ariaLabel);
   const credits = document.createElement("span");
   credits.className = "pollrate-credits";
   el.append(label, slider, credits);
   root.appendChild(el);
 
   function render(ms: number): void {
-    label.textContent = `Aircraft poll ${Math.round(ms / 1000)} s`;
-    const c = Math.ceil(86400000 / ms) * CREDITS_PER_POLL;
+    label.textContent = `${opts.label} ${Math.round(ms / 1000)} s`;
+    if (creditsPerPoll == null) return;
+    const c = Math.ceil(86400000 / ms) * creditsPerPoll;
     credits.textContent = `≈${c.toLocaleString()} credits/day`;
     credits.dataset.level = c >= DANGER_CREDITS_PER_DAY ? "danger" : c >= WARN_CREDITS_PER_DAY ? "warn" : "ok";
   }
@@ -42,15 +49,15 @@ export function createPollRate(
     if (debounce != null) clearTimeout(debounce);
     debounce = window.setTimeout(() => {
       debounce = null;
-      send(ms);
+      opts.send(ms);
     }, 150);
   });
 
-  function setPollMs(ms: number): void {
-    slider.value = String(Math.min(MAX_MS, Math.max(MIN_MS, ms)));
+  function setMs(ms: number): void {
+    slider.value = String(Math.min(maxMs, Math.max(minMs, ms)));
     render(ms);
   }
 
-  setPollMs(DEFAULT_MS);
-  return { setPollMs };
+  setMs(defaultMs);
+  return { setMs };
 }

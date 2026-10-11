@@ -79,7 +79,7 @@ describe("Hub", () => {
     const store = new CraftStore();
     let feeds: FeedStatus = {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-      ais: { connected: false, enabled: false },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null },
     };
     const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
     const sock = fakeSocket();
@@ -87,13 +87,14 @@ describe("Hub", () => {
     hub.start();
     feeds = {
       opensky: { lastOkAt: 123, lastError: null, pollMs: 120000 },
-      ais: { connected: true, enabled: true },
+      ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 456 },
     };
     await waitFor(() => statusFrames(sock.sent).length >= 2);
     const frames = statusFrames(sock.sent);
     const last = frames[frames.length - 1];
     expect(last.feeds.opensky.lastOkAt).toBe(123);
     expect(last.feeds.ais.connected).toBe(true);
+    expect(last.feeds.ais.lastMessageAt).toBe(456);
     expect(typeof last.serverTime).toBe("number");
     hub.stop();
   });
@@ -102,7 +103,7 @@ describe("Hub", () => {
     const store = new CraftStore();
     const feeds = {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-      ais: { connected: false, enabled: false },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null },
     };
     const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
     const sock = fakeSocket();
@@ -119,7 +120,7 @@ describe("Hub", () => {
     const store = new CraftStore();
     const feeds = {
       opensky: { lastOkAt: null, lastError: "HTTP 429", pollMs: 120000 },
-      ais: { connected: false, enabled: true },
+      ais: { connected: false, enabled: true, lastError: "closed 1006", lastMessageAt: null },
     };
     const hub = new Hub({ store, batchMs: 1000, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
     const sock = fakeSocket();
@@ -135,7 +136,7 @@ describe("Hub", () => {
   it("status frames carry history bounds", async () => {
     const store = new CraftStore();
     let history: HistoryRange = { from: null, to: null, snapshots: 0 };
-    const feeds = { opensky: { lastOkAt: null, lastError: null, pollMs: 120000 }, ais: { connected: false, enabled: false } };
+    const feeds = { opensky: { lastOkAt: null, lastError: null, pollMs: 120000 }, ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null } };
     const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
     const sock = fakeSocket();
     hub.attach(sock);
@@ -153,7 +154,7 @@ describe("Hub", () => {
 
 describe("parseClientMessage", () => {
   it("accepts well-formed control frames", () => {
-    expect(parseClientMessage(JSON.stringify({ type: "poll.rate", ms: 60000 }))).toEqual({ type: "poll.rate", ms: 60000 });
+    expect(parseClientMessage(JSON.stringify({ type: "feed.rate", feed: "opensky", ms: 60000 }))).toEqual({ type: "feed.rate", feed: "opensky", ms: 60000 });
     expect(parseClientMessage(JSON.stringify({ type: "timeline.seek", time: 123 }))).toEqual({ type: "timeline.seek", time: 123 });
     expect(parseClientMessage(JSON.stringify({ type: "timeline.live" }))).toEqual({ type: "timeline.live" });
     expect(parseClientMessage(JSON.stringify({ type: "aircraft.info", id: "ac4963" }))).toEqual({ type: "aircraft.info", id: "ac4963" });
@@ -161,9 +162,12 @@ describe("parseClientMessage", () => {
 
   it("rejects malformed frames", () => {
     expect(parseClientMessage("not json")).toBeNull();
-    expect(parseClientMessage(JSON.stringify({ type: "poll.rate" }))).toBeNull();
-    expect(parseClientMessage(JSON.stringify({ type: "poll.rate", ms: -5 }))).toBeNull();
-    expect(parseClientMessage(JSON.stringify({ type: "poll.rate", ms: "60000" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "feed.rate" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "feed.rate", feed: "opensky" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "feed.rate", feed: "opensky", ms: -5 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "feed.rate", feed: "opensky", ms: "60000" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "feed.rate", feed: "nope", ms: 60000 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "poll.rate", ms: 60000 }))).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: "timeline.seek" }))).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: "aircraft.info", id: "" }))).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: "bogus" }))).toBeNull();

@@ -75,7 +75,12 @@ describe("full pipeline (stub feeds -> hub)", () => {
       statusPayload: () => ({
         feeds: {
           opensky: opensky.feedStatus,
-          ais: { connected: ais.isConnected, enabled: true },
+          ais: {
+            connected: ais.isConnected,
+            enabled: true,
+            lastError: ais.feedStatus.lastError,
+            lastMessageAt: ais.feedStatus.lastMessageAt,
+          },
         },
         history: { from: null, to: null, snapshots: 0 },
         faa: fakeFaa.status(),
@@ -107,6 +112,14 @@ describe("full pipeline (stub feeds -> hub)", () => {
     expect(st.feeds.opensky.pollMs).toBeTypeOf("number");
     expect(st.history).toEqual({ from: null, to: null, snapshots: 0 });
 
+    await waitFor(
+      () => messages.some((m: any) => m.type === "status" && m.feeds.ais?.lastMessageAt != null),
+      3000,
+    );
+    const aisSt = messages.find((m: any) => m.type === "status" && m.feeds.ais?.lastMessageAt != null)!;
+    expect(aisSt.feeds.ais.connected).toBe(true);
+    expect(aisSt.feeds.ais.lastError).toBeNull();
+
     await waitFor(() => {
       const all = messages.flatMap((m) => m.upsert ?? (m.type === "snapshot" ? m.craft : []));
       return all.some((c: any) => c.id === "ac4963") && all.some((c: any) => c.id === "999");
@@ -122,14 +135,14 @@ describe("full pipeline (stub feeds -> hub)", () => {
     ws.close();
   });
 
-  it("poll.rate frame changes the effective poll interval", async () => {
+  it("feed.rate frame changes the effective poll interval", async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
     let opened = false;
     ws.on("open", () => {
       opened = true;
     });
     await waitFor(() => opened, 3000);
-    ws.send(JSON.stringify({ type: "poll.rate", ms: 60000 }));
+    ws.send(JSON.stringify({ type: "feed.rate", feed: "opensky", ms: 60000 }));
     await waitFor(() => server.opensky.feedStatus.pollMs === 60000, 3000);
     expect(server.opensky.feedStatus.pollMs).toBe(60000);
     ws.close();

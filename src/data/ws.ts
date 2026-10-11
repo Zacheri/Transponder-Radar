@@ -2,7 +2,7 @@ import type { Craft } from "../../shared/craft.js";
 
 export interface FeedStatus {
   opensky: { lastOkAt: number | null; lastError: string | null; pollMs: number };
-  ais: { connected: boolean; enabled: boolean };
+  ais: { connected: boolean; enabled: boolean; lastError: string | null; lastMessageAt: number | null };
 }
 
 export interface HistoryRange {
@@ -89,8 +89,8 @@ export class RadarSocket {
     }
   }
 
-  sendPollRate(ms: number): void {
-    this.send({ type: "poll.rate", ms });
+  sendFeedRate(feed: string, ms: number): void {
+    this.send({ type: "feed.rate", feed, ms });
   }
 
   sendTimelineSeek(time: number): void {

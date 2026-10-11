@@ -9,7 +9,7 @@ import { CraftStore } from "./store.js";
 import { OpenSkyPoller } from "./opensky.js";
 import { createTokenProvider } from "./opensky-auth.js";
 import { AisClient } from "./ais.js";
-import { Hub, parseClientMessage } from "./hub.js";
+import { Hub, parseClientMessage, type FeedId } from "./hub.js";
 import { HistoryRecorder, type HistoryRange } from "./history.js";
 import { FaaLoader, type FaaProvider, type FaaRecord } from "./faa.js";
 import { FaaLookup } from "./faa-lookup.js";
@@ -80,12 +80,21 @@ export async function buildApp(deps: ServerDeps = {}) {
       statusPayload: () => ({
         feeds: {
           opensky: opensky.feedStatus,
-          ais: { connected: ais.isConnected, enabled: Boolean(config.AISSTREAM_API_KEY) },
+          ais: {
+            connected: ais.isConnected,
+            enabled: Boolean(config.AISSTREAM_API_KEY),
+            lastError: ais.feedStatus.lastError,
+            lastMessageAt: ais.feedStatus.lastMessageAt,
+          },
         },
         history: recorder ? recorder.range() : emptyRange,
         faa: faa?.status() ?? { state: "loading", updatedAt: null, aircraft: 0, lastError: null },
       }),
     });
+
+  const feedRate: Record<FeedId, (ms: number) => void> = {
+    opensky: (ms) => opensky.setPollInterval(ms),
+  };
 
   const app = Fastify({ logger: false });
   await app.register(websocket);
@@ -105,8 +114,8 @@ export async function buildApp(deps: ServerDeps = {}) {
         }
       };
       switch (msg.type) {
-        case "poll.rate":
-          opensky.setPollInterval(msg.ms);
+        case "feed.rate":
+          feedRate[msg.feed]?.(msg.ms);
           break;
         case "timeline.seek": {
           const r = recorder;

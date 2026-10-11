@@ -3,6 +3,7 @@ import type { FeedStatus } from "../data/ws.js";
 export type ConnStatus = "connecting" | "open" | "closed";
 
 const OPENSKY_STALE_MS = 72000;
+const AIS_STALE_MS = 180000;
 
 export function createHud(root: HTMLElement): {
   setCounts(air: number, sea: number): void;
@@ -62,7 +63,14 @@ export function createHud(root: HTMLElement): {
         : serverTime - feeds.opensky.lastOkAt <= OPENSKY_STALE_MS
           ? "OpenSky: ok"
           : "OpenSky: stale";
-    const ai = !feeds.ais.enabled ? "AIS: off" : feeds.ais.connected ? "AIS: up" : "AIS: down";
+    let ai: string;
+    if (!feeds.ais.enabled) ai = "AIS: off";
+    else if (!feeds.ais.connected) ai = "AIS: down";
+    else if (feeds.ais.lastMessageAt == null) ai = "AIS: waiting";
+    else {
+      const age = serverTime - feeds.ais.lastMessageAt;
+      ai = age <= AIS_STALE_MS ? "AIS: ok" : `AIS: stale ${Math.max(1, Math.round(age / 60000))}m`;
+    }
     feedsEl.textContent = `${os} · ${ai}`;
   }
 

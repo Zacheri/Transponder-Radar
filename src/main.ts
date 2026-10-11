@@ -11,7 +11,7 @@ import type { CraftKind } from "../shared/craft.js";
 import { createPanel } from "./ui/panel.js";
 import { createFilters } from "./ui/filters.js";
 import { createHud } from "./ui/hud.js";
-import { createPollRate } from "./ui/pollrate.js";
+import { createFeedRate } from "./ui/pollrate.js";
 import { createTimeline } from "./ui/timeline.js";
 import { ReplayGate } from "./data/replay.js";
 
@@ -53,8 +53,15 @@ function refresh(): void {
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 
 let socket: RadarSocket | null = null;
-const pollRate = createPollRate(document.getElementById("app") as HTMLElement, (ms) => {
-  socket?.sendPollRate(ms);
+const pollRate = createFeedRate(document.getElementById("app") as HTMLElement, {
+  label: "Aircraft poll",
+  ariaLabel: "Aircraft poll interval",
+  minMs: 30000,
+  maxMs: 900000,
+  stepMs: 15000,
+  defaultMs: 120000,
+  creditsPerPoll: 4,
+  send: (ms) => socket?.sendFeedRate("opensky", ms),
 });
 const replay = new ReplayGate();
 const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
@@ -98,7 +105,7 @@ map.on("load", async () => {
     },
     onStatus: (s) => {
       hud.setFeeds(s.feeds, s.serverTime);
-      pollRate.setPollMs(s.feeds.opensky.pollMs);
+      pollRate.setMs(s.feeds.opensky.pollMs);
       timeline.setRange(s.history.from, s.history.to);
       if (s.faa.state === "ready" && lastFaaState !== "ready") {
         const purged: string[] = [];
