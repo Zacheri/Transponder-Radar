@@ -31,4 +31,4 @@ coverage/
 .superpowers/
 
 # runtime data (FAA registry cache, history snapshots) — never commit
-data/
+/data/
