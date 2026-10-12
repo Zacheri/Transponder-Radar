@@ -39,6 +39,25 @@ describe("OpenSkyPoller", () => {
     expect(store.get("ac4963")!.kind).toBe("commercial");
   });
 
+  it("applies resolveIcon to normalized crafts when configured", async () => {
+    const store = new CraftStore();
+    const poller = new OpenSkyPoller({
+      url, pollMs: 1000, graceMs: 30000, store,
+      resolveIcon: () => "narrowbody",
+    });
+    current = { time: 0, states: [PLANE] };
+    await poller.pollOnce();
+    expect(store.get("ac4963")!.icon).toBe("narrowbody");
+  });
+
+  it("leaves icon unset when no resolver is configured", async () => {
+    const store = new CraftStore();
+    const poller = new OpenSkyPoller({ url, pollMs: 1000, graceMs: 30000, store });
+    current = { time: 0, states: [PLANE] };
+    await poller.pollOnce();
+    expect(store.get("ac4963")!.icon).toBeUndefined();
+  });
+
   it("prunes air absent from a later snapshot after grace", async () => {
     const store = new CraftStore();
     let t = 0;

@@ -11,6 +11,8 @@ import { AisClient } from "../server/ais.js";
 import { Hub } from "../server/hub.js";
 import { HistoryRecorder } from "../server/history.js";
 import type { FaaProvider } from "../server/faa.js";
+import { resolveAirIcon } from "../server/icons.js";
+import type { AirKind } from "../shared/craft.js";
 import type { Craft } from "../shared/craft.js";
 import { waitFor } from "./util.js";
 
@@ -67,6 +69,15 @@ describe("full pipeline (stub feeds -> hub)", () => {
       pollMs: 50,
       graceMs: 30000,
       store,
+      resolveIcon: (c) => {
+        const rec = fakeFaa.lookup(c.id);
+        return resolveAirIcon({
+          kind: c.kind as AirKind,
+          callsign: c.callsign,
+          faaModel: rec?.model ?? null,
+          faaMfr: rec?.mfr ?? null,
+        });
+      },
     });
     const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
     const hub = new Hub({
@@ -132,6 +143,8 @@ describe("full pipeline (stub feeds -> hub)", () => {
     expect(ship.domain).toBe("sea");
     expect(ship.kind).toBe("cargo");
     expect(ship.shipName).toBe("PIPELINE SHIP");
+    expect(plane.icon).toBe("narrowbody"); // fakeFaa: 737-8DR / BOEING
+    expect(ship.icon).toBeUndefined(); // AIS sets no icon — client falls back
     ws.close();
   });
 

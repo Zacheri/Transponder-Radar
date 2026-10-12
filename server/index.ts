@@ -13,6 +13,8 @@ import { Hub, parseClientMessage, type FeedId } from "./hub.js";
 import { HistoryRecorder, type HistoryRange } from "./history.js";
 import { FaaLoader, type FaaProvider, type FaaRecord } from "./faa.js";
 import { FaaLookup } from "./faa-lookup.js";
+import { resolveAirIcon } from "./icons.js";
+import type { AirKind } from "../shared/craft.js";
 
 export interface ServerDeps {
   store?: CraftStore;
@@ -27,6 +29,11 @@ export interface ServerDeps {
 export async function buildApp(deps: ServerDeps = {}) {
   const log = deps.log ?? ((m: string) => console.log(`[radar] ${m}`));
   const store = deps.store ?? new CraftStore();
+  const faaDir = resolve(process.cwd(), "data/faa");
+  const faa: FaaProvider | null =
+    deps.faa === undefined
+      ? new FaaLoader({ dir: faaDir, refreshMs: config.FAA_REFRESH_MS, log })
+      : deps.faa;
   const opensky =
     deps.opensky ??
     new OpenSkyPoller({
@@ -41,6 +48,17 @@ export async function buildApp(deps: ServerDeps = {}) {
               clientSecret: config.OPENSKY_CLIENT_SECRET,
             })
           : undefined,
+      resolveIcon: faa
+        ? (c) => {
+            const rec = faa.lookup(c.id);
+            return resolveAirIcon({
+              kind: c.kind as AirKind, // poller is air-only
+              callsign: c.callsign,
+              faaModel: rec?.model ?? null,
+              faaMfr: rec?.mfr ?? null,
+            });
+          }
+        : undefined,
     });
   const ais = deps.ais ?? new AisClient({ apiKey: config.AISSTREAM_API_KEY, store, log });
   let recorder: HistoryRecorder | null =
@@ -61,11 +79,6 @@ export async function buildApp(deps: ServerDeps = {}) {
     }
   }
   const emptyRange: HistoryRange = { from: null, to: null, snapshots: 0 };
-  const faaDir = resolve(process.cwd(), "data/faa");
-  const faa: FaaProvider | null =
-    deps.faa === undefined
-      ? new FaaLoader({ dir: faaDir, refreshMs: config.FAA_REFRESH_MS, log })
-      : deps.faa;
   if (faa) void faa.init().catch((e) => log(`faa: init failed — enrichment disabled (${e instanceof Error ? e.message : String(e)})`));
   const faaLookup = faa
     ? new FaaLookup(faa, { cacheFile: join(faaDir, "enrichment.json"), log })

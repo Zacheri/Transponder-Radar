@@ -1,5 +1,6 @@
 import type { CraftStore } from "./store.js";
 import { normalizeOpenSky } from "./normalize.js";
+import type { Craft } from "../shared/craft.js";
 import type { TokenProvider } from "./opensky-auth.js";
 
 export const BACKOFF_CAP_MS = 300000;
@@ -16,6 +17,7 @@ export interface OpenSkyPollerOpts {
   log?: (msg: string) => void;
   timeoutMs?: number;
   tokenProvider?: TokenProvider;
+  resolveIcon?: (c: Craft) => string;
 }
 
 export interface PollResult {
@@ -142,6 +144,8 @@ export class OpenSkyPoller {
     for (const row of rows) {
       const c = normalizeOpenSky(row, now);
       if (c) {
+        const icon = this.opts.resolveIcon?.(c);
+        if (icon) c.icon = icon;
         crafts.push(c);
         present.add(c.id);
       }
