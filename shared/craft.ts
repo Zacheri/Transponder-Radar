@@ -16,10 +16,17 @@ export type CraftKind =
   | "service"
   | "other";
 
+export type AirKind = Extract<CraftKind, "commercial" | "business" | "military" | "general">;
+
 export interface Craft {
   id: string;
   domain: Domain;
   kind: CraftKind;
+  // MapLibre icon image name. Air: shape family resolved server-side
+  // (server/icons.ts); sea: kind name (1:1). Optional — old history
+  // snapshots and runs without an FAA provider leave it unset, and the
+  // client falls back (src/data/features.ts).
+  icon?: string;
   lat: number;
   lon: number;
   speed: number | null;
@@ -51,10 +58,10 @@ export interface KindMeta {
 }
 
 export const KINDS: Record<CraftKind, KindMeta> = {
-  commercial: { label: "Commercial", domain: "air", icon: "commercial", color: "#4fc3f7" },
-  business: { label: "Business", domain: "air", icon: "business", color: "#81d4fa" },
-  military: { label: "Military", domain: "air", icon: "military", color: "#ef5350" },
-  general: { label: "General", domain: "air", icon: "general", color: "#90a4ae" },
+  commercial: { label: "Commercial", domain: "air", icon: "narrowbody", color: "#4fc3f7" },
+  business: { label: "Business", domain: "air", icon: "bizjet", color: "#81d4fa" },
+  military: { label: "Military", domain: "air", icon: "fighter", color: "#ef5350" },
+  general: { label: "General", domain: "air", icon: "piston", color: "#90a4ae" },
   cargo: { label: "Cargo", domain: "sea", icon: "cargo", color: "#ffb74d" },
   tanker: { label: "Tanker", domain: "sea", icon: "tanker", color: "#ff8a65" },
   passenger: { label: "Passenger", domain: "sea", icon: "passenger", color: "#4dd0e1" },
@@ -80,3 +87,12 @@ export const SEA_KINDS: CraftKind[] = [
   "service",
   "other",
 ];
+
+// Icon fallback when no model data exists (all non-US air, SPI-only
+// military, unknown codes): kind → shape family.
+export const KIND_FALLBACK_ICON: Record<AirKind, string> = {
+  commercial: "narrowbody",
+  business: "bizjet",
+  military: "fighter",
+  general: "piston",
+};
