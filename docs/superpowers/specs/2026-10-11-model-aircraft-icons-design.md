@@ -17,7 +17,7 @@ This change makes every aircraft icon represent its **shape family**
 model data where it exists:
 
 - **US-registered civil aircraft** — FAA bulk registry model code
-  (e.g. `737-8DR`, `G650`, `C172N`), already in memory as the `FaaProvider`
+  (e.g. `737-8DR`, `G650`, `172S`), already in memory as the `FaaProvider`
   index (icao24-hex → `FaaRecord`).
 - **Military aircraft** — callsign tokens (military callsigns routinely encode
   the type: `C130`, `KC135`, `F16`…; military aircraft are not in the FAA
@@ -47,15 +47,15 @@ constraint.
 |---|---|---|---|
 | `narrowbody` | single-aisle jet, twin engines, conventional tail | 737, 757, A318/319/320/321, E170/175/190/195, CRJ, MD80/82/88/90, B717, DC9, BAe 146, Fokker 100/70, Saab 340, F28 | `#4fc3f7` |
 | `widebody` | widebody, four engines, long fuselage | 747, 767, 777, 787, A330, A340, A350, A380, MD11, IL-96, TU-204, AN-124 | `#4fc3f7` |
-| `turboprop` | prop disc + wing, utilitarian fuselage | ATR42/72, DHC-6/8, C208, PC-12, D228, Saab 2000, F27, YAK-40 | `#4fc3f7` |
-| `bizjet` | slim jet, long nose, T-tail | Gulfstream (G150/280/550/650), Citation (C5xx/6xx), Challenger (CL6xx), Falcon (F50/F7X), Learjet, Phenom (P28/35), Hawk (M9xx) | `#81d4fa` |
+| `turboprop` | prop disc + wing, utilitarian fuselage | ATR42/72, DHC-6/8, C208, PC-12, D228, Saab 2000, F27, YAK-40, King Air (B200/300/350/360) | `#4fc3f7` |
+| `bizjet` | slim jet, long nose, T-tail | Gulfstream (G150/280/550/650), Citation (C5xx/6xx, CJ), Challenger (CL6xx), Falcon (FALCON, F50/F7X), Learjet, Phenom (P28/35), Hawker/Hawk (800/900/4000/1000) | `#81d4fa` |
 | `bizheli` | heavy/executive helicopter | R66, B407/B429/B52/B76, AW139/AW169, S76/S92/S202/S300 | `#81d4fa` |
 | `piston` | high-wing single, tailwheel/tricycle prop | C150/152/172/180/182/185/206/210/310, DA20/40/42, SR20/22, B25/36/58, L18, ASK | `#90a4ae` |
-| `heli` | light helicopter | R22/R44, K120/K135, EC120/130, H125/135/145, B206 | `#90a4ae` |
+| `heli` | light helicopter | R22/R44, K120/K135, EC120/130, H125/135/145, B206, Enstrom 28/280 | `#90a4ae` |
 | `fighter` | swept/delta wing, pointed nose, single fin | F-15/16/18/22/35, Typhoon, Rafale, MiG, Su; fallback for unknown military | `#ef5350` |
 | `attack` | straight wings, stub wings, twin fins | A-10 | `#ef5350` |
 | `transport` | boxy high-wing, four turboprops | C-130, C-17, C-5, A400M, C-21, VC-25 | `#ef5350` |
-| `tanker` | widebody + belly refueling boom | KC-135, KC-10, KC-46 | `#ef5350` |
+| `tanker_air` | widebody + belly refueling boom | KC-135, KC-10, KC-46 | `#ef5350` |
 | `isr` | long slender fuselage; E-3 rotodome | E-3, P-3, RC-135, U-2, EP-3, TACAMO, RQ-4 (GRIFIN), MQ-9 (REAPER) | `#ef5350` |
 | `milheli` | heavy/attack helicopter | CH-47, CH-53, AH-64, UH-60/MH-60, BLACKHAWK | `#ef5350` |
 
@@ -97,7 +97,7 @@ a valid prefix of a real variant (`E3` → E-3G, `P3` → P-3C, `U2` → U-28), 
 
 | Priority | Tokens (regex, word-anchored) | Icon |
 |---|---|---|
-| 1 | `KC135`, `KC10`, `KC46`, `KCTC` | `tanker` |
+| 1 | `KC135`, `KC10`, `KC46`, `KCTC` | `tanker_air` |
 | 2 | `CH47`, `CH53`, `UH60`, `UH6`, `MH60`, `SH60`, `H60`, `AH64`, `BLACKHAWK` | `milheli` |
 | 3 | `A10` | `attack` |
 | 4 | `C130`, `C17`, `C5`*, `C21`, `A400M`, `VC25`, `C40` | `transport` |
@@ -113,12 +113,19 @@ that do not encode a type are deliberately **not** mapped (they fall back to
 ### 3.2 FAA model table
 
 Normalization: uppercase, strip spaces and hyphens (`737-8DR` → `7378DR`,
-`UH-60A` → `UH60A`, `ATR 72-600` → `ATR72600`).
+`UH-60A` → `UH60A`, `ATR 72-212A` → `ATR72212A`, `FALCON XP` → `FALCONXP`).
 
-Rules are an **ordered list** of `{ mfr?: RegExp, re: RegExp, family: string }`
-— `mfr` (when present) is a case-insensitive substring test on the normalized
-`FaaRecord.mfr`; `re` tests the normalized model. First match wins; helicopter
-rules come **before** fixed-wing rules.
+Rules are an **ordered list** of `{ mfr?: string[], re: RegExp, family: string }`
+— `mfr` (when present) = the normalized MFR must contain at least one of the
+listed substrings (case-insensitive); `re` tests the normalized model.
+First match wins; helicopter rules come **before** fixed-wing rules.
+
+> **Data-verified** (2026-10-12) against the real bulk registry cache
+> (`data/faa/ACFTREF.txt`, 94k rows). Quirks found in real data that shape
+> the table: Cessna numbers carry **no `C` prefix** (`172S`, `208B`);
+> `F28F` is both a Fokker jet *and* an Enstrom 28F heli — MFR decides;
+> `FALCON XP` / `HAWKER 800XP` are name-style model strings; military helis
+> (`UH-60A`) often carry the *operator* as MFR, so they match by model only.
 
 Minimum coverage (every one of these model codes must resolve as shown —
 these are the table's unit-test cases; the implementation may add further
@@ -126,35 +133,54 @@ codes):
 
 - **helis** → `bizheli` or `heli` (split by size class, model-driven — the
   resolver does not consider kind):
-  - `bizheli`: `R66`, `B407`, `B429`, `B52`, `B76`, `AW139`, `AW169`, `S76`,
-    `S92`, `S202`, `S300`
-  - `heli`: `R22`, `R44`, `K120`, `K135`, `EC120`, `EC130`, `H125`, `H135`,
-    `H145`, `B206`
-  - Defensive (should not occur for civil kind): `CH47`, `CH53`, `UH60`,
-    `AH64` → `milheli`
-- **bizjet**: `G150`, `G280`, `G550`, `G650`; `C500`, `C510`, `C525`, `C550`,
-  `C560`, `C680`; `CL600`, `CL650`; `F50`, `F7X` (+`F70` when mfr DASSAULT);
-  `L420`, `LJ35`, `LJ45`, `L100`, `L200`; `P28`, `P35`; `M900`, `M1000`
-- **widebody**: `747`, `767`, `777`, `787`; `A330`, `A340`, `A350`, `A380`
-  (incl. subvariant suffixes `A332`…`A388`); `MD11`, `IL96`, `TU204`, `AN124`
-- **narrowbody**: `737`, `757`; `A318`, `A319`, `A320`, `A321` (incl.
-  `A320214`-style subvariants); `E170`, `E175`, `E190`, `E195`; `CRJ`;
-  `MD80`, `MD82`, `MD88`, `MD90`; `B717`; `DC9`; `146`; `F100` and `F70`
-  (mfr FOKKER); `S340` (mfr SAB); `F28` (mfr FOKKER)
-- **turboprop**: `AT42`, `AT72` (or `ATR` prefix); `DHC6`, `DHC8`; `C208`;
-  `PC12`; `D228`; `S200` (mfr SAB); `F27` (mfr FOKKER); `YAK40`
-- **piston**: `C150`, `C152`, `C172`, `C180`, `C182`, `C185`, `C206`, `C210`,
-  `C310`; `DA20`, `DA40`, `DA42`; `SR20`, `SR22`; `B25`, `B36`, `B58`; `L18`
+  - `bizheli`: `R66` (ROBINSON), `B407`/`B429`/`B52`/`B76` (BELL),
+    `AW139`/`AW169` (AGUSTA), `S76`/`S92`/`S202`/`S300` (SIKORSKY)
+  - `heli`: `R22`/`R44` (ROBINSON), `K120` (must not match `K1200` —
+    non-digit boundary), `EC120`/`EC130`/`H125`/`H135`/`H145` (AIRBUS),
+    `B206` (BELL), `280FX`/`F28F` (ENSTROM)
+  - Defensive (should not occur for civil kind; model-only, no MFR guard):
+    `CH47`, `CH53`, `UH60`, `MH60`, `AH64` → `milheli`
+- **bizjet**: `G150`/`G280`/`G550`/`G650` (GULFSTREAM); `C500`…`C680`
+  (`^C[56]\d\d`, CESSNA), `CJ\d` (no MFR guard — person MFRs exist in real
+  data); `CL600`/`CL650` (BOMBARDIER/CANADAIR); `FALCON`/`F50`/`F500`/`F7X`
+  /`F70` (DASSAULT — `FALCONAR F-12` has a different MFR and must fall
+  through); `L420`/`LJ\d`/`L100`/`L200` (LEARJET/TEXTRON); `P28`/`P35`
+  (PIPER); `HAWKER\d`/`HAWK\d` (HAWKER BEECHCRAFT / HAWKER SIDDELEY /
+  RAYTHEON / TEXTRON)
+- **widebody**: `747`, `767`, `777`, `787` (BOEING); `A330`…`A380` (AIRBUS,
+  incl. subvariant suffixes `A332`…`A388`); `MD11` (MCDONNELL); `IL96`,
+  `TU204`, `AN124` (no MFR guard)
+- **narrowbody**: `737`, `757`, `B717` (BOEING); `A318`…`A321` (AIRBUS,
+  incl. `A320214`/`A321271NX`-style subvariants); `E170`…`E195` and `EMB\d`
+  (EMBRAER); `CRJ` (BOMBARDIER); `MD80`/`MD82`/`MD88`/`MD90` (MCDONNELL —
+  ordered after `MD11`/`MD10` widebody and DASSAULT `MD311`/`MD312` bizjet);
+  `DC9` (DOUGLAS/BOEING); `146` (BRITISH AEROSPACE/BAE); `F100`/`F70`/`F28`
+  (FOKKER); `SAAB340`/`S340` (SAAB)
+- **turboprop**: `ATR` prefix (no MFR guard — real MFRs vary: ATR,
+  AEROSPATIALE, ATR-GIE…); `DHC6`/`DHC8`/`TWINOTTER`/`DASH` (no MFR guard —
+  VIKING, DEHAVILLAND…); `208` (CESSNA) / `CARAVAN`; `PC12` (PILATUS);
+  `SAAB2000`/`S200` (SAAB/SIPA); `B200`/`B300`/`B350`/`B360` (BEECH/TEXTRON —
+  King Air); `F27` (FOKKER/FAIRCHILD); `D228`/`YAK40` (no MFR guard)
+- **piston**: CESSNA `^[1-7]\d\d` with non-digit boundary (`172S`, `182T`,
+  `206`…; `208` hits turboprop first); `B25`/`B35`/`B55`/`B58`/`B99` (BEECH,
+  non-digit boundary — `B350` King Air hits turboprop first); `PA\d` (PIPER);
+  `DA\d` (DIAMOND); `SR20`/`SR22` (no MFR guard); `L410` (no MFR guard);
+  `L18`/`L36`; `ASK`/`ARCUS`/`DUO`/`SECOR` (SCHLEICHER); `S\d` (RANS
+  ultralights); `Q200` (QUICKSILVER)
 
 Required disambiguations (each has a dedicated test):
 
 | Trap | Resolution |
 |---|---|
 | `F70` | DASSAULT mfr → `bizjet`; FOKKER mfr → `narrowbody`; no mfr → `bizjet` (default when ambiguous) |
-| `S202` vs `S200` | SIKORSKY mfr → `bizheli`/`heli`; SAB mfr → `turboprop`. Mfr required: `S2xx` without mfr → no match → kind fallback |
-| `L410` vs `L420` | `L410` (LET motor glider/prop) → `piston`; `L420`/LJ (LEARJET mfr) → `bizjet` |
-| `C208` | → `turboprop` (never piston, despite the `C2xx` Cessna pattern) |
-| `F28` vs `F27` | `F28` (mfr FOKKER) → `narrowbody` (it is a jet); `F27` (mfr FOKKER) → `turboprop` |
+| `S2xx` vs `S\d` | SIKORSKY mfr → `bizheli`/`heli`; SAAB/SIPA mfr → `turboprop`; RANS mfr → `piston` (S7/S20 ultralights); no mfr → no match → kind fallback |
+| `F28F` | FOKKER mfr → `narrowbody` (it is a jet); ENSTROM mfr → `heli` (Enstrom 28F) |
+| `FALCON` | `FALCON XP` (DASSAULT mfr) → `bizjet`; `FALCONAR F-12` (no DASSAULT mfr) → no match → kind fallback |
+| `HAWK` | `HAWKER 800XP` (HAWKER BEECHCRAFT/RAYTHEON mfr) → `bizjet`; `HAWK ARROW` (CGS AVIATION mfr — a glider) → no match → kind fallback |
+| `L410` vs `L420` | `L410` (LET motor glider/prop) → `piston`; `L420`/`LJ\d` (LEARJET mfr) → `bizjet` |
+| `B35` vs `B350` | `B35` (BEECH, Bonanza) → `piston`; `B350` (BEECH, King Air) → `turboprop` |
+| Cessna numbers | No `C` prefix in real data: `172S` (CESSNA) → `piston`; `208B` (CESSNA) → `turboprop`; `CJ1` → `bizjet` |
+| `K120` vs `K1200` | `K120` → `heli`; `K1200` (KIWI mfr) → no match (non-digit boundary) |
 
 ## 4. Wiring
 
@@ -166,11 +192,15 @@ Required disambiguations (each has a dedicated test):
     truth used by both the server resolver and the client fallback (§5).
 - `server/opensky.ts`: `OpenSkyPollerOpts` gains
   `resolveIcon?: (c: Craft) => string`. In the `pollOnce` loop, after
-  `normalizeOpenSky`, the poller sets `c.icon = this.opts.resolveIcon?.(c) ?? c.kind`.
-  (Icon is set post-normalization — `normalize.ts` is untouched.)
+  `normalizeOpenSky`, the poller sets `c.icon` **only when** the resolver is
+  configured — `resolveAirIcon` always returns a family name (never a kind
+  name), so an unset `icon` can only mean "no resolver wired" and is covered
+  by the client fallback (§5). (Icon is set post-normalization —
+  `normalize.ts` is untouched.)
 - `server/index.ts`: when a `faa` provider exists, passes
-  `resolveIcon: (c) => resolveAirIcon({ kind: c.kind, callsign: c.callsign, faaModel: faa.lookup(c.id)?.model ?? null, faaMfr: faa.lookup(c.id)?.mfr ?? null })`
-  (one lookup call, cached in a local). No `faa` → no resolver → `icon = kind`.
+  `resolveIcon: (c) => { const rec = faa.lookup(c.id); return resolveAirIcon({ kind: c.kind as AirKind, callsign: c.callsign, faaModel: rec?.model ?? null, faaMfr: rec?.mfr ?? null }); }`
+  (one lookup call, cached in a local; the cast is safe — the poller is
+  air-only). No `faa` → no resolver → `icon` unset.
 - **FAA still loading:** `lookup` returns null → kind fallback icons; every
   aircraft is re-upserted each poll (default 120 s), so icons upgrade within
   one poll interval with no re-sync mechanism.
@@ -206,9 +236,9 @@ Required disambiguations (each has a dedicated test):
 ## 7. Testing
 
 - `test/air-icons.test.ts` (new, table-driven):
-  - every §3.1 military token (incl. order traps: `KC135` → tanker not
+  - every §3.1 military token (incl. order traps: `KC135` → tanker_air not
     transport; `C172`-style non-matches; prefix variants `E3G`, `P3C`).
-  - every §3.2 minimum-coverage code and all five disambiguation traps.
+  - every §3.2 minimum-coverage code and every disambiguation trap.
   - fallbacks: unknown model, no model, military SPI without callsign.
   - sea kinds never enter the resolver (type-level; no test needed).
 - `test/icons.test.ts` (rewritten): 10 sea kinds 1:1 with registered images;
@@ -216,7 +246,7 @@ Required disambiguations (each has a dedicated test):
   `KIND_FALLBACK_ICON` value is a registered name; no image-name collisions
   between air families and sea kinds.
 - `test/poller.test.ts` (extended): poller applies `resolveIcon` to each
-  normalized craft; absent resolver → `icon = kind`.
+  normalized craft; absent resolver → `icon` left unset (undefined).
 - `test/features.test.ts` (extended): `icon` property = `craft.icon` when
   present; fallback via `KIND_FALLBACK_ICON` when absent.
 - `test/integration.test.ts` (extended): the existing fixture plane `ac4963`
@@ -249,7 +279,7 @@ Required disambiguations (each has a dedicated test):
 
 **New**
 - `server/icons.ts` (resolver + tables)
-- `src/assets/icons/{narrowbody,widebody,turboprop,bizjet,bizheli,piston,heli,fighter,attack,transport,tanker,isr,milheli}.svg`
+- `src/assets/icons/{narrowbody,widebody,turboprop,bizjet,bizheli,piston,heli,fighter,attack,transport,tanker_air,isr,milheli}.svg`
 - `test/air-icons.test.ts`
 
 **Changed**
