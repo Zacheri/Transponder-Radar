@@ -15,7 +15,7 @@ export function craftLayerDefs(filter: any): LayerSpecification[] {
       ...common,
       id: "craft-icons",
       layout: {
-        "icon-image": ["get", "kind"],
+        "icon-image": ["get", "icon"],
         "icon-size": ["interpolate", ["linear"], ["zoom"], 0, 0.5, 9, 1.1],
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,

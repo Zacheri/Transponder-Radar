@@ -1,4 +1,4 @@
-import type { Craft } from "../../shared/craft.js";
+import { KIND_FALLBACK_ICON, type AirKind, type Craft } from "../../shared/craft.js";
 
 export interface PointGeometry {
   type: "Point";
@@ -13,6 +13,7 @@ export interface CraftFeature {
     id: string;
     domain: "air" | "sea";
     kind: string;
+    icon: string;
     stale: boolean;
     label: string;
     sublabel: string;
@@ -41,6 +42,7 @@ function toFeature(c: Craft): CraftFeature {
       id: c.id,
       domain: c.domain,
       kind: c.kind,
+      icon: c.icon ?? (c.domain === "air" ? KIND_FALLBACK_ICON[c.kind as AirKind] : c.kind),
       stale: c.stale,
       label,
       sublabel: parts.join(" "),

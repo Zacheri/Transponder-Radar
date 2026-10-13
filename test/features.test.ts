@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildFeatureCollection } from "../src/data/features.js";
 import { buildIconFilter } from "../src/data/filter.js";
 import type { Craft } from "../shared/craft.js";
+import { KIND_FALLBACK_ICON } from "../shared/craft.js";
 
 function air(over: Partial<Craft> = {}): Craft {
   return {
@@ -48,5 +49,20 @@ describe("buildIconFilter", () => {
     expect(JSON.stringify(f[1])).toContain("cargo");
     // zoom clause present
     expect(JSON.stringify(f[2])).toContain("zoom");
+  });
+});
+
+describe("icon property", () => {
+  it("uses the server-set icon when present", () => {
+    const fc = buildFeatureCollection([air({ icon: "widebody" }), sea({ icon: "passenger" })]);
+    expect(fc.features[0].properties.icon).toBe("widebody");
+    expect(fc.features[1].properties.icon).toBe("passenger");
+  });
+
+  it("falls back per kind when icon is absent (air → family, sea → kind)", () => {
+    const fc = buildFeatureCollection([air(), air({ kind: "business" }), sea({ kind: "sailing" })]);
+    expect(fc.features[0].properties.icon).toBe(KIND_FALLBACK_ICON.commercial); // "narrowbody"
+    expect(fc.features[1].properties.icon).toBe(KIND_FALLBACK_ICON.business); // "bizjet"
+    expect(fc.features[2].properties.icon).toBe("sailing");
   });
 });
