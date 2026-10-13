@@ -32,6 +32,12 @@ describe("icon registry", () => {
     }
   });
 
+  it("KINDS air icons equal their KIND_FALLBACK_ICON family", () => {
+    for (const k of ["commercial", "business", "military", "general"] as const) {
+      expect(KINDS[k].icon, `KINDS[${k}].icon`).toBe(KIND_FALLBACK_ICON[k]);
+    }
+  });
+
   it("old air-kind icon names are gone", () => {
     for (const old of ["commercial", "business", "military", "general"]) {
       expect(ICON_NAMES).not.toContain(old);

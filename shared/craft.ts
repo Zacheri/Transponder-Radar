@@ -53,7 +53,7 @@ export interface Craft {
 export interface KindMeta {
   label: string;
   domain: Domain;
-  icon: string; // MapLibre image name (=== kind, 1:1)
+  icon: string; // MapLibre image name — sea: === kind, 1:1; air: fallback family (see KIND_FALLBACK_ICON)
   color: string; // fallback dot color
 }
 
