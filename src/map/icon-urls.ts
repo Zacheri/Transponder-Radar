@@ -1,7 +1,16 @@
-import commercial from "../assets/icons/commercial.svg";
-import business from "../assets/icons/business.svg";
-import military from "../assets/icons/military.svg";
-import general from "../assets/icons/general.svg";
+import narrowbody from "../assets/icons/narrowbody.svg";
+import widebody from "../assets/icons/widebody.svg";
+import turboprop from "../assets/icons/turboprop.svg";
+import bizjet from "../assets/icons/bizjet.svg";
+import bizheli from "../assets/icons/bizheli.svg";
+import piston from "../assets/icons/piston.svg";
+import heli from "../assets/icons/heli.svg";
+import fighter from "../assets/icons/fighter.svg";
+import attack from "../assets/icons/attack.svg";
+import transport from "../assets/icons/transport.svg";
+import tanker_air from "../assets/icons/tanker_air.svg";
+import isr from "../assets/icons/isr.svg";
+import milheli from "../assets/icons/milheli.svg";
 import cargo from "../assets/icons/cargo.svg";
 import tanker from "../assets/icons/tanker.svg";
 import passenger from "../assets/icons/passenger.svg";
@@ -14,10 +23,19 @@ import service from "../assets/icons/service.svg";
 import other from "../assets/icons/other.svg";
 
 export const ICON_URLS: Record<string, string> = {
-  commercial,
-  business,
-  military,
-  general,
+  narrowbody,
+  widebody,
+  turboprop,
+  bizjet,
+  bizheli,
+  piston,
+  heli,
+  fighter,
+  attack,
+  transport,
+  tanker_air,
+  isr,
+  milheli,
   cargo,
   tanker,
   passenger,
