@@ -9,6 +9,7 @@ Orientation for agents working in this repo. Full history: git log +
 Local, single-user web app: live world map of **aircraft** (OpenSky ADS-B) and
 **vessels** (aisstream.io AIS) on a dark MapLibre GL map, with per-kind icons,
 click-to-open detail panel (FAA type/year/owner for US-registered aircraft),
+model-driven aircraft shape-family icons (see Aircraft icons below),
 kind filter drawer, live aircraft poll-rate slider, timeline rewind, and a
 status HUD.
 
@@ -116,6 +117,35 @@ commit it; delete it to reset all cached data.
 - Vite `build.target` is `es2022` (required for top-level await in
   `src/main.ts`); don't lower it.
 
+### Aircraft icons (`server/icons.ts`)
+
+13 shape-family air icons (24×24 top-down nose-up SVGs in
+`src/assets/icons/`), colored by family: narrowbody/widebody/turboprop
+`#4fc3f7`, bizjet/bizheli `#81d4fa`, piston/heli `#90a4ae`,
+fighter/attack/transport/tanker_air/isr/milheli `#ef5350`. Color follows the
+shape family, NOT the kind (a business-kind C172 renders the gray `piston`
+silhouette). Sea icons are 1:1 with kind and unchanged.
+
+Resolution order in `resolveAirIcon({ kind, callsign, faaModel, faaMfr })`:
+military kind → callsign token table (word-anchored; `KC135` → tanker_air
+before transport; `E3`/`P3`/`U2` are prefix matches; squadrons like EAGLE
+fall back to `fighter`); civil → ordered FAA model table (normalize:
+uppercase, strip spaces/hyphens; `{ mfr?: string[], re, icon }` rules, helis
+first); then `KIND_FALLBACK_ICON`. Real-data traps the table encodes: Cessna
+numbers have no C prefix (`172S`, `208B`); `F28F` is Fokker jet vs Enstrom
+28F heli (mfr decides); `S`-prefix needs mfr (SIKORSKY heli / SAAB turboprop
+/ RANS ultralight); `FALCON` needs DASSAULT mfr (FALCONAR is an ultralight);
+`B350` King Air (turboprop) vs `B35` Bonanza (piston); `K120` but not
+`K1200`. Image name `tanker_air` (not `tanker`) avoids colliding with the
+sea tanker kind — the registry test asserts no air/sea name collision.
+
+Server sets `Craft.icon` post-normalization (poller `resolveIcon` opt wired
+to `FaaProvider.lookup` in `buildApp`); AIS sets no icon. Client:
+`features.ts` property `icon: c.icon ?? (air ? KIND_FALLBACK_ICON[kind] :
+kind)`; `layers.ts` `"icon-image": ["get", "icon"]`. SVGs are browser-
+verified only (no canvas in unit tests) — tune paths in
+`src/assets/icons/` and re-run the gate; names are the contract.
+
 ### aisstream.io (`server/ais.ts`)
 
 - Auth is an **in-band JSON subscription** sent after WS `open` (NOT headers):
@@ -173,8 +203,10 @@ commit it; delete it to reset all cached data.
 
 - `shared/craft.ts` — `Craft` type, 14 `KINDS` (air: commercial, business,
   military, general; sea: cargo, tanker, passenger, military_vessel, fishing,
-  sailing, pleasure, tug_work, service, other), `AIR_KINDS`/`SEA_KINDS`.
-  Icon image names are 1:1 with kinds (`src/assets/icons/*.svg`, 24×24).
+  sailing, pleasure, tug_work, service, other), `AIR_KINDS`/`SEA_KINDS`,
+  `Craft.icon?` (MapLibre image name), `AirKind`, `KIND_FALLBACK_ICON`.
+  Sea icon names are 1:1 with kinds; air icon names are shape families
+  (see Aircraft icons below) (`src/assets/icons/*.svg`, 24×24).
 - `server/` — Fastify + `ws`: `index.ts` (wiring, client-frame dispatch, prod
   static serving, clean shutdown), `config.ts` (env), `store.ts`
   (CraftStore: upsert/prune/sweep), `hub.ts` (WS broadcast: `snapshot`,
@@ -186,25 +218,28 @@ commit it; delete it to reset all cached data.
   gzipped snapshots to `data/history/`, size-capped eviction, `seek()`),
   `faa.ts` (FaaLoader: daily bulk registry download + hex→record index),
   `faa-lookup.ts` (FaaLookup: per-click N-number web fallback + enrichment
-  cache).
+  cache), `icons.ts` (resolveAirIcon: military callsign table → FAA model
+  table → kind fallback; 13 shape families).
 - `src/` — `main.ts` (top-level await; wiring, rewind mode, info cache),
   `map/` (basemap probe, map creation, icon rasterization, `icon-urls.ts` =
-  Vite SVG import map, layer defs), `data/` (socket client, client store,
-  feature building, icon filter, `replay.ts` = client-side update suppression
-  gate for rewind), `ui/` (panel (FAA info rows), filters, HUD,
-  `timeline.ts` (scrubber + REPLAY badge + LIVE), `pollrate.ts`
-  (`createFeedRate` factory — one slider per feed; the opensky instance shows
-  credit warnings)).
+  13 air family + 10 sea SVG imports = 23 entries, layer defs), `data/`
+  (socket client, client store, feature building, icon filter, `replay.ts` =
+  client-side update suppression gate for rewind), `ui/` (panel (FAA info
+  rows), filters, HUD, `timeline.ts` (scrubber + REPLAY badge + LIVE),
+  `pollrate.ts` (`createFeedRate` factory — one slider per feed; the opensky
+  instance shows credit warnings)).
 - WS protocol (both ends mirror it, no shared file):
   client → server: `{type:"feed.rate",feed,ms}` (`feed` ∈ hub `FEED_IDS` =
   `["opensky"]`; a new service adds one `feedRate` handler entry in
   `index.ts` + a slider via the `createFeedRate` factory),
   `{type:"timeline.seek",time}`, `{type:"timeline.live"}`,
   `{type:"aircraft.info",id}`;
-  server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`,
+  server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`
+  (craft objects carry an optional `icon` — air shape family / sea kind /
+  absent in pre-icon snapshots),
   `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled,lastError,lastMessageAt}},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},serverTime}`,
   `{type:"timeline.state",time,craft}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
   `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`).
-- `test/` — 20 files, 128 tests. Node-environment Vitest; browser-only code
+- `test/` — 22 files, 287 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.
