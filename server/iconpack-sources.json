@@ -1,0 +1,95 @@
+{
+  "pw": {
+    "repo": "https://github.com/plane-watch/pw-silhouettes",
+    "sha": "338826d35d1e30cca0464713001de5f2723a3aee",
+    "license": "CC BY-NC-SA 4.0",
+    "attribution": "Plane Watch Contributors"
+  },
+  "rk": {
+    "repo": "https://github.com/RexKramer1/AircraftShapesSVG",
+    "sha": "0743718760c42a5e91801adc053b5b828a434a5e",
+    "license": "GPL-3.0",
+    "attribution": "RexKramer1"
+  },
+  "pd": [
+    {
+      "name": "pd:C5",
+      "file": "pd/c5.png",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/8/8e/Lockheed_C-5_Galaxy_plan_view_silhouette_drawing_-_2023.jpg",
+      "sha256": "231d002ce5bb633461343050f8d23e0633d83374b12f7be6c72daad0c47c6427",
+      "title": "Lockheed C-5 Galaxy",
+      "license": "Public Domain (US Air Force work — PD-USAF)",
+      "attribution": "U.S. Air Force (digitized by Philip Bryant)",
+      "cropTopRatio": 1
+    },
+    {
+      "name": "pd:KC10",
+      "file": "pd/kc10.png",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/e/ec/McDonnell_Douglas_KC-10_Extender_plan_view_silhouette_drawing.jpg",
+      "sha256": "37f1b47d63d2b541c544a67524c614acc8774b3de28f5448672eef6025da55e4",
+      "title": "McDonnell Douglas KC-10 Extender",
+      "license": "Public Domain (US Air Force work — PD-USAF)",
+      "attribution": "U.S. Air Force (digitized by Philip Bryant)",
+      "cropTopRatio": 1
+    },
+    {
+      "name": "pd:C141",
+      "file": "pd/c141.png",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/d/dc/Lockheed_C-141A_Starlifter_3-view_line_drawing.png",
+      "sha256": "873cf02cfa1cd9b4851e7a324d929e1470f5fb8383272453bc60bc8352201418",
+      "title": "Lockheed C-141 Starlifter",
+      "license": "Public Domain (scan of US Air Force work — PD-scan of PD-USGov-Military)",
+      "attribution": "U.S. Air Force",
+      "cropTopRatio": 0.54
+    },
+    {
+      "name": "pd:CH47",
+      "file": "pd/ch47.png",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/0/07/Boeing_Vertol_CH-47_Chinook_3-view_line_drawing.png",
+      "sha256": "dd8cbe47eef479a8fb015da8da6a91a52ff6bd606f275069f8c3a3eb42e7aa63",
+      "title": "Boeing CH-47 Chinook",
+      "license": "Public Domain (US Army work — PD-USGov-Military)",
+      "attribution": "U.S. Army",
+      "cropTopRatio": 1
+    }
+  ],
+  "gapTargets": [
+    { "designator": "E3", "title": "Boeing E-3 Sentry" },
+    { "designator": "B2", "title": "Northrop Grumman B-2 Spirit" },
+    { "designator": "F14", "title": "Grumman F-14 Tomcat" },
+    { "designator": "F117", "title": "Lockheed F-117 Nighthawk" },
+    { "designator": "C5", "title": "Lockheed C-5 Galaxy" },
+    { "designator": "C141", "title": "Lockheed C-141 Starlifter" },
+    { "designator": "E4", "title": "Boeing E-4B Nightwatch" },
+    { "designator": "KC10", "title": "McDonnell Douglas KC-10 Extender" },
+    { "designator": "AH64", "title": "Boeing AH-64 Apache" },
+    { "designator": "CH47", "title": "Boeing CH-47 Chinook" },
+    { "designator": "C130", "title": "Lockheed C-130 Hercules" },
+    { "designator": "C17", "title": "Boeing C-17 Globemaster III" },
+    { "designator": "H60", "title": "Sikorsky UH-60 Black Hawk" },
+    { "designator": "K35E", "title": "Boeing KC-135E Stratotanker" },
+    { "designator": "KC2", "title": "Kawasaki C-2" },
+    { "designator": "KC46", "title": "Boeing KC-46 Pegasus" },
+    { "designator": "A10", "title": "Fairchild Republic A-10 Thunderbolt II" },
+    { "designator": "B52", "title": "Boeing B-52 Stratofortress" },
+    { "designator": "F15", "title": "McDonnell Douglas F-15 Eagle" },
+    { "designator": "F16", "title": "General Dynamics F-16 Fighting Falcon" },
+    { "designator": "F18", "title": "McDonnell Douglas F/A-18 Hornet" },
+    { "designator": "F22", "title": "Lockheed Martin F-22 Raptor" },
+    { "designator": "F35", "title": "Lockheed Martin F-35 Lightning II" },
+    { "designator": "P1", "title": "Kawasaki P-1" },
+    { "designator": "P3", "title": "Lockheed P-3 Orion" },
+    { "designator": "P8", "title": "Boeing P-8 Poseidon" },
+    { "designator": "Q4", "title": "Northrop Grumman RQ-4 Global Hawk" },
+    { "designator": "R135", "title": "Boeing RC-135" },
+    { "designator": "S61", "title": "Sikorsky S-61 Sea King" },
+    { "designator": "U2", "title": "Lockheed U-2 Dragon Lady" },
+    { "designator": "UH1", "title": "Bell UH-1 Iroquois" },
+    { "designator": "V22", "title": "Bell Boeing V-22 Osprey" },
+    { "designator": "A400", "title": "Airbus A400M Atlas" },
+    { "designator": "SB39", "title": "Saab JAS 39 Gripen" },
+    { "designator": "E8", "title": "Boeing E-8 JSTARS" },
+    { "designator": "NH90", "title": "Airbus Helicopters NH90" },
+    { "designator": "MI24", "title": "Mil Mi-24 Hind" }
+  ]
+}

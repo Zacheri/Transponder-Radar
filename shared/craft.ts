@@ -96,3 +96,11 @@ export const KIND_FALLBACK_ICON: Record<AirKind, string> = {
   military: "fighter",
   general: "piston",
 };
+
+// Icon-pack name prefixes (vendored pack, see server/iconpack-sources.json):
+// pw: plane-watch/pw-silhouettes, rk: RexKramer1/AircraftShapesSVG,
+// pd: curated public-domain gap-fill (data/icons/pd/).
+export const PACK_NAME_PREFIXES = ["pw:", "rk:", "pd:"] as const;
+export function isPackIconName(name: string): boolean {
+  return PACK_NAME_PREFIXES.some((p) => name.startsWith(p));
+}
