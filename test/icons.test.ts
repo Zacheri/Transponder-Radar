@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, test, expect } from "vitest";
 import { ICON_URLS, ICON_NAMES } from "../src/map/icon-urls.js";
 import { SEA_KINDS, KINDS, KIND_FALLBACK_ICON } from "../shared/craft.js";
-import { AIR_FAMILY_ICONS } from "../server/icons.js";
+import { resolveAirIcon, AIR_FAMILY_ICONS } from "../server/icons.js";
 
 describe("icon registry", () => {
   it("has exactly one icon per air family (13) + sea kind (10) = 23", () => {
@@ -42,5 +42,26 @@ describe("icon registry", () => {
     for (const old of ["commercial", "business", "military", "general"]) {
       expect(ICON_NAMES).not.toContain(old);
     }
+  });
+});
+
+describe("resolver pack emission", () => {
+  const pack = new Set(["rk:C130", "rk:H60", "pd:E3", "rk:R135"]);
+
+  test("military token emits pack name when present", () => {
+    expect(resolveAirIcon({ kind: "military", callsign: "C130", faaModel: null, faaMfr: null, pack })).toBe("rk:C130");
+    expect(resolveAirIcon({ kind: "military", callsign: "UH60A", faaModel: null, faaMfr: null, pack })).toBe("rk:H60");
+    expect(resolveAirIcon({ kind: "military", callsign: "E3", faaModel: null, faaMfr: null, pack })).toBe("pd:E3");
+  });
+
+  test("pack name absent from set → family fallback (today's behavior)", () => {
+    expect(resolveAirIcon({ kind: "military", callsign: "C130", faaModel: null, faaMfr: null, pack: new Set() })).toBe("transport");
+    expect(resolveAirIcon({ kind: "military", callsign: "C130", faaModel: null, faaMfr: null })).toBe("transport"); // no pack arg at all
+  });
+
+  // civil pack emission is curation-dependent → pinned in Task 6's tests
+
+  test("military without callsign → family fallback (unchanged)", () => {
+    expect(resolveAirIcon({ kind: "military", callsign: null, faaModel: null, faaMfr: null, pack })).toBe("fighter");
   });
 });

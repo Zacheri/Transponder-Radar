@@ -14,6 +14,7 @@ import { HistoryRecorder, type HistoryRange } from "./history.js";
 import { FaaLoader, type FaaProvider, type FaaRecord } from "./faa.js";
 import { FaaLookup } from "./faa-lookup.js";
 import { resolveAirIcon } from "./icons.js";
+import type { IconPack } from "./iconpack.js";
 import type { AirKind } from "../shared/craft.js";
 
 export interface ServerDeps {
@@ -23,11 +24,15 @@ export interface ServerDeps {
   ais?: AisClient;
   recorder?: HistoryRecorder | null;
   faa?: FaaProvider | null;
+  // Icon-pack placeholder wiring (Task 5): pack NAMES are threaded into
+  // resolveAirIcon here. Task 7 adds the default construction + init() + routes.
+  iconPack?: IconPack;
   log?: (msg: string) => void;
 }
 
 export async function buildApp(deps: ServerDeps = {}) {
   const log = deps.log ?? ((m: string) => console.log(`[radar] ${m}`));
+  const iconPack = deps.iconPack; // placeholder — Task 7 adds default construction
   const store = deps.store ?? new CraftStore();
   const faaDir = resolve(process.cwd(), "data/faa");
   const faa: FaaProvider | null =
@@ -56,6 +61,7 @@ export async function buildApp(deps: ServerDeps = {}) {
               callsign: c.callsign,
               faaModel: rec?.model ?? null,
               faaMfr: rec?.mfr ?? null,
+              pack: iconPack?.names(),
             });
           }
         : undefined,
