@@ -1,13 +1,28 @@
-import { existsSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { SEA_KINDS } from "../shared/craft.js";
 import { AIR_FAMILY_ICONS } from "./icons.js";
 import type { IconSources } from "./iconpack-sources.js";
 
 // Vendored aircraft icon pack (spec §3–4): three pinned upstream sources
 // (pw, rk, pd) are materialized under <dir> (e.g. data/icons/) and indexed
-// here. Downloading itself is the transport's job (wired in Task 3); this
-// module owns verification, index build, validation, and status.
+// here. The default transport does the real download (shallow git fetch of
+// the pinned shas + fetch + sha256-verified fetch for the pd files); this
+// module owns verification, index build, validation, attribution, and status.
 
 export type IconPackState = "absent" | "downloading" | "ready" | "failed";
 
@@ -40,18 +55,80 @@ export interface IconPackTransport {
 // A collision is a curation bug — init fails rather than registering it.
 const RESERVED_NAMES = new Set<string>([...AIR_FAMILY_ICONS, ...SEA_KINDS]);
 
-const NO_TRANSPORT: IconPackTransport = {
-  cloneRepo: async () => {
-    throw new Error("no transport");
-  },
-  fetchFile: async () => {
-    throw new Error("no transport");
-  },
-};
-
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
+
+/** Run a git command (no shell); resolve stdout, reject with the stderr tail on non-zero exit. */
+function git(cwd: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile("git", args, { cwd, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) {
+        const tail = String(stderr ?? "")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .slice(-2)
+          .join(" | ");
+        reject(new Error(`git ${args.slice(0, 2).join(" ")}: ${tail || err.message}`));
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
+// Known upstream subpaths and where each lands under destDir. The pw dirs keep
+// their names under destDir; rk's "Shapes SVG" unpacks directly into destDir
+// (its files ARE the rk set — spec §3 layout `rk/*.svg`).
+const SUBPATH_DEST = new Map<string, (d: string) => string>([
+  ["silhouettes", (d) => join(d, "silhouettes")],
+  ["airframes", (d) => join(d, "airframes")],
+  ["Shapes SVG", (d) => d],
+]);
+
+/**
+ * Shallow-fetch the pinned `sha` of `repo` (full SHA — GitHub serves reachable
+ * SHAs) and check out whichever known subpaths exist at that tree into
+ * `destDir`. Throws on non-zero git exit (stderr tail) or when no known
+ * subpath exists at the sha (manifest/repo drift).
+ */
+async function cloneRepo(repo: string, sha: string, destDir: string): Promise<void> {
+  const tmp = mkdtempSync(join(tmpdir(), "iconpack-clone-"));
+  try {
+    await git(dirname(tmp), ["init", "-q", tmp]);
+    await git(tmp, ["remote", "add", "origin", repo]);
+    await git(tmp, ["fetch", "-q", "--depth", "1", "origin", sha]);
+    const tree = (await git(tmp, ["ls-tree", "-d", "--name-only", "FETCH_HEAD"])).split("\n");
+    const subs = [...SUBPATH_DEST.keys()].filter((s) => tree.includes(s));
+    if (subs.length === 0) {
+      throw new Error(`cloneRepo: no known subpath (${[...SUBPATH_DEST.keys()].join(", ")}) at ${sha.slice(0, 12)} in ${repo}`);
+    }
+    for (const s of subs) {
+      await git(tmp, ["checkout", "-q", "FETCH_HEAD", "--", s]);
+      const dest = SUBPATH_DEST.get(s)!(destDir);
+      mkdirSync(dest, { recursive: true });
+      cpSync(join(tmp, s), dest, { recursive: true });
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+/** Fetch `url` with global fetch; verify sha256 before writing; mismatch throws. */
+async function fetchFile(url: string, destPath: string, sha256: string): Promise<void> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fetchFile ${url}: HTTP ${res.status}`);
+  const bytes = Buffer.from(await res.arrayBuffer());
+  const got = createHash("sha256").update(bytes).digest("hex");
+  if (got !== sha256) {
+    throw new Error(`fetchFile ${url}: sha256 mismatch: expected ${sha256}, got ${got}`);
+  }
+  mkdirSync(dirname(destPath), { recursive: true });
+  writeFileSync(destPath, bytes);
+}
+
+const DEFAULT_TRANSPORT: IconPackTransport = { cloneRepo, fetchFile };
 
 /** Atomic write (tmp + rename). */
 function atomicWrite(p: string, text: string): void {
@@ -92,12 +169,12 @@ export class IconPack {
       dir: string; // e.g. <cwd>/data/icons
       sources: IconSources;
       log?: (m: string) => void;
-      transport?: IconPackTransport; // default wired in Task 3; tests inject fakes
+      transport?: IconPackTransport; // default = real git+fetch transport; tests inject fakes
       now?: () => number;
     },
   ) {
     this.now = opts.now ?? Date.now;
-    this.transport = opts.transport ?? NO_TRANSPORT;
+    this.transport = opts.transport ?? DEFAULT_TRANSPORT;
   }
 
   /**
@@ -106,6 +183,7 @@ export class IconPack {
    * all failures land in status() as state "failed" + lastError.
    */
   async init(): Promise<void> {
+    mkdirSync(this.opts.dir, { recursive: true }); // post-build writes (index.json, pins.json) must not reject on a missing dir
     this.lastError = null;
     let downloaded = false;
     if (this.pinsVerify() && this.pdFilesComplete()) {
@@ -134,6 +212,7 @@ export class IconPack {
     this.index = new Map(entries.map((e) => [e.name, e]));
     this.loadExcludes();
     atomicWrite(join(this.opts.dir, "index.json"), JSON.stringify(entries, null, 2) + "\n");
+    if (downloaded) this.writeAttribution(); // download path only — rebuild keeps the existing file (or none)
     if (downloaded) this.writePins(); // pins written last, atomically
     this.state = "ready";
     this.updatedAt = this.now();
@@ -222,6 +301,52 @@ export class IconPack {
       writtenAt: this.now(),
     };
     atomicWrite(join(this.opts.dir, "pins.json"), JSON.stringify(pins, null, 2) + "\n");
+  }
+
+  /**
+   * ATTRIBUTION.md (spec §2) — written into dir on the download path only:
+   * per source license/attribution/repo/pinned sha, per pd file
+   * title/license/attribution/URL, plus the standing re-licensing note.
+   */
+  private writeAttribution(): void {
+    const s = this.opts.sources;
+    const lines: string[] = [
+      "# Icon pack attribution",
+      "",
+      `Generated ${new Date(this.now()).toISOString()} by the icon pack setup download.`,
+      "Regenerated on each (re)download; the exact pins are in pins.json.",
+      "",
+      "## Sources",
+      "",
+      `### pw — ${s.pw.repo}`,
+      `- License: ${s.pw.license}`,
+      `- Attribution: ${s.pw.attribution}`,
+      `- Repo: ${s.pw.repo} @ ${s.pw.sha}`,
+      "",
+      `### rk — ${s.rk.repo}`,
+      `- License: ${s.rk.license}`,
+      `- Attribution: ${s.rk.attribution}`,
+      `- Repo: ${s.rk.repo} @ ${s.rk.sha}`,
+      "",
+      "## Public-domain files (Wikimedia Commons)",
+      "",
+    ];
+    for (const e of s.pd) {
+      lines.push(`- **${e.name}** — ${e.title}`);
+      lines.push(`  - License: ${e.license}`);
+      lines.push(`  - Attribution: ${e.attribution}`);
+      lines.push(`  - URL: ${e.url}`);
+    }
+    lines.push(
+      "",
+      "## Note",
+      "",
+      "This app is local, non-distributed, and non-commercial, so the licenses above",
+      "impose ~0 practical obligations here (GPL-3.0 triggers on distribution;",
+      "CC BY-NC-SA restricts commercial use). Distribution or productization of this",
+      "repo would require re-licensing or replacing these assets.",
+    );
+    atomicWrite(join(this.opts.dir, "ATTRIBUTION.md"), lines.join("\n") + "\n");
   }
 
   private loadExcludes(): void {

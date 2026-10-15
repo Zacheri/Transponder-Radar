@@ -9,6 +9,8 @@
     "dev:web": "vite",
     "build": "vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
+    "icons:repin": "tsx scripts/repin-icons.ts",
+    "icons:setup": "tsx scripts/setup-icons.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
