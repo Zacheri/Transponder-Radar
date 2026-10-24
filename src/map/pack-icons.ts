@@ -159,6 +159,14 @@ export function createPackIconLoader(
     if (existing) return existing;
     const p = (async () => {
       try {
+        // Already rasterized (e.g. style rebuild dropped it before the
+        // style.load re-add ran): re-register from cache, no network.
+        const hit = cached.get(name);
+        if (hit) {
+          if (!map.hasImage(name)) map.addImage(name, hit, { pixelRatio: 2 });
+          failed.delete(name);
+          return true;
+        }
         const e = (await list()).get(name);
         if (!e) throw new Error(`not in /icons/list: ${name}`);
         let data: ImageData | null;
@@ -175,8 +183,11 @@ export function createPackIconLoader(
           if (data) recolorPixels(data.data, hexToRgb(e.color));
         }
         if (!data || !hasOpaque(data.data)) throw new Error("empty raster");
+        // Guarded: a style.load re-add can register the same name between
+        // the ensure() hasImage check and here (unconditional addImage
+        // would throw "Image already exists" and mark a live icon failed).
+        if (!map.hasImage(name)) map.addImage(name, data, { pixelRatio: 2 });
         cached.set(name, data);
-        map.addImage(name, data, { pixelRatio: 2 });
         failed.delete(name);
         return true;
       } catch {
