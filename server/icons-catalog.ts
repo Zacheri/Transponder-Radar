@@ -40,18 +40,33 @@ export function packColor(name: string, source: string): string {
   return source === "pw" ? PACK_COLORS.civil : PACK_COLORS.military;
 }
 
+// gapTarget designators whose covering art carries a DIFFERENT local name
+// than the designator itself. Explicit map, NOT prefix matching: a prefix
+// would false-cover designator C17 via the Cessna rule's local name C172
+// (strict \bC17\b exists precisely so C172 ≠ C17).
+const DESIGNATOR_ALIASES: Record<string, string[]> = {
+  V22: ["V22 fast"], // rk file name carries a space
+  F18: ["F18S"], // art is the F-18S variant
+  AH64: ["H64"], // art file is H64 (civil defensive rule)
+};
+
 /**
  * Local names (pack name minus the pw/rk/pd: prefix) the resolver can
- * actually emit from a given pack index — the union of BOTH tables. Drives
- * the catalog gap list (gapTargets minus this set): a designator is covered
- * when some rule points at a pack name that is present in the index.
+ * actually emit from a given pack index — the union of BOTH tables, plus
+ * the aliased designators (see DESIGNATOR_ALIASES). Drives the catalog gap
+ * list (gapTargets minus this set): a designator is covered when some rule
+ * points at a pack name that is present in the index.
  */
 export function coveredDesignators(packNames: ReadonlySet<string>): Set<string> {
-  const out = new Set<string>();
+  const locals = new Set<string>();
   for (const r of [...MILITARY_RULES, ...CIVIL_RULES]) {
-    if (r.pack && packNames.has(r.pack)) out.add(r.pack.slice(r.pack.indexOf(":") + 1));
+    if (r.pack && packNames.has(r.pack)) locals.add(r.pack.slice(r.pack.indexOf(":") + 1));
   }
-  return out;
+  const covered = new Set<string>(locals);
+  for (const [designator, names] of Object.entries(DESIGNATOR_ALIASES)) {
+    if (names.some((n) => locals.has(n))) covered.add(designator);
+  }
+  return covered;
 }
 
 function esc(s: string): string {
@@ -76,10 +91,14 @@ export function renderCatalog(opts: {
       return `<span class="pd"${style}><img src="${c.pngDataUrl}" alt=""></span>`;
     }
     if (!c.svg) return "";
-    if (c.style === "line") return lineSvgToFill(c.svg, c.color);
-    // filled (pw): the body is fill:#ffffff — a string replace recolors it
-    // while keeping the author's stroke and detail styles.
-    return c.svg.replaceAll("fill:#ffffff", `fill:${c.color}`);
+    // filled (pw) and line (rk) share the clean-fill transform: keep only
+    // the first visible top-level layer (the silhouette — pw's display:none
+    // "Reference Artwork" layer is skipped), recolor the body, and strip the
+    // inkscape namespace soup. This keeps the page a few MB instead of the
+    // ~40 MB the raw pw files would inline. If a file has no visible
+    // top-level <g>, lineSvgToFill returns it unchanged (preview still
+    // renders, just untransformed).
+    return lineSvgToFill(c.svg, c.color);
   };
 
   const cellHtml = (c: CatalogCell): string =>
