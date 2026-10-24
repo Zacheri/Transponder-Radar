@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Hub, parseClientMessage, type FeedStatus } from "../server/hub.js";
 import type { HistoryRange } from "../server/history.js";
+import type { IconStatus } from "../server/iconpack.js";
 import { CraftStore } from "../server/store.js";
 import type { Craft } from "../shared/craft.js";
 import { sleep, waitFor } from "./util.js";
@@ -29,6 +30,8 @@ function fakeSocket() {
     },
   };
 }
+
+const ICONS_STUB: IconStatus = { state: "ready", count: 0, updatedAt: null, lastError: null };
 
 function statusFrames(sent: string[]) {
   return sent
@@ -81,7 +84,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
       ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null },
     };
-    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
     const sock = fakeSocket();
     hub.attach(sock);
     hub.start();
@@ -105,7 +108,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
       ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null },
     };
-    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
     const sock = fakeSocket();
     hub.attach(sock);
     hub.start();
@@ -122,7 +125,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: "HTTP 429", pollMs: 120000 },
       ais: { connected: false, enabled: true, lastError: "closed 1006", lastMessageAt: null },
     };
-    const hub = new Hub({ store, batchMs: 1000, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
+    const hub = new Hub({ store, batchMs: 1000, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
     const sock = fakeSocket();
     hub.attach(sock);
     expect(sock.sent).toHaveLength(2);
@@ -137,7 +140,7 @@ describe("Hub", () => {
     const store = new CraftStore();
     let history: HistoryRange = { from: null, to: null, snapshots: 0 };
     const feeds = { opensky: { lastOkAt: null, lastError: null, pollMs: 120000 }, ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null } };
-    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null } }) });
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
     const sock = fakeSocket();
     hub.attach(sock);
     const st = JSON.parse(sock.sent[1]);
@@ -149,6 +152,29 @@ describe("Hub", () => {
     const last = statusFrames(sock.sent)[statusFrames(sock.sent).length - 1];
     expect(last.history).toEqual({ from: 100, to: 200, snapshots: 2 });
     hub.stop();
+  });
+
+  it("status frames carry the icons block", () => {
+    const store = new CraftStore();
+    const icons: IconStatus = { state: "downloading", count: 0, updatedAt: null, lastError: null };
+    const hub = new Hub({
+      store,
+      batchMs: 1000,
+      statusPayload: () => ({
+        feeds: {
+          opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
+          ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null },
+        },
+        history: { from: null, to: null, snapshots: 0 },
+        faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null },
+        icons,
+      }),
+    });
+    const sock = fakeSocket();
+    hub.attach(sock);
+    const st = JSON.parse(sock.sent[1]);
+    expect(st.type).toBe("status");
+    expect(st.icons).toEqual(icons);
   });
 });
 

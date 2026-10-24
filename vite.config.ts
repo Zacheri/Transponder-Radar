@@ -9,6 +9,7 @@ export default defineConfig({
     proxy: {
       "/ws": { target: "ws://127.0.0.1:2001", ws: true },
       "/health": { target: "http://127.0.0.1:2001" },
+      "/icons": { target: "http://127.0.0.1:2001" },
     },
   },
   test: {

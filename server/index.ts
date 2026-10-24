@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -14,7 +14,9 @@ import { HistoryRecorder, type HistoryRange } from "./history.js";
 import { FaaLoader, type FaaProvider, type FaaRecord } from "./faa.js";
 import { FaaLookup } from "./faa-lookup.js";
 import { resolveAirIcon } from "./icons.js";
-import type { IconPack } from "./iconpack.js";
+import { IconPack } from "./iconpack.js";
+import { loadIconSources } from "./iconpack-sources.js";
+import { coveredDesignators, packColor, renderCatalog, type CatalogCell } from "./icons-catalog.js";
 import type { AirKind } from "../shared/craft.js";
 
 export interface ServerDeps {
@@ -24,15 +26,24 @@ export interface ServerDeps {
   ais?: AisClient;
   recorder?: HistoryRecorder | null;
   faa?: FaaProvider | null;
-  // Icon-pack placeholder wiring (Task 5): pack NAMES are threaded into
-  // resolveAirIcon here. Task 7 adds the default construction + init() + routes.
-  iconPack?: IconPack;
+  // Icon pack: undefined → default construction (data/icons + pinned sources)
+  // + fire-and-forget init(); null → disabled (family icons only; /icons
+  // routes return empty). Same idiom as recorder/faa.
+  iconPack?: IconPack | null;
   log?: (msg: string) => void;
 }
 
 export async function buildApp(deps: ServerDeps = {}) {
   const log = deps.log ?? ((m: string) => console.log(`[radar] ${m}`));
-  const iconPack = deps.iconPack; // placeholder — Task 7 adds default construction
+  let iconPack: IconPack | null;
+  if (deps.iconPack === undefined) {
+    iconPack = new IconPack({ dir: resolve(process.cwd(), "data/icons"), sources: loadIconSources(), log });
+    // init() itself never throws; the catch guards construction-side failure
+    // (e.g. unreadable sources json) so the app still boots family-only.
+    void iconPack.init().catch((e) => log(`iconpack: init failed — family icons only (${e instanceof Error ? e.message : String(e)})`));
+  } else {
+    iconPack = deps.iconPack;
+  }
   const store = deps.store ?? new CraftStore();
   const faaDir = resolve(process.cwd(), "data/faa");
   const faa: FaaProvider | null =
@@ -108,6 +119,7 @@ export async function buildApp(deps: ServerDeps = {}) {
         },
         history: recorder ? recorder.range() : emptyRange,
         faa: faa?.status() ?? { state: "loading", updatedAt: null, aircraft: 0, lastError: null },
+        icons: iconPack ? iconPack.status() : { state: "absent", count: 0, updatedAt: null, lastError: null },
       }),
     });
 
@@ -175,6 +187,69 @@ export async function buildApp(deps: ServerDeps = {}) {
     craft: store.size,
     clients: hub.clientCount,
   }));
+
+  // Icon-pack routes — registered before the fastifyStatic dist fallback
+  // below so /icons/* is always answered by the API (pack disabled included),
+  // not by the SPA shell's static fallback.
+  app.get("/icons/list", async () => ({
+    entries: (iconPack?.entries() ?? []).map((e) => ({
+      name: e.name,
+      style: e.style,
+      cropTopRatio: e.cropTopRatio,
+      color: packColor(e.name, e.source),
+    })),
+  }));
+
+  app.get("/icons/catalog", async (_req, reply) => {
+    const pack = iconPack;
+    const cells: CatalogCell[] = (pack?.entries() ?? []).map((e) => {
+      const cell: CatalogCell = {
+        name: e.name,
+        title: e.title,
+        license: e.license,
+        style: e.style,
+        color: packColor(e.name, e.source),
+        vetoed: pack?.isVetoed(e.name) ?? false,
+        cropTopRatio: e.cropTopRatio,
+      };
+      const f = pack?.fileBytes(e.name);
+      if (f) {
+        if (e.style === "gapfill") cell.pngDataUrl = `data:${f.contentType};base64,${f.bytes.toString("base64")}`;
+        else cell.svg = f.bytes.toString("utf8");
+      }
+      return cell;
+    });
+    let staticIcons: { name: string; svg: string; color: string | null }[] = [];
+    try {
+      const staticDir = resolve(process.cwd(), "src", "assets", "icons");
+      staticIcons = readdirSync(staticDir)
+        .filter((f) => f.endsWith(".svg"))
+        .sort()
+        .map((f) => {
+          const svg = readFileSync(join(staticDir, f), "utf8");
+          const m = /fill="#([0-9a-fA-F]{6})"/.exec(svg);
+          return { name: f.slice(0, -4), svg, color: m ? `#${m[1]}` : null };
+        });
+    } catch {
+      staticIcons = [];
+    }
+    let gaps: { designator: string; title: string }[] = [];
+    try {
+      // Resolver-based coverage: a gapTarget is covered when a rule from
+      // EITHER table points at a pack name present in the index.
+      const covered = coveredDesignators(new Set(pack?.names() ?? []));
+      gaps = loadIconSources().gapTargets.filter((g) => !covered.has(g.designator));
+    } catch (e) {
+      log(`iconpack: catalog gap list unavailable (${e instanceof Error ? e.message : String(e)})`);
+    }
+    return reply.type("text/html").send(renderCatalog({ cells, staticIcons, gaps }));
+  });
+
+  app.get("/icons/:name", async (req, reply) => {
+    const f = iconPack?.fileBytes(String((req.params as { name: string }).name));
+    if (!f) return reply.code(404).send({ error: "unknown icon" });
+    return reply.type(f.contentType).send(f.bytes);
+  });
 
   const dist = resolve(process.cwd(), "dist");
   if (existsSync(dist)) {

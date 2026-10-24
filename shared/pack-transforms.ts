@@ -40,6 +40,17 @@ export function recolorPixels(data: Uint8ClampedArray, rgb: [number, number, num
   }
 }
 
+/**
+ * "image/png" | "image/jpeg" from magic bytes. The pd gap-fill files are
+ * stored as .png, but two of the four (c5, kc10) are actually JPEGs — their
+ * Commons sources are .jpg. Unknown bytes fall back to "image/png".
+ */
+export function sniffImageType(bytes: Uint8Array): "image/png" | "image/jpeg" {
+  if (bytes.length > 3 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
+  if (bytes.length > 2 && bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
+  return "image/png";
+}
+
 /** "#ef5350" (or "#e30" shorthand) → [239, 83, 80]. Throws on anything else. */
 export function hexToRgb(hex: string): [number, number, number] {
   let h = hex.trim().replace(/^#/, "");

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
+import { createHash } from "node:crypto";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import WebSocket, { WebSocketServer } from "ws";
 import { buildApp } from "../server/index.js";
 import { CraftStore } from "../server/store.js";
@@ -12,8 +14,11 @@ import { Hub } from "../server/hub.js";
 import { HistoryRecorder } from "../server/history.js";
 import type { FaaProvider } from "../server/faa.js";
 import { resolveAirIcon } from "../server/icons.js";
+import { IconPack } from "../server/iconpack.js";
+import type { IconSources } from "../server/iconpack-sources.js";
 import type { AirKind } from "../shared/craft.js";
 import type { Craft } from "../shared/craft.js";
+import { PACK_COLORS } from "../shared/pack-transforms.js";
 import { waitFor } from "./util.js";
 
 const PLANE: (string | number | boolean | null)[] = [
@@ -95,10 +100,11 @@ describe("full pipeline (stub feeds -> hub)", () => {
         },
         history: { from: null, to: null, snapshots: 0 },
         faa: fakeFaa.status(),
+        icons: { state: "absent", count: 0, updatedAt: null, lastError: null },
       }),
     });
 
-    server = await buildApp({ store, hub, opensky, ais, recorder: null, faa: fakeFaa });
+    server = await buildApp({ store, hub, opensky, ais, recorder: null, faa: fakeFaa, iconPack: null });
     await server.app.listen({ port: 0, host: "127.0.0.1" });
     port = (server.app.server.address() as { port: number }).port;
   });
@@ -203,7 +209,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
       store,
     });
     const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
-    const app2 = await buildApp({ store, hub, opensky, ais, recorder, faa: fakeFaa });
+    const app2 = await buildApp({ store, hub, opensky, ais, recorder, faa: fakeFaa, iconPack: null });
     await app2.app.listen({ port: 0, host: "127.0.0.1" });
     const port2 = (app2.app.server.address() as { port: number }).port;
 
@@ -239,5 +245,160 @@ describe("full pipeline (stub feeds -> hub)", () => {
     ws.close();
     await app2.stop();
     await rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe("icon pack routes (fixture pack)", () => {
+  // Same fixture-dir pattern as test/iconpack.test.ts, with one extra rk
+  // silhouette (BAZ) so /icons/:name and the catalog have a line cell.
+  const PW_SHA = "3d41c9a2f7e6b8d0a1c2b3d4e5f60718293a4b5c"; // 40-hex fixture sha
+  const RK_SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"; // 40-hex fixture sha
+  const QUX_BYTES = Buffer.from("qux-png-bytes\n");
+  const QUX_SHA = createHash("sha256").update(QUX_BYTES).digest("hex");
+  const FIXTURE_SOURCES: IconSources = {
+    pw: { repo: "plane-watch/pw-silhouettes", sha: PW_SHA, license: "pw license", attribution: "pw attribution" },
+    rk: { repo: "RexKramer1/AircraftShapesSVG", sha: RK_SHA, license: "rk license", attribution: "rk attribution" },
+    pd: [
+      {
+        name: "pd:QUX",
+        file: "pd/QUX.png",
+        url: "https://example.com/QUX.png",
+        sha256: QUX_SHA,
+        title: "Qux Aircraft",
+        license: "Public Domain (US Government work)",
+        attribution: "Test Author",
+        cropTopRatio: 0.5,
+      },
+    ],
+    gapTargets: [],
+  };
+
+  let fix: string;
+  let dir: string;
+  let fixturePack: IconPack;
+  let server: Awaited<ReturnType<typeof buildApp>>;
+  let port: number;
+
+  beforeAll(async () => {
+    fix = mkdtempSync(join(tmpdir(), "radar-iconpack-it-fix-"));
+    const airframes = join(fix, "plane-watch", "airframes");
+    const silhouettes = join(fix, "plane-watch", "silhouettes");
+    const rk = join(fix, "rk");
+    const pd = join(fix, "pd");
+    mkdirSync(airframes, { recursive: true });
+    mkdirSync(silhouettes, { recursive: true });
+    mkdirSync(rk, { recursive: true });
+    mkdirSync(pd, { recursive: true });
+    writeFileSync(join(airframes, "FOO.json"), JSON.stringify({ icao: { designator: "FOO" } }));
+    writeFileSync(join(silhouettes, "FOO-1.svg"), '<svg><path style="fill:#ffffff"/></svg>');
+    writeFileSync(join(rk, "BAZ.svg"), '<svg><title>BAZ Title</title><g><path d="M0 0"/></g></svg>');
+    writeFileSync(join(pd, "QUX.png"), QUX_BYTES);
+
+    dir = mkdtempSync(join(tmpdir(), "radar-iconpack-it-"));
+    fixturePack = new IconPack({
+      dir,
+      sources: FIXTURE_SOURCES,
+      transport: {
+        async cloneRepo(repo: string, _sha: string, destDir: string) {
+          cpSync(join(fix, repo.includes("plane-watch") ? "plane-watch" : "rk"), destDir, { recursive: true });
+        },
+        async fetchFile(_url: string, destPath: string, sha256: string) {
+          const bytes = readFileSync(join(fix, "pd/QUX.png"));
+          const got = createHash("sha256").update(bytes).digest("hex");
+          if (got !== sha256) throw new Error(`sha256 mismatch: expected ${sha256}, got ${got}`);
+          mkdirSync(dirname(destPath), { recursive: true });
+          writeFileSync(destPath, bytes);
+        },
+      },
+    });
+    await fixturePack.init();
+    expect(fixturePack.status().state).toBe("ready");
+
+    const store = new CraftStore();
+    const hub = new Hub({
+      store,
+      batchMs: 50,
+      statusPayload: () => ({
+        feeds: {
+          opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
+          ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null },
+        },
+        history: { from: null, to: null, snapshots: 0 },
+        faa: { state: "loading", updatedAt: null, aircraft: 0, lastError: null },
+        icons: fixturePack.status(),
+      }),
+    });
+    // Stub feed clients: the pack routes + hub are what's under test; pointing
+    // the real pollers anywhere would risk network access (hermetic test).
+    const noPoller = {
+      feedStatus: { lastOkAt: null, lastError: null, pollMs: 120000 },
+      setPollInterval: () => {},
+      start: () => {},
+      stop: () => {},
+    } as unknown as OpenSkyPoller;
+    const noAis = {
+      isConnected: false,
+      feedStatus: { lastError: null, lastMessageAt: null },
+      start: () => {},
+      stop: () => {},
+    } as unknown as AisClient;
+    server = await buildApp({ store, hub, opensky: noPoller, ais: noAis, recorder: null, faa: null, iconPack: fixturePack });
+    await server.app.listen({ port: 0, host: "127.0.0.1" });
+    port = (server.app.server.address() as { port: number }).port;
+  });
+
+  afterAll(async () => {
+    await server.stop();
+    rmSync(fix, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("GET /icons/list returns entries with style, cropTopRatio, and color", async () => {
+    const res = await server.app.inject({ url: "/icons/list" });
+    expect(res.statusCode).toBe(200);
+    const { entries } = res.json() as {
+      entries: { name: string; style: string; cropTopRatio?: number; color: string }[];
+    };
+    expect(entries.map((e) => e.name).sort()).toEqual(["pd:QUX", "pw:FOO", "rk:BAZ"]);
+    for (const e of entries) expect([PACK_COLORS.military, PACK_COLORS.civil]).toContain(e.color);
+    const qux = entries.find((e) => e.name === "pd:QUX")!;
+    expect(qux.style).toBe("gapfill");
+    expect(qux.cropTopRatio).toBe(0.5);
+    const foo = entries.find((e) => e.name === "pw:FOO")!;
+    expect(foo.style).toBe("filled");
+    expect(foo.cropTopRatio).toBeUndefined();
+  });
+
+  it("GET /icons/:name serves file bytes with the right content type; unknown names 404", async () => {
+    const res = await server.app.inject({ url: "/icons/rk%3ABAZ" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("image/svg+xml");
+    const qux = await server.app.inject({ url: "/icons/pd%3AQUX" });
+    expect(qux.statusCode).toBe(200);
+    expect(qux.headers["content-type"]).toContain("image/png");
+    const nope = await server.app.inject({ url: "/icons/nope" });
+    expect(nope.statusCode).toBe(404);
+  });
+
+  it("GET /icons/catalog is 200 text/html and lists names and gaps", async () => {
+    const res = await server.app.inject({ url: "/icons/catalog" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/html");
+    const html = res.body;
+    expect(html).toContain("pw:FOO");
+    expect(html).toContain("rk:BAZ");
+    expect(html).toContain("pd:QUX");
+    expect(html).toContain("Boeing E-4"); // real sources file: E4 has no art
+  });
+
+  it("status frame carries the icons block from the pack", async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const messages: any[] = [];
+    ws.on("message", (d) => messages.push(JSON.parse(d.toString())));
+    await waitFor(() => messages.some((m) => m.type === "status"), 3000);
+    const st = messages.find((m) => m.type === "status")!;
+    expect(st.icons.state).toBe("ready");
+    expect(st.icons.count).toBe(3);
+    ws.close();
   });
 });

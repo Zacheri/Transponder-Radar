@@ -1,6 +1,7 @@
 import type { CraftStore } from "./store.js";
 import type { HistoryRange } from "./history.js";
 import type { FaaStatus } from "./faa.js";
+import type { IconStatus } from "./iconpack.js";
 
 export interface WsLike {
   send(data: string): void;
@@ -47,6 +48,7 @@ export interface StatusPayload {
   feeds: FeedStatus;
   history: HistoryRange;
   faa: FaaStatus;
+  icons: IconStatus;
 }
 
 export interface HubOpts {
@@ -75,7 +77,7 @@ export class Hub {
     socket.send(JSON.stringify({ type: "snapshot", craft: this.opts.store.all() }));
     const payload = this.opts.statusPayload?.();
     if (payload) {
-      socket.send(JSON.stringify({ type: "status", feeds: payload.feeds, history: payload.history, faa: payload.faa, serverTime: Date.now() }));
+      socket.send(JSON.stringify({ type: "status", feeds: payload.feeds, history: payload.history, faa: payload.faa, icons: payload.icons, serverTime: Date.now() }));
     }
   }
 
@@ -104,10 +106,10 @@ export class Hub {
   private tick(): void {
     const payload = this.opts.statusPayload?.();
     if (payload) {
-      const json = JSON.stringify({ feeds: payload.feeds, history: payload.history, faa: payload.faa });
+      const json = JSON.stringify({ feeds: payload.feeds, history: payload.history, faa: payload.faa, icons: payload.icons });
       if (this.lastStatusJson !== json) {
         this.lastStatusJson = json;
-        const frame = JSON.stringify({ type: "status", feeds: payload.feeds, history: payload.history, faa: payload.faa, serverTime: Date.now() });
+        const frame = JSON.stringify({ type: "status", feeds: payload.feeds, history: payload.history, faa: payload.faa, icons: payload.icons, serverTime: Date.now() });
         for (const c of this.clients) {
           try {
             c.send(frame);

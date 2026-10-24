@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { SEA_KINDS } from "../shared/craft.js";
+import { sniffImageType } from "../shared/pack-transforms.js";
 import { AIR_FAMILY_ICONS } from "./icons.js";
 import type { IconSources } from "./iconpack-sources.js";
 
@@ -246,13 +247,15 @@ export class IconPack {
   }
 
   /** File bytes for a resolvable name; null for unknown or vetoed. */
-  fileBytes(name: string): { bytes: Buffer; contentType: "image/svg+xml" | "image/png" } | null {
+  fileBytes(name: string): { bytes: Buffer; contentType: string } | null {
     const e = this.index.get(name);
     if (!e || this.vetoed.has(name)) return null;
     try {
       const bytes = readFileSync(join(this.opts.dir, e.file));
       if (bytes.length === 0) return null;
-      const contentType = e.file.endsWith(".svg") ? ("image/svg+xml" as const) : ("image/png" as const);
+      // The .png extension lies: pd c5/kc10 are JPEGs (Commons .jpg sources) —
+      // sniff the magic bytes instead of trusting the name.
+      const contentType = e.file.endsWith(".svg") ? "image/svg+xml" : sniffImageType(bytes);
       return { bytes, contentType };
     } catch {
       return null;
