@@ -17,7 +17,7 @@ status HUD.
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Backend `:2001` (tsx watch) + Vite `:1738` (proxies `/ws`, `/health`) |
+| `npm run dev` | Backend `:2001` (tsx watch) + Vite `:1738` (proxies `/ws`, `/health`, `/icons`) |
 | `npm test` | Vitest, `test/**/*.test.ts` — **gate: all pass** |
 | `npm run typecheck` | `tsc --noEmit` — **gate: clean** |
 | `npm run build` | Vite build — **gate: succeeds** (maplibre-gl >500 kB chunk warning is an accepted exception) |
@@ -191,7 +191,11 @@ access at runtime** — the browser only talks to the local server, which
 serves the pack over `GET /icons/*`; a failed download retries on each
 start and degrades to the 13 family icons. `GET /icons/catalog` is the
 eyeball surface (every icon at final color/size + title/source/license +
-the gap list). Recolor limit: `recolorPixels`
+the gap list); `GET /icons/list` is the machine surface the client loader
+reads — `{entries: [{name, style, cropTopRatio?, color}]}` (`cropTopRatio`
+only on gapfill entries). pd `.png` files can be JPEG bytes (Commons .jpg
+sources) — the extension is part of the sha pin; never "fix" the filename,
+it would invalidate verification. Recolor limit: `recolorPixels`
 (`shared/pack-transforms.ts`) recolors only near‑white pixels (r, g, b all
 ≥ 200) — non‑white painted details keep their color.
 

@@ -401,4 +401,23 @@ describe("icon pack routes (fixture pack)", () => {
     expect(st.icons.count).toBe(3);
     ws.close();
   });
+
+  it("vetoed name 404s at the route and drops out of /icons/list", async () => {
+    // Last test in the suite on purpose: it mutates the pack (exclude.json +
+    // re-init) after the tests above have pinned the no-veto behavior.
+    writeFileSync(join(dir, "exclude.json"), JSON.stringify({ vetoed: ["rk:BAZ"] }));
+    await fixturePack.init(); // pins verified → rebuild from disk, reloads exclude.json
+    expect(fixturePack.status().count).toBe(2);
+
+    const vetoed = await server.app.inject({ url: "/icons/rk%3ABAZ" });
+    expect(vetoed.statusCode).toBe(404);
+
+    const list = await server.app.inject({ url: "/icons/list" });
+    expect(list.statusCode).toBe(200);
+    const { entries } = list.json() as { entries: { name: string }[] };
+    expect(entries.map((e) => e.name).sort()).toEqual(["pd:QUX", "pw:FOO"]);
+
+    const ok = await server.app.inject({ url: "/icons/pw%3AFOO" });
+    expect(ok.statusCode).toBe(200); // non-vetoed names still resolve
+  });
 });

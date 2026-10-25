@@ -46,12 +46,13 @@ describe("icon registry", () => {
 });
 
 describe("resolver pack emission", () => {
-  const pack = new Set(["rk:C130", "rk:H60", "pd:E3", "rk:R135"]);
+  const pack = new Set(["rk:C130", "rk:H60", "pd:E3", "rk:R135", "rk:H64"]);
 
   test("military token emits pack name when present", () => {
     expect(resolveAirIcon({ kind: "military", callsign: "C130", faaModel: null, faaMfr: null, pack })).toBe("rk:C130");
     expect(resolveAirIcon({ kind: "military", callsign: "UH60A", faaModel: null, faaMfr: null, pack })).toBe("rk:H60");
     expect(resolveAirIcon({ kind: "military", callsign: "E3", faaModel: null, faaMfr: null, pack })).toBe("pd:E3");
+    expect(resolveAirIcon({ kind: "military", callsign: "AH64", faaModel: null, faaMfr: null, pack })).toBe("rk:H64");
   });
 
   test("pack name absent from set → family fallback (today's behavior)", () => {
@@ -93,7 +94,7 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["P-180", "PIAGGIO", "rk:P180"],
     ["560XL", "CESSNA AIRCRAFT CO", "pw:C560"],
     // helis
-    ["CH-47D", "MCDONNELL DOUGLAS", "pd:CH47"],
+    ["CH-47D", "MCDONNELL DOUGLAS", "milheli"], // pd:CH47 dropped (3-view sheet) — family fallback
     ["UH-60A", "AAR AIRLIFT GROUP INC", "rk:H60"],
     ["212", "BELL", "rk:UH1"],
     ["206", "BELL", "pw:B06"],

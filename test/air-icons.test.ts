@@ -35,7 +35,7 @@ describe("resolveAirIcon — military callsign table", () => {
   it("word anchors: C172, C550, F162 do not match their prefixes", () => {
     expect(mil("C172")).toBe("fighter"); // C17 anchor fails → fallback
     expect(mil("C550")).toBe("fighter"); // C5 anchor fails → fallback
-    expect(mil("F162")).toBe("fighter"); // F16 anchor fails → fallback (still fighter)
+    expect(mil("F162")).toBe("fighter"); // F162 DOES match the F16 rule (\bF16\w*\b) → fighter via that rule's family (no pack set here)
   });
 
   it("squadron names do not map: EAGLE, RAPTOR, TIGER, BANDIT → fighter fallback", () => {

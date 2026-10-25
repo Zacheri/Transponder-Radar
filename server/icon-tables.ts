@@ -36,7 +36,7 @@ export interface CivilRule {
 // data/icons/index.json) gets its pack name on the matching token entry; new
 // entries were added where the token table had none (K35E, S61, UH1, NH90,
 // MI24, B52, KC2, C141, V22, P1, P8, E8, SB39). Uncovered designators (B2,
-// F14, F117, E4, AH64) and non-designator tokens (KCTC, CH53, C21, VC25, C40,
+// F14, F117, E4) and non-designator tokens (KCTC, CH53, C21, VC25, C40,
 // EP3, TACAMO, AWACS, GRIFIN, REAPER, MQ9) stay family-only.
 
 export const MILITARY_RULES: MilitaryRule[] = [
@@ -54,7 +54,7 @@ export const MILITARY_RULES: MilitaryRule[] = [
   { re: /\bMH60\w*\b/, anchor: "word", pack: "rk:H60", family: "milheli" },
   { re: /\bSH60\w*\b/, anchor: "word", pack: "rk:H60", family: "milheli" },
   { re: /\bH60\w*\b/, anchor: "word", pack: "rk:H60", family: "milheli" },
-  { re: /\bAH64\w*\b/, anchor: "word", family: "milheli" }, // gapTarget with no pack art (B2/F14/F117/E4/AH64 stay family-only)
+  { re: /\bAH64\w*\b/, anchor: "word", pack: "rk:H64", family: "milheli" }, // gapTarget AH64 — Apache art exists as rk:H64 (shared with the civil ^AH64 rule below)
   { re: /\bBLACKHAWK\w*\b/, anchor: "word", pack: "rk:H60", family: "milheli" }, // UH-60 Black Hawk callsign — the H60 art depicts exactly this
   { re: /\bS61\w*\b/, anchor: "word", pack: "rk:S61", family: "milheli" },
   { re: /\bUH1\w*\b/, anchor: "word", pack: "rk:UH1", family: "milheli" },
@@ -95,7 +95,7 @@ export const MILITARY_RULES: MilitaryRule[] = [
   { re: /\bP8\w*\b/, anchor: "word", pack: "rk:P8", family: "isr" },
   { re: /\bE8\w*\b/, anchor: "word", pack: "rk:E8", family: "isr" },
   // ── isr (prefix tokens — leading boundary only) ────────────────────────
-  // pd:E3 is NOT in the current index (only pd:C5/KC10/C141/CH47 are); the
+  // pd:E3 is NOT in the current index (only pd:C5/KC10/C141 are); the
   // table points at it anyway — emission is gated on pack.has, so production
   // stays family-only until a real pd:E3 is curated in.
   { re: /\bE3/, anchor: "prefix", pack: "pd:E3", family: "isr" },

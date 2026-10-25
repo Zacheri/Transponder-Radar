@@ -38,8 +38,10 @@ export async function buildApp(deps: ServerDeps = {}) {
   let iconPack: IconPack | null;
   if (deps.iconPack === undefined) {
     iconPack = new IconPack({ dir: resolve(process.cwd(), "data/icons"), sources: loadIconSources(), log });
-    // init() itself never throws; the catch guards construction-side failure
-    // (e.g. unreadable sources json) so the app still boots family-only.
+    // init() itself never throws (the catch below is defensive). Note that
+    // loadIconSources() on the line above is intentionally NOT guarded: a
+    // corrupt committed manifest fails the boot on purpose (fail-loud — the
+    // file is committed and shape-tested).
     void iconPack.init().catch((e) => log(`iconpack: init failed — family icons only (${e instanceof Error ? e.message : String(e)})`));
   } else {
     iconPack = deps.iconPack;
@@ -191,13 +193,18 @@ export async function buildApp(deps: ServerDeps = {}) {
   // Icon-pack routes — registered before the fastifyStatic dist fallback
   // below so /icons/* is always answered by the API (pack disabled included),
   // not by the SPA shell's static fallback.
+  // Resolvable names only (index minus vetoed) — the client loader uses this
+  // to decide what to fetch; a vetoed name would 404 on /icons/:name. The
+  // catalog route keeps the full index (vetoed cells stay visible there).
   app.get("/icons/list", async () => ({
-    entries: (iconPack?.entries() ?? []).map((e) => ({
-      name: e.name,
-      style: e.style,
-      cropTopRatio: e.cropTopRatio,
-      color: packColor(e.name, e.source),
-    })),
+    entries: (iconPack?.entries() ?? [])
+      .filter((e) => iconPack && !iconPack.isVetoed(e.name))
+      .map((e) => ({
+        name: e.name,
+        style: e.style,
+        cropTopRatio: e.cropTopRatio,
+        color: packColor(e.name, e.source),
+      })),
   }));
 
   app.get("/icons/catalog", async (_req, reply) => {

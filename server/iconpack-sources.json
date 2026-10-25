@@ -41,16 +41,6 @@
       "license": "Public Domain (scan of US Air Force work — PD-scan of PD-USGov-Military)",
       "attribution": "U.S. Air Force",
       "cropTopRatio": 0.54
-    },
-    {
-      "name": "pd:CH47",
-      "file": "pd/ch47.png",
-      "url": "https://upload.wikimedia.org/wikipedia/commons/0/07/Boeing_Vertol_CH-47_Chinook_3-view_line_drawing.png",
-      "sha256": "dd8cbe47eef479a8fb015da8da6a91a52ff6bd606f275069f8c3a3eb42e7aa63",
-      "title": "Boeing CH-47 Chinook",
-      "license": "Public Domain (US Army work — PD-USGov-Military)",
-      "attribution": "U.S. Army",
-      "cropTopRatio": 1
     }
   ],
   "gapTargets": [
