@@ -23,12 +23,55 @@ describe("CraftStore", () => {
     s.upsert(air("a1", 1000), 1000);
     s.upsert(sea("b1", 1000), 1000);
     s.remove("a1");
-    let d = s.drainDirty();
+    const drain = () => {
+      const a = s.drainDirty("air");
+      const b = s.drainDirty("sea");
+      return { upsert: [...a.upsert, ...b.upsert], remove: [...a.remove, ...b.remove] };
+    };
+    let d = drain();
     expect(d.upsert.map((c) => c.id)).toEqual(["b1"]);
     expect(d.remove).toEqual(["a1"]);
-    d = s.drainDirty();
+    d = drain();
     expect(d.upsert).toEqual([]);
     expect(d.remove).toEqual([]);
+  });
+
+  it("drainDirty('air') drains only air upserts and removes", () => {
+    const s = new CraftStore();
+    const airId = "a1";
+    const seaId = "b1";
+    const removedAirId = "a2";
+    s.upsert(air(airId, 1000), 1000);
+    s.upsert(sea(seaId, 1000), 1000);
+    s.upsert(air(removedAirId, 1000), 1000);
+    s.remove(removedAirId);
+    const airDrain = s.drainDirty("air");
+    expect(airDrain.upsert.map((c) => c.id)).toEqual([airId]);
+    expect(airDrain.remove).toEqual([removedAirId]);
+    const seaDrain = s.drainDirty("sea");
+    expect(seaDrain.upsert.map((c) => c.id)).toEqual([seaId]);
+    expect(seaDrain.remove).toEqual([]);
+    expect(s.drainDirty("air")).toEqual({ upsert: [], remove: [] });
+  });
+
+  it("sweep/pruneAir removals are drained under the right domain", () => {
+    const s = new CraftStore();
+    s.upsert(air("a1", 0), 0); // 601s old at sweep → removed by sweep
+    s.upsert(air("a2", 500000), 500000); // fresh enough to survive sweep; pruned after grace
+    s.upsert(sea("b1", 471000), 471000); // 130s old at sweep → marked stale
+    s.drainDirty("air"); // clear the initial dirty upserts
+    s.drainDirty("sea");
+    const removed = s.sweep(601000, 120000, 600000);
+    expect(removed).toEqual(["a1"]);
+    expect(s.get("b1")!.stale).toBe(true);
+    expect(s.pruneAir(new Set<string>(), 602000, 30000)).toEqual(["a2"]);
+    const airDrain = s.drainDirty("air");
+    expect(airDrain.remove).toEqual(["a1", "a2"]);
+    expect(airDrain.upsert).toEqual([]);
+    const seaDrain = s.drainDirty("sea");
+    expect(seaDrain.upsert.map((c) => c.id)).toEqual(["b1"]);
+    expect(seaDrain.upsert[0].stale).toBe(true);
+    expect(seaDrain.remove).toEqual([]);
   });
 
   it("sweep marks stale, then removes", () => {

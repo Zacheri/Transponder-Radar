@@ -119,7 +119,12 @@ export class Hub {
         }
       }
     }
-    const { upsert, remove } = this.opts.store.drainDirty();
+    // Per-domain drains combined into one frame — today's behavior exactly
+    // (Task 2 splits these onto independent flush windows).
+    const air = this.opts.store.drainDirty("air");
+    const sea = this.opts.store.drainDirty("sea");
+    const upsert = [...air.upsert, ...sea.upsert];
+    const remove = [...air.remove, ...sea.remove];
     if (upsert.length === 0 && remove.length === 0) return;
     const update = JSON.stringify({ type: "update", upsert, remove });
     for (const c of this.clients) {
