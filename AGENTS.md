@@ -312,5 +312,5 @@ it would invalidate verification. Recolor limit: `recolorPixels`
   `{type:"timeline.state",time,craft}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
   `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`).
-- `test/` — 26 files, 389 tests. Node-environment Vitest; browser-only code
+- `test/` — 26 files, 390 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.
