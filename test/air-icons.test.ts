@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { resolveAirIcon, AIR_FAMILY_ICONS, normalizeModel } from "../server/icons.js";
-import type { AirKind } from "../shared/craft.js";
+import { isPackIconName, type AirKind } from "../shared/craft.js";
 
 const air = (
   kind: AirKind,
@@ -261,5 +261,21 @@ describe("resolveAirIcon — fallbacks and output shape", () => {
         }
       }
     }
+  });
+});
+
+describe("isPackIconName (pack name registry, shared/craft.ts)", () => {
+  it.each(["pw:B737", "rk:C130", "pd:E3"])("pack name %s → true", (name) => {
+    expect(isPackIconName(name)).toBe(true);
+  });
+
+  it.each([
+    "narrowbody", // air family name
+    "fighter", // air family name
+    "cargo", // sea kind name
+    "C130", // bare designator — no prefix
+    "pw", // prefix without the colon
+  ])("non-pack name %s → false", (name) => {
+    expect(isPackIconName(name)).toBe(false);
   });
 });

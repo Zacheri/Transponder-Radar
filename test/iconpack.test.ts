@@ -144,6 +144,16 @@ describe("IconPack", () => {
     expect(pack.names().size).toBe(0);
   });
 
+  it("collision with a sea kind via an rk file basename fails init (exact message)", async () => {
+    writeFileSync(join(fix, "rk", "cargo.svg"), "<svg><title>Cargo</title><rect/></svg>");
+    const pack = new IconPack({ dir, sources: FIXTURE_SOURCES, transport: makeFakeTransport(fix) });
+    await pack.init();
+    const s = pack.status();
+    expect(s.state).toBe("failed");
+    expect(s.lastError).toBe('iconpack: name collision: rk:cargo — "cargo" is a reserved built-in icon name');
+    expect(pack.names()).toEqual(new Set<string>());
+  });
+
   it("duplicate name fails init", async () => {
     const sources: IconSources = {
       ...FIXTURE_SOURCES,

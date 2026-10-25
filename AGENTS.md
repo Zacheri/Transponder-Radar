@@ -22,6 +22,8 @@ status HUD.
 | `npm run typecheck` | `tsc --noEmit` — **gate: clean** |
 | `npm run build` | Vite build — **gate: succeeds** (maplibre-gl >500 kB chunk warning is an accepted exception) |
 | `npm start` | Prod: serves `dist/` + API + WS on `:2001` |
+| `npm run icons:setup` | One-shot icon pack download into `data/icons/` (deliberate pre-warm on good Wi‑Fi; normally automatic at first start) |
+| `npm run icons:repin` | Re-pin pw/rk to upstream `main` + fresh re-download + name-set diff (deliberate dev action, never automatic) |
 
 `npm run lint` is broken repo-wide (pre-existing: no eslint config). It is NOT
 part of the gate.
@@ -117,21 +119,27 @@ commit it; delete it to reset all cached data.
 - Vite `build.target` is `es2022` (required for top-level await in
   `src/main.ts`); don't lower it.
 
-### Aircraft icons (`server/icons.ts`)
+### Aircraft icons (`server/icons.ts`, `server/icon-tables.ts`)
 
-13 shape-family air icons (24×24 top-down nose-up SVGs in
-`src/assets/icons/`), colored by family: narrowbody/widebody/turboprop
+**Primary art is the vendored icon pack** (see Icon pack below):
+`resolveAirIcon` takes the pack's name set and emits a namespaced pack name
+(`pw:`/`rk:`/`pd:`) whenever the matched table rule carries one and it is in
+the set. The 13 shape-family air icons (24×24 top-down nose-up SVGs in
+`src/assets/icons/`) remain committed as the **fallback layer** for every
+unmatched type, colored by family: narrowbody/widebody/turboprop
 `#4fc3f7`, bizjet/bizheli `#81d4fa`, piston/heli `#90a4ae`,
 fighter/attack/transport/tanker_air/isr/milheli `#ef5350`. Color follows the
 shape family, NOT the kind (a business-kind C172 renders the gray `piston`
 silhouette). Sea icons are 1:1 with kind and unchanged.
 
-Resolution order in `resolveAirIcon({ kind, callsign, faaModel, faaMfr })`:
+Resolution order in
+`resolveAirIcon({ kind, callsign, faaModel, faaMfr, pack })`:
 military kind → callsign token table (word-anchored; `KC135` → tanker_air
 before transport; `E3`/`P3`/`U2` are prefix matches; squadrons like EAGLE
 fall back to `fighter`); civil → ordered FAA model table (normalize:
-uppercase, strip spaces/hyphens; `{ mfr?: string[], re, icon }` rules, helis
-first); then `KIND_FALLBACK_ICON`. Real-data traps the table encodes: Cessna
+uppercase, strip spaces/hyphens; `{ mfr?: string[], re, pack?, family }`
+rules in `server/icon-tables.ts`, helis first); then `KIND_FALLBACK_ICON`.
+Real-data traps the table encodes: Cessna
 numbers have no C prefix (`172S`, `208B`); `F28F` is Fokker jet vs Enstrom
 28F heli (mfr decides); `S`-prefix needs mfr (SIKORSKY heli / SAAB turboprop
 / RANS ultralight); `FALCON` needs DASSAULT mfr (FALCONAR is an ultralight);
@@ -140,11 +148,52 @@ numbers have no C prefix (`172S`, `208B`); `F28F` is Fokker jet vs Enstrom
 sea tanker kind — the registry test asserts no air/sea name collision.
 
 Server sets `Craft.icon` post-normalization (poller `resolveIcon` opt wired
-to `FaaProvider.lookup` in `buildApp`); AIS sets no icon. Client:
+to `FaaProvider.lookup` + `iconPack?.names()` in `buildApp`); AIS sets no
+icon. Client:
 `features.ts` property `icon: c.icon ?? (air ? KIND_FALLBACK_ICON[kind] :
-kind)`; `layers.ts` `"icon-image": ["get", "icon"]`. SVGs are browser-
-verified only (no canvas in unit tests) — tune paths in
+kind)`; `layers.ts` `"icon-image": ["get", "icon"]`; pack names are lazy-
+registered by `src/map/pack-icons.ts`. Family/sea SVGs are browser-verified
+only (no canvas in unit tests) — tune paths in
 `src/assets/icons/` and re-run the gate; names are the contract.
+
+### Icon pack (`server/iconpack.ts`, `data/icons/`)
+
+The vendored per-model silhouette pack is the **primary aircraft art**
+(namespaced names; see Aircraft icons above). Three pinned upstream
+sources (`server/iconpack-sources.json`: repo commits + a per-file
+public-domain manifest): `pw` = `plane-watch/pw-silhouettes`
+(CC BY‑NC‑SA 4.0, filled SVGs; `-N` animation frames → use `-1`),
+`rk` = `RexKramer1/AircraftShapesSVG` (GPL‑3.0, line‑art SVGs),
+`pd` = curated Wikimedia Commons PNGs for gap types (per-file license +
+attribution). Names are namespaced by source — `pw:B737`, `rk:C130`,
+`pd:E3` — and the 13 family + 10 sea names are reserved: an index entry
+colliding with them fails `init` (a curation bug, never a runtime choice).
+
+**License constraint:** the app is local, non‑distributed,
+non‑commercial, so the practical obligation is ~0 (GPL triggers on
+distribution; NC on commercial use). Open‑sourcing or productizing this
+repo would require re‑licensing or replacing these assets (also recorded
+in `data/icons/ATTRIBUTION.md`, generated at setup).
+
+`data/icons/` (gitignored — delete to force re‑download): `plane-watch/`
+(cloned repo), `rk/` (cloned repo), `pd/` (fetched files), `index.json`
+(build artifact — deleting it does not force a re-download), `pins.json`
+(exact pins), `ATTRIBUTION.md`, and `exclude.json` for vetoes
+(`{ "vetoed": ["rk:XYZ"] }` — vetoed entries stay in the catalog but are
+unresolvable).
+
+Setup is automatic at first server start (verified pins + complete files →
+rebuild the index from disk, no network); `npm run icons:setup` is a
+deliberate one‑shot pre‑warm on good Wi‑Fi; `npm run icons:repin`
+(scripts/repin-icons.ts) re-pins pw/rk to `main` and re-downloads (prints
+the name-set diff). **Offline‑first (spec R10): no third‑party network
+access at runtime** — the browser only talks to the local server, which
+serves the pack over `GET /icons/*`; a failed download retries on each
+start and degrades to the 13 family icons. `GET /icons/catalog` is the
+eyeball surface (every icon at final color/size + title/source/license +
+the gap list). Recolor limit: `recolorPixels`
+(`shared/pack-transforms.ts`) recolors only near‑white pixels (r, g, b all
+≥ 200) — non‑white painted details keep their color.
 
 ### aisstream.io (`server/ais.ts`)
 
@@ -198,15 +247,24 @@ verified only (no canvas in unit tests) — tune paths in
   1 h). Fixtures in `test/fixtures/` are recorded real responses — tests run
   offline; never re-record casually.
 - Coverage: US-registered aircraft only (v1 ruling).
+- Offline‑first (spec R10): the bulk DB follows the same local‑cache
+  pattern as the icon pack — download once, serve from disk, refresh on a
+  cadence (`FAA_REFRESH_MS`, daily default; `604800000` = weekly for
+  spotty connections), keep serving the stale index on failure.
 
 ## Architecture at a glance
 
 - `shared/craft.ts` — `Craft` type, 14 `KINDS` (air: commercial, business,
   military, general; sea: cargo, tanker, passenger, military_vessel, fishing,
   sailing, pleasure, tug_work, service, other), `AIR_KINDS`/`SEA_KINDS`,
-  `Craft.icon?` (MapLibre image name), `AirKind`, `KIND_FALLBACK_ICON`.
+  `Craft.icon?` (MapLibre image name), `AirKind`, `KIND_FALLBACK_ICON`,
+  `PACK_NAME_PREFIXES`/`isPackIconName` (pack name registry).
+  `shared/pack-transforms.ts` — pack silhouette transforms (line→fill,
+  near‑white‑only recolor, image‑type sniff): pure string/byte surgery,
+  Node‑testable, shared by the catalog page and the browser loader.
   Sea icon names are 1:1 with kinds; air icon names are shape families
-  (see Aircraft icons below) (`src/assets/icons/*.svg`, 24×24).
+  (fallback) or namespaced pack names (see Icon pack;
+  `src/assets/icons/*.svg`, 24×24).
 - `server/` — Fastify + `ws`: `index.ts` (wiring, client-frame dispatch, prod
   static serving, clean shutdown), `config.ts` (env), `store.ts`
   (CraftStore: upsert/prune/sweep), `hub.ts` (WS broadcast: `snapshot`,
@@ -218,11 +276,19 @@ verified only (no canvas in unit tests) — tune paths in
   gzipped snapshots to `data/history/`, size-capped eviction, `seek()`),
   `faa.ts` (FaaLoader: daily bulk registry download + hex→record index),
   `faa-lookup.ts` (FaaLookup: per-click N-number web fallback + enrichment
-  cache), `icons.ts` (resolveAirIcon: military callsign table → FAA model
-  table → kind fallback; 13 shape families).
+  cache), `icon-tables.ts` (MILITARY_RULES/CIVIL_RULES — the resolver's
+  callsign/model tables; a rule may carry a `pack` name),
+  `icons.ts` (resolveAirIcon: military callsign table → FAA model table →
+  kind fallback; emits the rule's pack name when the caller's pack set
+  contains it; 13 shape families as fallback),
+  `iconpack.ts` (IconPack: download/verify/index the vendored pack into
+  `data/icons/`; `init()` never throws — failures land in `status()`),
+  `icons-catalog.ts` (catalog page HTML + gap list).
 - `src/` — `main.ts` (top-level await; wiring, rewind mode, info cache),
   `map/` (basemap probe, map creation, icon rasterization, `icon-urls.ts` =
-  13 air family + 10 sea SVG imports = 23 entries, layer defs), `data/`
+  13 air family + 10 sea SVG imports = 23 entries, `pack-icons.ts` = lazy
+  pack‑icon loader (fetch `GET /icons/*` → transform → 96×96 raster →
+  `addImage`, failed-set retry), layer defs), `data/`
   (socket client, client store, feature building, icon filter, `replay.ts` =
   client-side update suppression gate for rewind), `ui/` (panel (FAA info
   rows), filters, HUD, `timeline.ts` (scrubber + REPLAY badge + LIVE),
@@ -237,9 +303,10 @@ verified only (no canvas in unit tests) — tune paths in
   server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`
   (craft objects carry an optional `icon` — air shape family / sea kind /
   absent in pre-icon snapshots),
-  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled,lastError,lastMessageAt}},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},serverTime}`,
+  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled,lastError,lastMessageAt}},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},serverTime}`
+  (icons.state: ready|downloading|failed|absent),
   `{type:"timeline.state",time,craft}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
   `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`).
-- `test/` — 22 files, 287 tests. Node-environment Vitest; browser-only code
+- `test/` — 26 files, 389 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

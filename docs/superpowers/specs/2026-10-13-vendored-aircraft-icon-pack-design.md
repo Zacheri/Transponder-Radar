@@ -1,7 +1,7 @@
 # Vendored Aircraft Icon Pack + Ships Rate Slider — Design Spec
 
 - **Date:** 2026-10-13
-- **Status:** Pending user review
+- **Status:** Icon pack: implemented (pending browser verification, 2026-10-24) · ships slider: pending (separate plan)
 - **Owner:** zacheri
 - **Scope:** Two work items. (1) **Icon pack (architectural):** replace the
   hand-drawn 13 family silhouettes as the *primary* aircraft icon source with a

@@ -1,5 +1,7 @@
 # Vendored Aircraft Icon Pack — Implementation Plan
 
+- **Status:** implemented (pending browser verification, 2026-10-24)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the hand-drawn 13 family silhouettes as the *primary* aircraft
