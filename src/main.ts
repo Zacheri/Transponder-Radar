@@ -75,6 +75,16 @@ const pollRate = createFeedRate(document.getElementById("app") as HTMLElement, {
   creditsPerPoll: 4,
   send: (ms) => socket?.sendFeedRate("opensky", ms),
 });
+const shipRate = createFeedRate(document.getElementById("app") as HTMLElement, {
+  label: "Ship updates",
+  ariaLabel: "Ship update interval",
+  title: "The vessel stream is continuous; this is how often the map applies vessel updates.",
+  minMs: 500,
+  maxMs: 15000,
+  stepMs: 500,
+  defaultMs: 1000,
+  send: (ms) => socket?.sendFeedRate("ais", ms),
+});
 const replay = new ReplayGate();
 const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
   seek: (t) => {
@@ -120,6 +130,7 @@ map.on("load", async () => {
       hud.setFeeds(s.feeds, s.serverTime);
       hud.setIcons(s.icons ?? null); // ?? — pre-Task-7 frames carry no icons
       pollRate.setMs(s.feeds.opensky.pollMs);
+      shipRate.setMs(s.feeds.ais.flushMs);
       timeline.setRange(s.history.from, s.history.to);
       if (s.faa.state === "ready" && lastFaaState !== "ready") {
         const purged: string[] = [];

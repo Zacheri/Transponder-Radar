@@ -9,6 +9,7 @@ export interface FeedRateOpts {
   stepMs: number;
   defaultMs: number;
   creditsPerPoll?: number;
+  title?: string;
   send: (ms: number) => void;
 }
 
@@ -21,6 +22,7 @@ export function createFeedRate(
   el.className = "pollrate";
   const label = document.createElement("span");
   label.className = "pollrate-label";
+  if (opts.title) label.title = opts.title;
   const slider = document.createElement("input");
   slider.type = "range";
   slider.min = String(minMs);
