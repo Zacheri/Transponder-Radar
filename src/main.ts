@@ -1,12 +1,13 @@
 import { createMap } from "./map/map.js";
 import { registerIcons } from "./map/icons.js";
+import { createPackIconLoader, type PackIconLoader } from "./map/pack-icons.js";
 import { addCraftSource, addCraftLayers, setCraftData } from "./map/layers.js";
 import { ClientStore } from "./data/store.js";
 import { RadarSocket } from "./data/ws.js";
 import type { AircraftInfo } from "./data/ws.js";
 import { buildFeatureCollection } from "./data/features.js";
 import { buildIconFilter } from "./data/filter.js";
-import { AIR_KINDS, SEA_KINDS } from "../shared/craft.js";
+import { AIR_KINDS, SEA_KINDS, isPackIconName } from "../shared/craft.js";
 import type { CraftKind } from "../shared/craft.js";
 import { createPanel } from "./ui/panel.js";
 import { createFilters } from "./ui/filters.js";
@@ -30,12 +31,23 @@ const hud = createHud(document.getElementById("app") as HTMLElement);
 let visible = new Set<CraftKind>([...AIR_KINDS, ...SEA_KINDS]);
 let filters: { setCounts(c: Map<CraftKind, number>): void } | null = null;
 
-function refresh(): void {
-  setCraftData(map, buildFeatureCollection(store.all()));
+// Set after registerIcons in the map.load flow; null until then.
+let packLoader: PackIconLoader | null = null;
+
+async function refresh(): Promise<void> {
+  const crafts = store.all();
+  // Lazy pack registration: only names on the map are fetched. Unregistered
+  // pack names fall back to the family silhouette inside buildFeatureCollection.
+  let registered: ReadonlySet<string> | undefined;
+  if (packLoader) {
+    const packNames = new Set(crafts.map((c) => c.icon).filter((n): n is string => typeof n === "string" && isPackIconName(n)));
+    registered = await packLoader.ensure(packNames);
+  }
+  setCraftData(map, buildFeatureCollection(crafts, registered !== undefined ? { iconRegistered: registered } : undefined));
   let air = 0;
   let sea = 0;
   const counts = new Map<CraftKind, number>();
-  for (const c of store.all()) {
+  for (const c of crafts) {
     if (c.domain === "air") air++;
     else sea++;
     counts.set(c.kind, (counts.get(c.kind) ?? 0) + 1);
@@ -82,9 +94,10 @@ map.on("load", async () => {
   } catch (err) {
     console.error("icon registration failed", err);
   }
+  packLoader = createPackIconLoader(map);
   addCraftSource(map);
   addCraftLayers(map, buildIconFilter(visible));
-  refresh();
+  void refresh();
 
   socket = new RadarSocket(wsUrl, {
     onSnapshot: (crafts) => {
@@ -105,6 +118,7 @@ map.on("load", async () => {
     },
     onStatus: (s) => {
       hud.setFeeds(s.feeds, s.serverTime);
+      hud.setIcons(s.icons ?? null); // ?? — pre-Task-7 frames carry no icons
       pollRate.setMs(s.feeds.opensky.pollMs);
       timeline.setRange(s.history.from, s.history.to);
       if (s.faa.state === "ready" && lastFaaState !== "ready") {
@@ -135,7 +149,9 @@ map.on("load", async () => {
     },
   });
   socket.connect();
-  store.subscribe(refresh);
+  store.subscribe(() => {
+    void refresh();
+  });
 
   filters = createFilters(document.getElementById("app") as HTMLElement, visible, (v) => {
     visible = v;

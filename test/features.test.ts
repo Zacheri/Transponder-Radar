@@ -66,3 +66,30 @@ describe("icon property", () => {
     expect(fc.features[2].properties.icon).toBe("sailing");
   });
 });
+
+describe("icon property with iconRegistered (pack loader, Task 9)", () => {
+  it("pack icon registered → passes through", () => {
+    const fc = buildFeatureCollection([air({ icon: "rk:C130" })], { iconRegistered: new Set(["rk:C130"]) });
+    expect(fc.features[0].properties.icon).toBe("rk:C130");
+  });
+
+  it("pack icon not registered → family fallback (Review Focus #4)", () => {
+    const fc = buildFeatureCollection([air({ icon: "rk:C130", kind: "military" })], { iconRegistered: new Set() });
+    expect(fc.features[0].properties.icon).toBe("fighter");
+  });
+
+  it("opt omitted → pack names pass through (back-compat)", () => {
+    const fc = buildFeatureCollection([air({ icon: "pw:B737" })]);
+    expect(fc.features[0].properties.icon).toBe("pw:B737");
+  });
+
+  it("non-pack icons and sea craft unaffected by the opt", () => {
+    const fc = buildFeatureCollection(
+      [air({ icon: "narrowbody" }), air({ kind: "business", icon: undefined }), sea({ icon: "cargo" })],
+      { iconRegistered: new Set() },
+    );
+    expect(fc.features[0].properties.icon).toBe("narrowbody"); // family name passes
+    expect(fc.features[1].properties.icon).toBe("bizjet"); // air kind fallback
+    expect(fc.features[2].properties.icon).toBe("cargo"); // sea kind passes
+  });
+});

@@ -1,4 +1,4 @@
-import { KIND_FALLBACK_ICON, type AirKind, type Craft } from "../../shared/craft.js";
+import { KIND_FALLBACK_ICON, isPackIconName, type AirKind, type Craft } from "../../shared/craft.js";
 
 export interface PointGeometry {
   type: "Point";
@@ -28,7 +28,23 @@ export interface FeatureCollection {
   features: CraftFeature[];
 }
 
-function toFeature(c: Craft): CraftFeature {
+/**
+ * MapLibre image name for a craft. Pack icon names (pw:/rk:/pd:) only
+ * render when the loader has actually registered them — otherwise the map
+ * would draw nothing (Review Focus #4), so they fall back to the kind's
+ * family silhouette until the image lands. `iconRegistered` undefined
+ * (opt omitted) keeps the old pass-through for back-compat. Sea craft never
+ * carry pack icons; their kind name passes through unchanged.
+ */
+function iconFor(c: Craft, registered: ReadonlySet<string> | undefined): string {
+  const base = c.icon ?? (c.domain === "air" ? KIND_FALLBACK_ICON[c.kind as AirKind] : c.kind);
+  if (c.icon !== undefined && isPackIconName(c.icon) && registered !== undefined && !registered.has(c.icon)) {
+    if (c.domain === "air") return KIND_FALLBACK_ICON[c.kind as AirKind];
+  }
+  return base;
+}
+
+function toFeature(c: Craft, registered: ReadonlySet<string> | undefined): CraftFeature {
   const label = c.domain === "air" ? c.callsign ?? c.id : c.shipName ?? c.id;
   const parts: string[] = [];
   if (c.speed != null) parts.push(`${Math.round(c.speed)}kn`);
@@ -42,7 +58,7 @@ function toFeature(c: Craft): CraftFeature {
       id: c.id,
       domain: c.domain,
       kind: c.kind,
-      icon: c.icon ?? (c.domain === "air" ? KIND_FALLBACK_ICON[c.kind as AirKind] : c.kind),
+      icon: iconFor(c, registered),
       stale: c.stale,
       label,
       sublabel: parts.join(" "),
@@ -53,6 +69,6 @@ function toFeature(c: Craft): CraftFeature {
   };
 }
 
-export function buildFeatureCollection(crafts: Craft[]): FeatureCollection {
-  return { type: "FeatureCollection", features: crafts.map(toFeature) };
+export function buildFeatureCollection(crafts: Craft[], opts?: { iconRegistered?: ReadonlySet<string> }): FeatureCollection {
+  return { type: "FeatureCollection", features: crafts.map((c) => toFeature(c, opts?.iconRegistered)) };
 }

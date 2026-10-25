@@ -1,4 +1,4 @@
-import type { FeedStatus } from "../data/ws.js";
+import type { FeedStatus, IconStatus } from "../data/ws.js";
 
 export type ConnStatus = "connecting" | "open" | "closed";
 
@@ -9,6 +9,7 @@ export function createHud(root: HTMLElement): {
   setCounts(air: number, sea: number): void;
   setStatus(s: ConnStatus): void;
   setFeeds(feeds: FeedStatus, serverTime: number): void;
+  setIcons(i: IconStatus | null): void;
   setReplay(t: number | null): void;
 } {
   const el = document.createElement("div");
@@ -22,12 +23,14 @@ export function createHud(root: HTMLElement): {
   counts.className = "hud-counts";
   const feedsEl = document.createElement("span");
   feedsEl.className = "hud-feeds";
+  const iconsEl = document.createElement("span");
+  iconsEl.className = "hud-icons";
   const clock = document.createElement("span");
   clock.className = "hud-clock";
   const replayBadge = document.createElement("span");
   replayBadge.className = "hud-replay";
   replayBadge.textContent = "REPLAY";
-  el.append(dot, replayBadge, status, counts, feedsEl, clock);
+  el.append(dot, replayBadge, status, counts, feedsEl, iconsEl, clock);
   root.appendChild(el);
 
   let replayT: number | null = null;
@@ -74,11 +77,23 @@ export function createHud(root: HTMLElement): {
     feedsEl.textContent = `${os} · ${ai}`;
   }
 
+  function setIcons(i: IconStatus | null): void {
+    // null / absent → hidden (pack disabled or pre-Task-7 frame)
+    if (i === null || i.state === "absent") {
+      iconsEl.textContent = "";
+      iconsEl.classList.remove("warn");
+      return;
+    }
+    iconsEl.textContent =
+      i.state === "ready" ? `Icons: ${i.count}` : i.state === "downloading" ? "Icons: …" : "Icons: offline";
+    iconsEl.classList.toggle("warn", i.state === "failed");
+  }
+
   function setReplay(t: number | null): void {
     replayT = t;
     replayBadge.classList.toggle("visible", t != null);
     renderClock();
   }
 
-  return { setCounts, setStatus, setFeeds, setReplay };
+  return { setCounts, setStatus, setFeeds, setIcons, setReplay };
 }

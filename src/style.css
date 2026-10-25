@@ -286,6 +286,13 @@ body {
   color: var(--muted);
   font-size: 11px;
 }
+.hud-icons {
+  color: var(--muted);
+  font-size: 11px;
+}
+.hud-icons.warn {
+  color: #ef5350;
+}
 .hud-clock {
   color: var(--muted);
   font-size: 11px;

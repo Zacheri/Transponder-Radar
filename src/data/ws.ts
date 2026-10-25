@@ -18,6 +18,15 @@ export interface FaaStatus {
   lastError: string | null;
 }
 
+// Mirror of server/iconpack.ts IconStatus — redeclared (client never
+// imports server code); keep in sync by hand.
+export interface IconStatus {
+  state: "absent" | "downloading" | "ready" | "failed";
+  count: number;
+  updatedAt: number | null;
+  lastError: string | null;
+}
+
 export interface AircraftInfo {
   nNumber: string;
   year: number | null;
@@ -34,6 +43,7 @@ export interface StatusMessage {
   feeds: FeedStatus;
   history: HistoryRange;
   faa: FaaStatus;
+  icons: IconStatus;
   serverTime: number;
 }
 
