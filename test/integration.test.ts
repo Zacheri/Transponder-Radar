@@ -96,6 +96,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
             enabled: true,
             lastError: ais.feedStatus.lastError,
             lastMessageAt: ais.feedStatus.lastMessageAt,
+            flushMs: 50, // hub built above: batchMs 50, aisFlushMs defaults to it
           },
         },
         history: { from: null, to: null, snapshots: 0 },
@@ -321,7 +322,7 @@ describe("icon pack routes (fixture pack)", () => {
       statusPayload: () => ({
         feeds: {
           opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-          ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null },
+          ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 50 },
         },
         history: { from: null, to: null, snapshots: 0 },
         faa: { state: "loading", updatedAt: null, aircraft: 0, lastError: null },

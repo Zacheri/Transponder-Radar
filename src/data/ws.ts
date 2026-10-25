@@ -2,7 +2,7 @@ import type { Craft } from "../../shared/craft.js";
 
 export interface FeedStatus {
   opensky: { lastOkAt: number | null; lastError: string | null; pollMs: number };
-  ais: { connected: boolean; enabled: boolean; lastError: string | null; lastMessageAt: number | null };
+  ais: { connected: boolean; enabled: boolean; lastError: string | null; lastMessageAt: number | null; flushMs: number };
 }
 
 export interface HistoryRange {

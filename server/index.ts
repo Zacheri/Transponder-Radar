@@ -9,7 +9,7 @@ import { CraftStore } from "./store.js";
 import { OpenSkyPoller } from "./opensky.js";
 import { createTokenProvider } from "./opensky-auth.js";
 import { AisClient } from "./ais.js";
-import { Hub, parseClientMessage, type FeedId } from "./hub.js";
+import { Hub, parseClientMessage, type FeedId, type StatusPayload } from "./hub.js";
 import { HistoryRecorder, type HistoryRange } from "./history.js";
 import { FaaLoader, type FaaProvider, type FaaRecord } from "./faa.js";
 import { FaaLookup } from "./faa-lookup.js";
@@ -108,8 +108,12 @@ export async function buildApp(deps: ServerDeps = {}) {
     new Hub({
       store,
       batchMs: config.BATCH_MS,
+      aisFlushMs: config.BATCH_MS, // sea window defaults to today's batch behavior
       log,
-      statusPayload: () => ({
+      // Annotated return type: the closure reads hub.aisFlushMs (live slider
+      // value) and hub is declared via this very initializer — without the
+      // annotation TS infers hub as any (circular reference).
+      statusPayload: (): StatusPayload => ({
         feeds: {
           opensky: opensky.feedStatus,
           ais: {
@@ -117,6 +121,7 @@ export async function buildApp(deps: ServerDeps = {}) {
             enabled: Boolean(config.AISSTREAM_API_KEY),
             lastError: ais.feedStatus.lastError,
             lastMessageAt: ais.feedStatus.lastMessageAt,
+            flushMs: hub.aisFlushMs,
           },
         },
         history: recorder ? recorder.range() : emptyRange,
@@ -127,6 +132,7 @@ export async function buildApp(deps: ServerDeps = {}) {
 
   const feedRate: Record<FeedId, (ms: number) => void> = {
     opensky: (ms) => opensky.setPollInterval(ms),
+    ais: (ms) => hub.setAisFlushMs(ms),
   };
 
   const app = Fastify({ logger: false });

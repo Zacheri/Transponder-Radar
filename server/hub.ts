@@ -1,3 +1,4 @@
+import type { Craft } from "../shared/craft.js";
 import type { CraftStore } from "./store.js";
 import type { HistoryRange } from "./history.js";
 import type { FaaStatus } from "./faa.js";
@@ -11,11 +12,18 @@ export interface WsLike {
 
 export interface FeedStatus {
   opensky: { lastOkAt: number | null; lastError: string | null; pollMs: number };
-  ais: { connected: boolean; enabled: boolean; lastError: string | null; lastMessageAt: number | null };
+  ais: { connected: boolean; enabled: boolean; lastError: string | null; lastMessageAt: number | null; flushMs: number };
 }
 
-export const FEED_IDS = ["opensky"] as const;
+export const FEED_IDS = ["opensky", "ais"] as const;
 export type FeedId = (typeof FEED_IDS)[number];
+
+// Server-side slider bounds for the sea flush window (client agrees).
+export const AIS_FLUSH_MIN_MS = 500;
+export const AIS_FLUSH_MAX_MS = 15000;
+
+// Fixed internal tick; per-feed windows decide when a domain drains.
+const TICK_MS = 250;
 
 export type ClientMessage =
   | { type: "feed.rate"; feed: FeedId; ms: number }
@@ -53,7 +61,8 @@ export interface StatusPayload {
 
 export interface HubOpts {
   store: CraftStore;
-  batchMs: number;
+  batchMs: number; // air flush window (today's BATCH_MS semantics)
+  aisFlushMs?: number; // sea flush window; default = batchMs
   log?: (msg: string) => void;
   statusPayload?: () => StatusPayload;
 }
@@ -62,11 +71,26 @@ export class Hub {
   private clients = new Set<WsLike>();
   private timer: NodeJS.Timeout | null = null;
   private lastStatusJson: string | null = null;
+  private seaWindow: number;
+  private airLastFlush = 0;
+  private seaLastFlush = 0;
 
-  constructor(private opts: HubOpts) {}
+  constructor(private opts: HubOpts) {
+    this.seaWindow = opts.aisFlushMs ?? opts.batchMs;
+  }
 
   get clientCount(): number {
     return this.clients.size;
+  }
+
+  get aisFlushMs(): number {
+    return this.seaWindow;
+  }
+
+  // Live; clamped to the slider bounds. Non-finite input is ignored.
+  setAisFlushMs(ms: number): void {
+    if (typeof ms !== "number" || !Number.isFinite(ms)) return;
+    this.seaWindow = Math.min(AIS_FLUSH_MAX_MS, Math.max(AIS_FLUSH_MIN_MS, ms));
   }
 
   attach(socket: WsLike): void {
@@ -87,7 +111,11 @@ export class Hub {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.tick(), this.opts.batchMs);
+    // Windows start at start(): no instant flush burst — the first drain of a
+    // domain can only happen once its full window has elapsed.
+    this.airLastFlush = Date.now();
+    this.seaLastFlush = Date.now();
+    this.timer = setInterval(() => this.tick(), TICK_MS);
   }
 
   stop(): void {
@@ -119,12 +147,24 @@ export class Hub {
         }
       }
     }
-    // Per-domain drains combined into one frame — today's behavior exactly
-    // (Task 2 splits these onto independent flush windows).
-    const air = this.opts.store.drainDirty("air");
-    const sea = this.opts.store.drainDirty("sea");
-    const upsert = [...air.upsert, ...sea.upsert];
-    const remove = [...air.remove, ...sea.remove];
+    // Per-feed flush windows: a domain drains only on a tick where its own
+    // window has elapsed; changes from both due domains ride ONE combined
+    // update frame (skipped when nothing drained).
+    const now = Date.now();
+    const upsert: Craft[] = [];
+    const remove: string[] = [];
+    if (now - this.airLastFlush >= this.opts.batchMs) {
+      const d = this.opts.store.drainDirty("air");
+      upsert.push(...d.upsert);
+      remove.push(...d.remove);
+      this.airLastFlush = now;
+    }
+    if (now - this.seaLastFlush >= this.seaWindow) {
+      const d = this.opts.store.drainDirty("sea");
+      upsert.push(...d.upsert);
+      remove.push(...d.remove);
+      this.seaLastFlush = now;
+    }
     if (upsert.length === 0 && remove.length === 0) return;
     const update = JSON.stringify({ type: "update", upsert, remove });
     for (const c of this.clients) {

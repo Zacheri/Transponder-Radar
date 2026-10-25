@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseRadarMessage } from "../src/data/ws.js";
+import { parseRadarMessage, RadarSocket } from "../src/data/ws.js";
+import { parseClientMessage } from "../server/hub.js";
 
 const feeds = {
   opensky: { lastOkAt: 1000, lastError: null, pollMs: 120000 },
-  ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 900 },
+  ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 900, flushMs: 1000 },
 };
 
 const history = { from: null, to: null, snapshots: 0 };
@@ -69,5 +70,44 @@ describe("parseRadarMessage status frames", () => {
   it("rejects a status frame missing faa", () => {
     const raw = JSON.stringify({ type: "status", feeds, history: { from: null, to: null, snapshots: 0 }, serverTime: 2000 });
     expect(parseRadarMessage(raw)).toBeNull();
+  });
+});
+
+describe("feed.rate protocol mirror", () => {
+  it("feed.rate with feed 'ais' is accepted and sent; 'bogus' rejected", () => {
+    // server side: parseClientMessage
+    expect(parseClientMessage(JSON.stringify({ type: "feed.rate", feed: "ais", ms: 5000 }))).toEqual({ type: "feed.rate", feed: "ais", ms: 5000 });
+    expect(parseClientMessage(JSON.stringify({ type: "feed.rate", feed: "bogus", ms: 5000 }))).toBeNull();
+
+    // client side: sendFeedRate("ais", 5000) lands on the wire
+    const frames: string[] = [];
+    class FakeWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      readyState = FakeWebSocket.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((ev: { data: unknown }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(public url: string) {}
+      send(data: string) {
+        frames.push(data);
+      }
+      close() {}
+    }
+    const original = globalThis.WebSocket;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    try {
+      const socket = new RadarSocket("ws://127.0.0.1:2001/ws", { onSnapshot: () => {}, onUpdate: () => {} });
+      socket.connect();
+      socket.sendFeedRate("ais", 5000);
+      expect(frames).toHaveLength(1);
+      expect(JSON.parse(frames[0])).toEqual({ type: "feed.rate", feed: "ais", ms: 5000 });
+      socket.close();
+    } finally {
+      globalThis.WebSocket = original;
+    }
   });
 });
