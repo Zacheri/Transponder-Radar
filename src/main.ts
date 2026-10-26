@@ -130,7 +130,7 @@ map.on("load", async () => {
       hud.setFeeds(s.feeds, s.serverTime);
       hud.setIcons(s.icons ?? null); // ?? — pre-Task-7 frames carry no icons
       pollRate.setMs(s.feeds.opensky.pollMs);
-      shipRate.setMs(s.feeds.ais.flushMs);
+      shipRate.setMs(s.feeds.ais.flushMs ?? 1000); // ?? — pre-Task-2 frames carry no flushMs
       timeline.setRange(s.history.from, s.history.to);
       if (s.faa.state === "ready" && lastFaaState !== "ready") {
         const purged: string[] = [];

@@ -36,7 +36,8 @@ export function createFeedRate(
   root.appendChild(el);
 
   function render(ms: number): void {
-    label.textContent = `${opts.label} ${Math.round(ms / 1000)} s`;
+    const s = ms / 1000;
+    label.textContent = `${opts.label} ${s % 1 ? s.toFixed(1) : s} s`;
     if (creditsPerPoll == null) return;
     const c = Math.ceil(86400000 / ms) * creditsPerPoll;
     credits.textContent = `≈${c.toLocaleString()} credits/day`;
@@ -56,8 +57,9 @@ export function createFeedRate(
   });
 
   function setMs(ms: number): void {
-    slider.value = String(Math.min(maxMs, Math.max(minMs, ms)));
-    render(ms);
+    const clamped = Math.min(maxMs, Math.max(minMs, ms));
+    slider.value = String(clamped);
+    render(clamped);
   }
 
   setMs(defaultMs);

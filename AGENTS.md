@@ -297,20 +297,23 @@ it would invalidate verification. Recolor limit: `recolorPixels`
   client-side update suppression gate for rewind), `ui/` (panel (FAA info
   rows), filters, HUD, `timeline.ts` (scrubber + REPLAY badge + LIVE),
   `pollrate.ts` (`createFeedRate` factory — one slider per feed; the opensky
-  instance shows credit warnings)).
+  instance shows credit warnings; the ais instance is the "Ship updates"
+  slider (no credits)).
 - WS protocol (both ends mirror it, no shared file):
   client → server: `{type:"feed.rate",feed,ms}` (`feed` ∈ hub `FEED_IDS` =
-  `["opensky"]`; a new service adds one `feedRate` handler entry in
-  `index.ts` + a slider via the `createFeedRate` factory),
+  `["opensky", "ais"]`; the server clamps `feed.rate`/`ais` to [500, 15000]
+  — bounds agree with the client slider — and ignores non-finite values; a
+  new service adds one `feedRate` handler entry in `index.ts` + a slider via
+  the `createFeedRate` factory),
   `{type:"timeline.seek",time}`, `{type:"timeline.live"}`,
   `{type:"aircraft.info",id}`;
   server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`
   (craft objects carry an optional `icon` — air shape family / sea kind /
   absent in pre-icon snapshots),
-  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled,lastError,lastMessageAt}},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},serverTime}`
+  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled,lastError,lastMessageAt,flushMs}},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},serverTime}`
   (icons.state: ready|downloading|failed|absent),
   `{type:"timeline.state",time,craft}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
   `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`).
-- `test/` — 26 files, 390 tests. Node-environment Vitest; browser-only code
+- `test/` — 26 files, 398 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.
