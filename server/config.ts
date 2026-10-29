@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { RAM_CACHE_GB_DEFAULT } from "../shared/limits.js";
 
 function int(name: string, def: number): number {
   const v = process.env[name];
@@ -16,6 +17,7 @@ export const config = {
   REMOVE_MS: int("REMOVE_MS", 600000),
   HISTORY_SNAPSHOT_MS: int("HISTORY_SNAPSHOT_MS", 60000),
   HISTORY_MAX_BYTES: int("HISTORY_MAX_BYTES", 10_737_418_240),
+  HISTORY_RAM_CACHE_GB: int("HISTORY_RAM_CACHE_GB", RAM_CACHE_GB_DEFAULT),
   FAA_REFRESH_MS: int("FAA_REFRESH_MS", 86400000),
   AISSTREAM_API_KEY: process.env.AISSTREAM_API_KEY ?? "",
 };
