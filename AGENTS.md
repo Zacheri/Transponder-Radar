@@ -77,9 +77,10 @@ commit it; delete it to reset all cached data.
     only reads the standard `retry-after` header (`server/opensky.ts:102`) —
     so in practice exponential backoff applies (cap 5 min,
     `BACKOFF_CAP_MS=300000`).
-- Practical numbers: standard tier full-globe = 1,000 polls/day →
-  `OPENSKY_POLL_MS=120000` (720/day) is sustainable 24/7. Shorter intervals
-  exhaust the daily budget.
+- Practical numbers: standard tier full-globe = 1,000 polls/day (4 credits
+  each). Default `OPENSKY_POLL_MS=90000` (960/day, ~3,840 credits) is
+  sustainable 24/7; `120000` (720/day) is the old, more conservative default.
+  Much shorter intervals exhaust the daily budget.
 - Anonymous is also capped at ~10,000 aircraft; authenticated returns the full
   set (11k+ seen).
 - Official docs: https://openskynetwork.github.io/opensky-api/rest.html
@@ -301,8 +302,9 @@ it would invalidate verification. Recolor limit: `recolorPixels`
   slider (no credits)).
 - WS protocol (both ends mirror it, no shared file):
   client → server: `{type:"feed.rate",feed,ms}` (`feed` ∈ hub `FEED_IDS` =
-  `["opensky", "ais"]`; the server clamps `feed.rate`/`ais` to [500, 15000]
-  — bounds agree with the client slider — and ignores non-finite values; a
+  `["opensky", "ais"]`; the server clamps `feed.rate`/`ais` to [60000, 600000]
+  (default 120000; `AIS_FLUSH_*` in `hub.ts`) — bounds agree with the client
+  slider — and ignores non-finite values; a
   new service adds one `feedRate` handler entry in `index.ts` + a slider via
   the `createFeedRate` factory),
   `{type:"timeline.seek",time}`, `{type:"timeline.live"}`,

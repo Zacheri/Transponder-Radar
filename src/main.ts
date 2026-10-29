@@ -65,24 +65,29 @@ async function refresh(): Promise<void> {
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 
 let socket: RadarSocket | null = null;
-const pollRate = createFeedRate(document.getElementById("app") as HTMLElement, {
+// One positioned container for both sliders: .pollrate pills stack vertically
+// (two absolutely-positioned pills at the same corner would overlap).
+const feedRates = document.createElement("div");
+feedRates.className = "pollrates";
+(document.getElementById("app") as HTMLElement).appendChild(feedRates);
+const pollRate = createFeedRate(feedRates, {
   label: "Aircraft poll",
   ariaLabel: "Aircraft poll interval",
   minMs: 30000,
   maxMs: 900000,
   stepMs: 15000,
-  defaultMs: 120000,
+  defaultMs: 90000,
   creditsPerPoll: 4,
   send: (ms) => socket?.sendFeedRate("opensky", ms),
 });
-const shipRate = createFeedRate(document.getElementById("app") as HTMLElement, {
+const shipRate = createFeedRate(feedRates, {
   label: "Ship updates",
   ariaLabel: "Ship update interval",
   title: "The vessel stream is continuous; this is how often the map applies vessel updates.",
-  minMs: 500,
-  maxMs: 15000,
-  stepMs: 500,
-  defaultMs: 1000,
+  minMs: 60000,
+  maxMs: 600000,
+  stepMs: 60000,
+  defaultMs: 120000,
   send: (ms) => socket?.sendFeedRate("ais", ms),
 });
 const replay = new ReplayGate();
@@ -130,7 +135,7 @@ map.on("load", async () => {
       hud.setFeeds(s.feeds, s.serverTime);
       hud.setIcons(s.icons ?? null); // ?? — pre-Task-7 frames carry no icons
       pollRate.setMs(s.feeds.opensky.pollMs);
-      shipRate.setMs(s.feeds.ais.flushMs ?? 1000); // ?? — pre-Task-2 frames carry no flushMs
+      shipRate.setMs(s.feeds.ais.flushMs ?? 120000); // ?? — pre-Task-2 frames carry no flushMs
       timeline.setRange(s.history.from, s.history.to);
       if (s.faa.state === "ready" && lastFaaState !== "ready") {
         const purged: string[] = [];

@@ -19,8 +19,10 @@ export const FEED_IDS = ["opensky", "ais"] as const;
 export type FeedId = (typeof FEED_IDS)[number];
 
 // Server-side slider bounds for the sea flush window (client agrees).
-export const AIS_FLUSH_MIN_MS = 500;
-export const AIS_FLUSH_MAX_MS = 15000;
+// Vessels move slowly: 60–600 s is the useful range (2026-10-29, with user).
+export const AIS_FLUSH_MIN_MS = 60000;
+export const AIS_FLUSH_MAX_MS = 600000;
+export const AIS_FLUSH_DEFAULT_MS = 120000;
 
 // Fixed internal tick; per-feed windows decide when a domain drains.
 const TICK_MS = 250;
@@ -62,7 +64,7 @@ export interface StatusPayload {
 export interface HubOpts {
   store: CraftStore;
   batchMs: number; // air flush window (today's BATCH_MS semantics)
-  aisFlushMs?: number; // sea flush window; default = batchMs
+  aisFlushMs?: number; // sea flush window; default = AIS_FLUSH_DEFAULT_MS
   log?: (msg: string) => void;
   statusPayload?: () => StatusPayload;
 }
@@ -76,7 +78,7 @@ export class Hub {
   private seaLastFlush = 0;
 
   constructor(private opts: HubOpts) {
-    this.seaWindow = opts.aisFlushMs ?? opts.batchMs;
+    this.seaWindow = opts.aisFlushMs ?? AIS_FLUSH_DEFAULT_MS;
   }
 
   get clientCount(): number {

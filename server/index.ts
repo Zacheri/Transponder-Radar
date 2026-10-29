@@ -108,7 +108,6 @@ export async function buildApp(deps: ServerDeps = {}) {
     new Hub({
       store,
       batchMs: config.BATCH_MS,
-      aisFlushMs: config.BATCH_MS, // sea window defaults to today's batch behavior
       log,
       // Annotated return type: the closure reads hub.aisFlushMs (live slider
       // value) and hub is declared via this very initializer — without the

@@ -88,6 +88,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
     const hub = new Hub({
       store,
       batchMs: 50,
+      aisFlushMs: 50, // explicit: the test waits for a sea update within 3 s
       statusPayload: () => ({
         feeds: {
           opensky: opensky.feedStatus,
@@ -96,7 +97,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
             enabled: true,
             lastError: ais.feedStatus.lastError,
             lastMessageAt: ais.feedStatus.lastMessageAt,
-            flushMs: 50, // hub built above: batchMs 50, aisFlushMs defaults to it
+            flushMs: 50, // mirrors the explicit aisFlushMs above
           },
         },
         history: { from: null, to: null, snapshots: 0 },
@@ -319,6 +320,7 @@ describe("icon pack routes (fixture pack)", () => {
     const hub = new Hub({
       store,
       batchMs: 50,
+      aisFlushMs: 50, // mirrors the status fixture below (icons app; no timing dependence)
       statusPayload: () => ({
         feeds: {
           opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },

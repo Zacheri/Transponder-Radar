@@ -9,7 +9,7 @@ function int(name: string, def: number): number {
 
 export const config = {
   PORT: int("PORT", 2001),
-  OPENSKY_POLL_MS: int("OPENSKY_POLL_MS", 120000),
+  OPENSKY_POLL_MS: int("OPENSKY_POLL_MS", 90000),
   OPENSKY_CLIENT_ID: process.env.OPENSKY_CLIENT_ID ?? "",
   OPENSKY_CLIENT_SECRET: process.env.OPENSKY_CLIENT_SECRET ?? "",
   BATCH_MS: int("BATCH_MS", 1000),

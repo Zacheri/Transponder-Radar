@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { Hub, parseClientMessage, type FeedStatus } from "../server/hub.js";
+import { Hub, AIS_FLUSH_DEFAULT_MS, parseClientMessage, type FeedStatus } from "../server/hub.js";
 import type { HistoryRange } from "../server/history.js";
 import type { IconStatus } from "../server/iconpack.js";
 import { CraftStore } from "../server/store.js";
@@ -92,7 +92,7 @@ describe("Hub", () => {
     const store = new CraftStore();
     let feeds: FeedStatus = {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 1000 },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
     };
     const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
     const sock = fakeSocket();
@@ -100,7 +100,7 @@ describe("Hub", () => {
     hub.start();
     feeds = {
       opensky: { lastOkAt: 123, lastError: null, pollMs: 120000 },
-      ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 456, flushMs: 1000 },
+      ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 456, flushMs: 120000 },
     };
     await waitFor(() => statusFrames(sock.sent).length >= 2);
     const frames = statusFrames(sock.sent);
@@ -116,7 +116,7 @@ describe("Hub", () => {
     const store = new CraftStore();
     const feeds = {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 1000 },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
     };
     const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
     const sock = fakeSocket();
@@ -133,7 +133,7 @@ describe("Hub", () => {
     const store = new CraftStore();
     const feeds = {
       opensky: { lastOkAt: null, lastError: "HTTP 429", pollMs: 120000 },
-      ais: { connected: false, enabled: true, lastError: "closed 1006", lastMessageAt: null, flushMs: 1000 },
+      ais: { connected: false, enabled: true, lastError: "closed 1006", lastMessageAt: null, flushMs: 120000 },
     };
     const hub = new Hub({ store, batchMs: 1000, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
     const sock = fakeSocket();
@@ -149,7 +149,7 @@ describe("Hub", () => {
   it("status frames carry history bounds", async () => {
     const store = new CraftStore();
     let history: HistoryRange = { from: null, to: null, snapshots: 0 };
-    const feeds = { opensky: { lastOkAt: null, lastError: null, pollMs: 120000 }, ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 1000 } };
+    const feeds = { opensky: { lastOkAt: null, lastError: null, pollMs: 120000 }, ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 } };
     const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
     const sock = fakeSocket();
     hub.attach(sock);
@@ -173,7 +173,7 @@ describe("Hub", () => {
       statusPayload: () => ({
         feeds: {
           opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-          ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 1000 },
+          ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
         },
         history: { from: null, to: null, snapshots: 0 },
         faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null },
@@ -193,7 +193,7 @@ describe("per-feed flush windows", () => {
     vi.useRealTimers();
   });
 
-  it("air flushes on batchMs, sea held until its window (default = batchMs)", () => {
+  it("air flushes on batchMs, sea held until its window", () => {
     vi.useFakeTimers();
     const store = new CraftStore();
     const hub = new Hub({ store, batchMs: 1000, aisFlushMs: 2000 });
@@ -234,32 +234,34 @@ describe("per-feed flush windows", () => {
     vi.useFakeTimers();
     const store = new CraftStore();
     const hub = new Hub({ store, batchMs: 1000 });
-    expect(hub.aisFlushMs).toBe(1000); // default = batchMs
+    expect(hub.aisFlushMs).toBe(AIS_FLUSH_DEFAULT_MS); // default, not batchMs
     const sock = fakeSocket();
     hub.attach(sock);
     hub.start();
     vi.advanceTimersByTime(500); // t=500
-    hub.setAisFlushMs(3000);
+    // In-bounds live change: 60 s (min). If the set were ignored, the default
+    // 120 s window would not have elapsed by t=60000 and no frame would arrive.
+    hub.setAisFlushMs(60000);
     vi.advanceTimersByTime(100); // t=600
     store.upsert(sea("S"), 600);
-    vi.advanceTimersByTime(1400); // t=2000
+    vi.advanceTimersByTime(59150); // t=59750: 60000 window (from t0) not yet due
     expect(updateFrames(sock.sent)).toHaveLength(0);
-    vi.advanceTimersByTime(1000); // t=3000
+    vi.advanceTimersByTime(250); // t=60000: due
     const frames = updateFrames(sock.sent);
     expect(frames).toHaveLength(1);
     expect(frames[0].upsert.map((c) => c.id)).toEqual(["S"]);
     hub.stop();
   });
 
-  it("setAisFlushMs clamps to [500, 15000]", () => {
+  it("setAisFlushMs clamps to [60000, 600000]", () => {
     const store = new CraftStore();
     const hub = new Hub({ store, batchMs: 1000 });
     hub.setAisFlushMs(10);
-    expect(hub.aisFlushMs).toBe(500);
-    hub.setAisFlushMs(99999);
-    expect(hub.aisFlushMs).toBe(15000);
-    hub.setAisFlushMs(7000);
-    expect(hub.aisFlushMs).toBe(7000);
+    expect(hub.aisFlushMs).toBe(60000);
+    hub.setAisFlushMs(999999);
+    expect(hub.aisFlushMs).toBe(600000);
+    hub.setAisFlushMs(120000);
+    expect(hub.aisFlushMs).toBe(120000);
   });
 
   it("unflushed sea craft stays fresh in the store", () => {

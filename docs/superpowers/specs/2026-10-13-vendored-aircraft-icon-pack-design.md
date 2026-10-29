@@ -308,6 +308,13 @@ No user-visible state is worse than today in any row.
 
 ## Appendix A — Ships rate slider (bounded work item)
 
+**Range revision (2026-10-29, with user):** vessels move slowly — the
+original 0.5–15 s (default 1 s) range was overkill. The sea window is now
+**60–600 s, step 60 s, default 120 s** (server mirrors the client; the old
+"sea default = batchMs" coupling is gone, replaced by `AIS_FLUSH_DEFAULT_MS`).
+The ADS-B slider default also moved 120 s → 90 s (`OPENSKY_POLL_MS` default;
+960 globe polls/day = 3,840 credits — still within the standard 4,000 tier).
+
 **Semantics (R8):** AIS is a live push stream — there is no poll interval to
 tune. The slider controls **how often vessel position updates are applied to
 the map** (server-side per-feed flush window). The stream keeps receiving
@@ -317,25 +324,25 @@ is coalesced over the chosen window. Label: "Ship updates N s" with tooltip
 updates."
 
 **Server:**
-- `HubOpts`: `aisFlushMs?: number` (default = `batchMs`). Internals: tick
+- `HubOpts`: `aisFlushMs?: number` (default = `AIS_FLUSH_DEFAULT_MS` = 120000). Internals: tick
   every 250 ms (`TICK_MS`); per-feed `lastFlush` timestamps; on tick, drain
   `store.drainDirty("air")` when the air window (`batchMs`, unchanged) is due
   and `store.drainDirty("sea")` when the sea window is due; broadcast one
   combined `update` frame (as today) with whatever drained.
 - `store.drainDirty(domain: "air" | "sea")` — dirty sets filtered by
   `craft.domain` (field already exists).
-- `hub.setAisFlushMs(ms)` — clamped to `[500, 15000]`, live.
+- `hub.setAisFlushMs(ms)` — clamped to `[60000, 600000]`, live.
 - `FEED_IDS = ["opensky", "ais"]`; `feedRate.ais = (ms) => hub.setAisFlushMs(ms)`.
 - Status: `feeds.ais.flushMs` (slider restore on reload).
 
 **Client:** second `createFeedRate` instance — label "Ship updates",
-min 500 / max 15000 / step 500 / default 1000, no credits line (AIS free key
+min 60000 / max 600000 / step 60000 / default 120000, no credits line (AIS free key
 has no documented credit model). Wired in `main.ts` exactly like the OpenSky
 instance (send `feed.rate` with `feed: "ais"`; restore from status).
 
 **Tests:** per §8 hub/store/protocol items. Browser check (user): slider to
-15 s → vessels step visibly; back to 1 s → smooth; aircraft slider unaffected;
-page reload restores both positions.
+10 min → vessels step visibly; back to 1 min → smooth; aircraft slider
+unaffected; page reload restores both positions.
 
 **Non-goals:** no client-side render throttle (server coalescing is the knob);
 no change to AIS subscription/keepalive; no per-vessel smoothing/interpolation.
