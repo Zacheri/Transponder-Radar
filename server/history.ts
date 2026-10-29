@@ -2,6 +2,8 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Craft } from "../shared/craft.js";
+import type { PinStore } from "./pins.js";
+import type { SnapshotCache } from "./snapshot-cache.js";
 
 export interface HistoryRange {
   from: number | null;
@@ -13,6 +15,8 @@ export interface HistoryRecorderOpts {
   dir: string;
   snapshotMs: number;
   maxBytes: number;
+  pins?: PinStore;            // omit = no pin awareness (legacy behavior)
+  cache?: SnapshotCache;      // used in Task 7
   now?: () => number;
   log?: (msg: string) => void;
 }
@@ -26,9 +30,11 @@ export class HistoryRecorder {
   private timer: NodeJS.Timeout | null = null;
   private index: Meta[] = []; // ascending ts
   private now: () => number;
+  private maxBytes: number; // live cap (setCap updates it)
 
   constructor(private opts: HistoryRecorderOpts) {
     this.now = opts.now ?? Date.now;
+    this.maxBytes = opts.maxBytes;
   }
 
   async init(): Promise<void> {
@@ -36,9 +42,17 @@ export class HistoryRecorder {
     this.index = [];
     for (const f of await readdir(this.opts.dir)) {
       const m = /^(\d+)\.json\.gz$/.exec(f);
-      if (!m) continue;
+      if (!m) continue; // non-snapshot files (e.g. pins.json) stay untouched
       const st = await stat(join(this.opts.dir, f)).catch(() => null);
-      if (st) this.index.push({ ts: Number(m[1]), size: st.size });
+      if (!st) continue;
+      if (st.size === 0) {
+        // 0-byte snapshot (interrupted write): drop it — a seek onto one
+        // would bounce to LIVE.
+        await unlink(join(this.opts.dir, f)).catch(() => {});
+        this.opts.log?.(`history: removed 0-byte snapshot ${f}`);
+        continue;
+      }
+      this.index.push({ ts: Number(m[1]), size: st.size });
     }
     this.index.sort((a, b) => a.ts - b.ts);
     await this.evict();
@@ -69,13 +83,42 @@ export class HistoryRecorder {
     await this.evict();
   }
 
+  /** Update the live cap and fire an async evict (errors logged). */
+  setCap(bytes: number): void {
+    this.maxBytes = bytes;
+    this.evict().catch((e) =>
+      this.opts.log?.(`history: evict failed: ${e instanceof Error ? e.message : String(e)}`),
+    );
+  }
+
+  /** Copy of the index, ascending ts. */
+  entries(): { ts: number; size: number }[] {
+    return this.index.map((m) => ({ ts: m.ts, size: m.size }));
+  }
+
+  /** Sum of ALL index sizes (pinned + unpinned). */
+  usedBytes(): number {
+    return this.index.reduce((s, m) => s + m.size, 0);
+  }
+
+  get snapshotMs(): number {
+    return this.opts.snapshotMs;
+  }
+
   private async evict(): Promise<void> {
-    let total = this.index.reduce((s, m) => s + m.size, 0);
-    // Always keep at least the newest snapshot, even below the cap.
-    while (total > this.opts.maxBytes && this.index.length > 1) {
-      const oldest = this.index.shift()!;
-      total -= oldest.size;
-      await unlink(join(this.opts.dir, `${oldest.ts}.json.gz`)).catch(() => {});
+    for (;;) {
+      // Recompute from the LIVE index every iteration: a concurrent evict
+      // (setCap / recordNow / init) may have removed entries since we started.
+      const unpinned = this.index.filter((m) => !this.opts.pins?.contains(m.ts));
+      const total = unpinned.reduce((s, m) => s + m.size, 0);
+      if (total <= this.maxBytes || unpinned.length === 0) break;
+      const candidate = unpinned[0]; // oldest unpinned (index is ascending)
+      // Keep-newest invariant: never evict the newest snapshot, even above cap.
+      if (unpinned.length === 1 && candidate.ts === this.index[this.index.length - 1].ts) break;
+      // Idempotent removal by ts (a concurrent evict may have removed it already).
+      this.index = this.index.filter((m) => m.ts !== candidate.ts);
+      // The file may already be gone — ignore the error.
+      await unlink(join(this.opts.dir, `${candidate.ts}.json.gz`)).catch(() => {});
     }
   }
 
