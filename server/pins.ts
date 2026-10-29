@@ -35,11 +35,23 @@ export class PinStore {
       const list = Array.isArray(parsed?.pins) ? parsed.pins : [];
       const kept: Pin[] = [];
       for (const entry of list) {
-        if (!valid(entry)) continue;
+        if (!valid(entry)) {
+          this.opts.log?.(`pins: dropping invalid pin entry ${JSON.stringify(entry)}`);
+          continue;
+        }
         const { id, from, to } = entry;
-        if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
-        if (from >= to) continue;
-        if (to - from < MIN_PIN_MS) continue;
+        if (!Number.isFinite(from) || !Number.isFinite(to)) {
+          this.opts.log?.(`pins: dropping pin ${id} with non-finite bound (from=${from}, to=${to})`);
+          continue;
+        }
+        if (from >= to) {
+          this.opts.log?.(`pins: dropping pin ${id} with inverted range (from=${from}, to=${to})`);
+          continue;
+        }
+        if (to - from < MIN_PIN_MS) {
+          this.opts.log?.(`pins: dropping pin ${id} with span below MIN_PIN_MS (span=${to - from}, min=${MIN_PIN_MS})`);
+          continue;
+        }
         kept.push({ id, from, to });
       }
       this.pins = kept;

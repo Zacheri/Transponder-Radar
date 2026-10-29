@@ -133,6 +133,26 @@ describe("PinStore", () => {
     expect(logs.some((l) => /corrupt/i.test(l))).toBe(true);
   });
 
+  it("logs each invalid entry dropped on init", async () => {
+    const file = join(dir, "pins.json");
+    await writeFile(
+      file,
+      JSON.stringify({
+        pins: [
+          { id: "p1", from: BASE, to: BASE + MIN_PIN_MS },
+          { id: "p2", from: BASE + 10, to: BASE + 20 }, // span below MIN
+          { id: "p3", from: BASE + MIN_PIN_MS, to: BASE }, // inverted
+        ],
+      }),
+    );
+    const s = open(file);
+    await s.init();
+    expect(s.all()).toEqual([{ id: "p1", from: BASE, to: BASE + MIN_PIN_MS }]);
+    expect(logs.length).toBeGreaterThanOrEqual(2);
+    expect(logs.some((l) => /span below MIN_PIN_MS/i.test(l))).toBe(true);
+    expect(logs.some((l) => /inverted range/i.test(l))).toBe(true);
+  });
+
   // 11. Overlapping pins both kept.
   it("keeps overlapping pins", () => {
     const s = open(join(dir, "pins.json"));
