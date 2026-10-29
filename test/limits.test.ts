@@ -47,6 +47,11 @@ describe("speedFromSlider / sliderFromSpeed", () => {
     expect(speedFromSlider(1000)).toBe(86_400);
   });
 
+  it("clamps out-of-range input to the slider bounds", () => {
+    expect(speedFromSlider(-10)).toBe(30);
+    expect(speedFromSlider(1001)).toBe(86_400);
+  });
+
   it("maps speed to the slider endpoints", () => {
     expect(sliderFromSpeed(30)).toBe(0);
     expect(sliderFromSpeed(86_400)).toBe(1000);

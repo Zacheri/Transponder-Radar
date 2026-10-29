@@ -34,7 +34,8 @@ export const WINDOW_MAX_BYTES_DEFAULT = 32 << 20;  // 32 MiB (client request def
 // × (SPEED_MAX/SPEED_MIN)^(v/SPEED_SLIDER_MAX); sliderFromSpeed is its exact
 // inverse, rounded to an int and clamped to [0, SPEED_SLIDER_MAX].
 export function speedFromSlider(v: number): number {
-  return SPEED_MIN * Math.pow(SPEED_MAX / SPEED_MIN, v / SPEED_SLIDER_MAX);
+  const x = Math.max(0, Math.min(SPEED_SLIDER_MAX, v));
+  return SPEED_MIN * Math.pow(SPEED_MAX / SPEED_MIN, x / SPEED_SLIDER_MAX);
 }
 
 export function sliderFromSpeed(s: number): number {
