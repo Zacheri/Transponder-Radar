@@ -153,7 +153,11 @@ export function createSettings(
     }, 500);
   });
 
+  let lastPinSig: string | null = null;
   function renderPins(list: Pin[]): void {
+    const sig = list.map((p) => `${p.id}:${p.from}:${p.to}`).join("|");
+    if (sig === lastPinSig) return;
+    lastPinSig = sig;
     pins.replaceChildren();
     if (list.length === 0) {
       pins.textContent = "(none)";
