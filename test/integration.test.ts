@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
 import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import WebSocket, { WebSocketServer } from "ws";
@@ -36,6 +37,23 @@ const fakeFaa: FaaProvider = {
   init: async () => {},
   stop: () => {},
 };
+
+// Deterministic incompressible blob (xorshift32 over a 36-char alphabet,
+// ~5.2 bits/char): its gzip stays ~1:1, so a snapshot carrying one lands
+// above the server's 1 MiB window clamp (phase (a) needs that margin).
+function randStr(n: number): string {
+  let s = 0x9e3779b9;
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const out: string[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    s ^= s << 13;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    s >>>= 0;
+    out[i] = chars[s % chars.length];
+  }
+  return out.join("");
+}
 
 describe("full pipeline (stub feeds -> hub)", () => {
   let httpServer: http.Server;
@@ -252,6 +270,204 @@ describe("full pipeline (stub feeds -> hub)", () => {
     const live = messages.filter((m) => m.type === "snapshot").pop();
     expect(Array.isArray(live.craft)).toBe(true);
     expect(ws.readyState).toBe(WebSocket.OPEN);
+
+    ws.close();
+    await app2.stop();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("pin.add with an inverted span normalizes to a pin; status echoes it; pin.remove clears both", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "radar-hist-it-"));
+    let t = Date.now();
+    const histCraft = (id: string): Craft => ({
+      id, domain: "air", kind: "commercial", lat: 1, lon: 2, speed: null, heading: null, updatedAt: 0, stale: false,
+    });
+    const recorder = new HistoryRecorder({
+      dir,
+      snapshotMs: 60000,
+      maxBytes: 10_000_000,
+      now: () => (t += 60_000), // 60 s spacing: the full span survives MIN_PIN_MS
+    });
+    await recorder.recordNow(() => [histCraft("h1")]);
+    const t0 = t;
+    await recorder.recordNow(() => [histCraft("h2")]);
+    const t1 = t;
+    await recorder.recordNow(() => [histCraft("h3")]);
+    const t2 = t;
+
+    const store = new CraftStore();
+    const opensky = new OpenSkyPoller({
+      url: `http://127.0.0.1:${hport}/states/all`,
+      pollMs: 60000,
+      graceMs: 30000,
+      store,
+    });
+    const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
+    const app2 = await buildApp({ store, opensky, ais, recorder, faa: fakeFaa, iconPack: null, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
+    await app2.app.listen({ port: 0, host: "127.0.0.1" });
+    const port2 = (app2.app.server.address() as { port: number }).port;
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port2}/ws`);
+    const messages: any[] = [];
+    ws.on("message", (d) => messages.push(JSON.parse(d.toString())));
+    let opened = false;
+    ws.on("open", () => {
+      opened = true;
+    });
+    await waitFor(() => opened, 3000);
+
+    ws.send(JSON.stringify({ type: "pin.add", from: t2, to: t0 })); // inverted full span
+    await waitFor(() => messages.some((m) => m.type === "pins" && m.pins.length === 1), 3000);
+    const pin = messages.find((m) => m.type === "pins" && m.pins.length === 1).pins[0];
+    expect(pin.from).toBe(t0); // normalized: from < to
+    expect(pin.to).toBe(t2);
+    expect(pin.from <= t1 && t1 <= pin.to).toBe(true); // full span covers the middle snapshot
+
+    await waitFor(() => messages.some((m) => m.type === "status" && m.pins.length === 1), 3000);
+
+    ws.send(JSON.stringify({ type: "pin.remove", id: pin.id }));
+    const before = messages.length;
+    await waitFor(() => messages.slice(before).some((m) => m.type === "pins" && m.pins.length === 0), 3000);
+    await waitFor(() => messages.slice(before).some((m) => m.type === "status" && m.pins.length === 0), 3000);
+
+    ws.close();
+    await app2.stop();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("settings.update clamps and echoes in the next status frame; the file on disk carries the clamped values", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "radar-hist-it-"));
+    const store = new CraftStore();
+    const opensky = new OpenSkyPoller({
+      url: `http://127.0.0.1:${hport}/states/all`,
+      pollMs: 60000,
+      graceMs: 30000,
+      store,
+    });
+    const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
+    const app2 = await buildApp({ store, opensky, ais, recorder: null, faa: fakeFaa, iconPack: null, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
+    await app2.app.listen({ port: 0, host: "127.0.0.1" });
+    const port2 = (app2.app.server.address() as { port: number }).port;
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port2}/ws`);
+    const messages: any[] = [];
+    ws.on("message", (d) => messages.push(JSON.parse(d.toString())));
+    let opened = false;
+    ws.on("open", () => {
+      opened = true;
+    });
+    await waitFor(() => opened, 3000);
+
+    ws.send(JSON.stringify({ type: "settings.update", patch: { storageCapGb: 0.0001, ramCacheGb: 99 } }));
+    await waitFor(
+      () =>
+        messages.some(
+          (m) => m.type === "status" && m.settings?.storageCapGb === 0.5 && m.settings?.ramCacheGb === 16,
+        ),
+      3000,
+    );
+
+    // persistSettingsDoc is fire-and-forget: bounded-poll the file.
+    const settingsPath = join(dir, "settings.json");
+    await waitFor(() => {
+      try {
+        const doc = JSON.parse(readFileSync(settingsPath, "utf8")) as { storageCapGb?: number; ramCacheGb?: number };
+        return doc.storageCapGb === 0.5 && doc.ramCacheGb === 16;
+      } catch {
+        return false;
+      }
+    }, 3000);
+
+    ws.close();
+    await app2.stop();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("timeline.window streams byte-budgeted chunks: sub-item budget, multi-chunk, and stride sampling", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "radar-hist-it-"));
+    let t = Date.now();
+    const blob = randStr(2_500_000);
+    const histCraft = (id: string): Craft => ({
+      id, domain: "air", kind: "commercial", lat: 1, lon: 2, speed: null, heading: null, updatedAt: 0, stale: false,
+      callsign: blob,
+    });
+    const recorder = new HistoryRecorder({
+      dir,
+      snapshotMs: 60000,
+      maxBytes: 10_000_000,
+      now: () => (t += 1000),
+    });
+    await recorder.recordNow(() => [histCraft("h1")]);
+    const t0 = t;
+    await recorder.recordNow(() => [histCraft("h2")]);
+    const t1 = t;
+    await recorder.recordNow(() => [histCraft("h3")]);
+    const t2 = t;
+    await recorder.recordNow(() => [histCraft("h4")]);
+    const t3 = t;
+
+    // Above the server's 1 MiB window clamp: phase (a)'s sub-item budget survives the clamp.
+    const itemGz = (await readFile(join(dir, `${t0}.json.gz`))).length;
+    expect(itemGz).toBeGreaterThan(1 << 20);
+
+    const store = new CraftStore();
+    const opensky = new OpenSkyPoller({
+      url: `http://127.0.0.1:${hport}/states/all`,
+      pollMs: 60000,
+      graceMs: 30000,
+      store,
+    });
+    const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
+    const app2 = await buildApp({ store, opensky, ais, recorder, faa: fakeFaa, iconPack: null, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
+    await app2.app.listen({ port: 0, host: "127.0.0.1" });
+    const port2 = (app2.app.server.address() as { port: number }).port;
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port2}/ws`);
+    const messages: any[] = [];
+    ws.on("message", (d) => messages.push(JSON.parse(d.toString())));
+    let opened = false;
+    ws.on("open", () => {
+      opened = true;
+    });
+    await waitFor(() => opened, 3000);
+
+    const chunks = (seq: number) => messages.filter((m) => m.type === "timeline.window.chunk" && m.seq === seq);
+
+    // (a) maxBytes strictly smaller than one item's gz size → first item only.
+    ws.send(JSON.stringify({ type: "timeline.window", seq: 1, from: t0, to: t3, stride: 1, maxBytes: itemGz - 1 }));
+    await waitFor(() => chunks(1).some((m) => m.done), 3000);
+    const a = chunks(1);
+    expect(a).toHaveLength(1);
+    expect(a[0].items.map((i: any) => i.ts)).toEqual([t0]);
+    expect(a[0].done).toBe(true);
+    expect(a[0].reachedTo).toBe(t0);
+
+    // (b) big budget, stride 1 → all four items, 3 per chunk, round-tripping.
+    ws.send(JSON.stringify({ type: "timeline.window", seq: 2, from: t0, to: t3, stride: 1, maxBytes: 10_000_000 }));
+    await waitFor(() => chunks(2).some((m) => m.done), 3000);
+    const b = chunks(2);
+    expect(b).toHaveLength(2);
+    expect(b[0].items.map((i: any) => i.ts)).toEqual([t0, t1, t2]);
+    expect(b[0].done).toBe(false);
+    expect(b[0].reachedTo).toBeNull();
+    expect(b[1].items.map((i: any) => i.ts)).toEqual([t3]);
+    expect(b[1].done).toBe(true);
+    expect(b[1].reachedTo).toBe(t3);
+    const allB = [...b[0].items, ...b[1].items];
+    const expectedIds = ["h1", "h2", "h3", "h4"];
+    allB.forEach((item: any, i: number) => {
+      const decoded = JSON.parse(gunzipSync(Buffer.from(item.b64, "base64")).toString("utf8")) as Craft[];
+      expect(decoded.map((c) => c.id)).toEqual([expectedIds[i]]);
+    });
+
+    // (c) stride 2 → t0, t2 only.
+    ws.send(JSON.stringify({ type: "timeline.window", seq: 3, from: t0, to: t3, stride: 2, maxBytes: 10_000_000 }));
+    await waitFor(() => chunks(3).some((m) => m.done), 3000);
+    const c = chunks(3);
+    expect(c).toHaveLength(1);
+    expect(c[0].items.map((i: any) => i.ts)).toEqual([t0, t2]);
+    expect(c[0].done).toBe(true);
+    expect(c[0].reachedTo).toBe(t2);
 
     ws.close();
     await app2.stop();

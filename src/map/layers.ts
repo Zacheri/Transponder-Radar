@@ -82,3 +82,11 @@ export function addCraftLayers(map: maplibregl.Map, filter: any): void {
   if (map.getLayer("craft-icons")) return;
   for (const layer of craftLayerDefs(filter)) map.addLayer(layer);
 }
+
+// Playback mode: labels stay visible but skip collision (dense frames).
+// Sublabels already ignore placement. No-op when the layer is absent.
+export function setPlaybackMode(map: maplibregl.Map, on: boolean): void {
+  if (map.getLayer("craft-labels")) {
+    map.setLayoutProperty("craft-labels", "text-ignore-placement", on);
+  }
+}
