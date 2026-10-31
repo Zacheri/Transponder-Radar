@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { Hub, AIS_FLUSH_DEFAULT_MS, parseClientMessage, type FeedStatus } from "../server/hub.js";
-import type { HistoryRange } from "../server/history.js";
+import { Hub, AIS_FLUSH_DEFAULT_MS, parseClientMessage, type FeedStatus, type StatusPayload } from "../server/hub.js";
+import type { HistoryStatus } from "../server/history.js";
+import type { Pin } from "../server/pins.js";
 import type { IconStatus } from "../server/iconpack.js";
 import { CraftStore } from "../server/store.js";
 import type { Craft } from "../shared/craft.js";
@@ -37,9 +38,26 @@ function fakeSocket() {
 
 const ICONS_STUB: IconStatus = { state: "ready", count: 0, updatedAt: null, lastError: null };
 
+function historyStatus(over: Partial<HistoryStatus> = {}): HistoryStatus {
+  return { from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: 60000, ...over };
+}
+
+function payload(feeds: FeedStatus, history: HistoryStatus = historyStatus(), over: Partial<StatusPayload> = {}): StatusPayload {
+  return {
+    feeds,
+    history,
+    settings: { storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0 },
+    pins: [],
+    staleMs: 120000,
+    faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null },
+    icons: ICONS_STUB,
+    ...over,
+  };
+}
+
 function statusFrames(sent: string[]) {
   return sent
-    .map((s) => JSON.parse(s) as { type: string; feeds?: any; history?: any; serverTime?: number })
+    .map((s) => JSON.parse(s) as { type: string; feeds?: any; history?: any; settings?: any; pins?: any; staleMs?: number; serverTime?: number })
     .filter((m) => m.type === "status");
 }
 
@@ -94,7 +112,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
       ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
     };
-    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => payload(feeds) });
     const sock = fakeSocket();
     hub.attach(sock);
     hub.start();
@@ -118,7 +136,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
       ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
     };
-    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => payload(feeds) });
     const sock = fakeSocket();
     hub.attach(sock);
     hub.start();
@@ -135,7 +153,7 @@ describe("Hub", () => {
       opensky: { lastOkAt: null, lastError: "HTTP 429", pollMs: 120000 },
       ais: { connected: false, enabled: true, lastError: "closed 1006", lastMessageAt: null, flushMs: 120000 },
     };
-    const hub = new Hub({ store, batchMs: 1000, statusPayload: () => ({ feeds, history: { from: null, to: null, snapshots: 0 }, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
+    const hub = new Hub({ store, batchMs: 1000, statusPayload: () => payload(feeds) });
     const sock = fakeSocket();
     hub.attach(sock);
     expect(sock.sent).toHaveLength(2);
@@ -148,43 +166,75 @@ describe("Hub", () => {
 
   it("status frames carry history bounds", async () => {
     const store = new CraftStore();
-    let history: HistoryRange = { from: null, to: null, snapshots: 0 };
+    let history: HistoryStatus = historyStatus();
     const feeds = { opensky: { lastOkAt: null, lastError: null, pollMs: 120000 }, ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 } };
-    const hub = new Hub({ store, batchMs: 20, statusPayload: () => ({ feeds, history, faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null }, icons: ICONS_STUB }) });
+    const hub = new Hub({ store, batchMs: 20, statusPayload: () => payload(feeds, history) });
     const sock = fakeSocket();
     hub.attach(sock);
     const st = JSON.parse(sock.sent[1]);
-    expect(st.history).toEqual({ from: null, to: null, snapshots: 0 });
+    expect(st.history).toEqual({ from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: 60000 });
     expect(st.faa.state).toBe("ready");
-    history = { from: 100, to: 200, snapshots: 2 };
+    history = historyStatus({ from: 100, to: 200, snapshots: 2 });
     hub.start();
     await waitFor(() => statusFrames(sock.sent).length >= 2);
     const last = statusFrames(sock.sent)[statusFrames(sock.sent).length - 1];
-    expect(last.history).toEqual({ from: 100, to: 200, snapshots: 2 });
+    expect(last.history).toEqual({ from: 100, to: 200, snapshots: 2, usedBytes: 0, pinnedBytes: 0, snapshotMs: 60000 });
     hub.stop();
   });
 
   it("status frames carry the icons block", () => {
     const store = new CraftStore();
     const icons: IconStatus = { state: "downloading", count: 0, updatedAt: null, lastError: null };
-    const hub = new Hub({
-      store,
-      batchMs: 1000,
-      statusPayload: () => ({
-        feeds: {
-          opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-          ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
-        },
-        history: { from: null, to: null, snapshots: 0 },
-        faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null },
-        icons,
-      }),
-    });
+    const feeds = {
+      opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
+    };
+    const hub = new Hub({ store, batchMs: 1000, statusPayload: () => ({ ...payload(feeds), icons }) });
     const sock = fakeSocket();
     hub.attach(sock);
     const st = JSON.parse(sock.sent[1]);
     expect(st.type).toBe("status");
     expect(st.icons).toEqual(icons);
+  });
+
+  it("status frame carries the settings, pins, and staleMs fields", () => {
+    const store = new CraftStore();
+    const feeds: FeedStatus = {
+      opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
+    };
+    const hub = new Hub({ store, batchMs: 1000, statusPayload: () => payload(feeds) });
+    const sock = fakeSocket();
+    hub.attach(sock);
+    const st = JSON.parse(sock.sent[1]);
+    expect(st.settings).toEqual({ storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0 });
+    expect(st.pins).toEqual([]);
+    expect(st.staleMs).toBe(120000);
+    expect(st.history).toEqual({ from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: 60000 });
+  });
+
+  it("tick re-broadcasts only when the payload changes (new fields included)", async () => {
+    const store = new CraftStore();
+    const feeds: FeedStatus = {
+      opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
+    };
+    let pins: Pin[] = [];
+    const hub = new Hub({ store, batchMs: 1000, statusPayload: () => payload(feeds, historyStatus(), { pins }) });
+    const sock = fakeSocket();
+    hub.attach(sock);
+    hub.start();
+    // Attach frame + first tick (the dedupe key starts unset) = 2 frames.
+    await waitFor(() => statusFrames(sock.sent).length >= 2);
+    const before = statusFrames(sock.sent).length;
+    pins = [{ id: "p1", from: 100, to: 200 }];
+    await waitFor(() => statusFrames(sock.sent).length > before);
+    const last = statusFrames(sock.sent)[statusFrames(sock.sent).length - 1];
+    expect(last.pins).toEqual([{ id: "p1", from: 100, to: 200 }]);
+    const count = statusFrames(sock.sent).length;
+    await sleep(80);
+    expect(statusFrames(sock.sent)).toHaveLength(count);
+    hub.stop();
   });
 });
 
@@ -300,5 +350,32 @@ describe("parseClientMessage", () => {
     expect(parseClientMessage(JSON.stringify({ type: "timeline.seek" }))).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: "aircraft.info", id: "" }))).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: "bogus" }))).toBeNull();
+  });
+
+  it("accepts the new control frames", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "settings.update", patch: { storageCapGb: 4 } }))).toEqual({ type: "settings.update", patch: { storageCapGb: 4 } });
+    expect(parseClientMessage(JSON.stringify({ type: "settings.update", patch: { storageCapGb: 4, ramCacheGb: 2 } }))).toEqual({ type: "settings.update", patch: { storageCapGb: 4, ramCacheGb: 2 } });
+    expect(parseClientMessage(JSON.stringify({ type: "settings.update", patch: {} }))).toEqual({ type: "settings.update", patch: {} });
+    expect(parseClientMessage(JSON.stringify({ type: "pin.add", from: 100, to: 200 }))).toEqual({ type: "pin.add", from: 100, to: 200 });
+    expect(parseClientMessage(JSON.stringify({ type: "pin.remove", id: "p123" }))).toEqual({ type: "pin.remove", id: "p123" });
+    expect(parseClientMessage(JSON.stringify({ type: "timeline.window", seq: 7, from: 100, to: 200, stride: 2, maxBytes: 1 << 20 }))).toEqual({ type: "timeline.window", seq: 7, from: 100, to: 200, stride: 2, maxBytes: 1 << 20 });
+  });
+
+  it("accepts an inverted pin.add (from > to — normalization is the handler's job)", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "pin.add", from: 200, to: 100 }))).toEqual({ type: "pin.add", from: 200, to: 100 });
+  });
+
+  it("rejects malformed new frames", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "settings.update", patch: "x" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "settings.update", patch: [1] }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "settings.update" }))).toBeNull();
+    // NaN serializes to null on the wire; either form must be rejected.
+    expect(parseClientMessage(JSON.stringify({ type: "pin.add", from: 100, to: NaN }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "pin.add", to: 200 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "pin.remove", id: "" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "timeline.window", seq: 7, from: 100, to: 200, stride: 0, maxBytes: 1 << 20 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "timeline.window", seq: 1.5, from: 100, to: 200, stride: 1, maxBytes: 1 << 20 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "timeline.window", seq: 7, from: 100, to: 200, stride: 1, maxBytes: -1 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "timeline.window", seq: 7, from: 100, stride: 1, maxBytes: 1 << 20 }))).toBeNull();
   });
 });

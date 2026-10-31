@@ -10,7 +10,18 @@ import { OpenSkyPoller } from "./opensky.js";
 import { createTokenProvider } from "./opensky-auth.js";
 import { AisClient } from "./ais.js";
 import { Hub, parseClientMessage, type FeedId, type StatusPayload } from "./hub.js";
-import { HistoryRecorder, type HistoryRange } from "./history.js";
+import { HistoryRecorder } from "./history.js";
+import { PinStore } from "./pins.js";
+import { SnapshotCache } from "./snapshot-cache.js";
+import { loadSettingsDoc, persistSettingsDoc, toRuntime, type SettingsDoc } from "./settings.js";
+import {
+  GB,
+  WINDOW_CHUNK_ITEMS,
+  WINDOW_MAX_BYTES_MAX,
+  WINDOW_MAX_BYTES_MIN,
+  clampRamCacheGb,
+  clampStorageCapGb,
+} from "../shared/limits.js";
 import { FaaLoader, type FaaProvider, type FaaRecord } from "./faa.js";
 import { FaaLookup } from "./faa-lookup.js";
 import { resolveAirIcon } from "./icons.js";
@@ -30,6 +41,9 @@ export interface ServerDeps {
   // + fire-and-forget init(); null → disabled (family icons only; /icons
   // routes return empty). Same idiom as recorder/faa.
   iconPack?: IconPack | null;
+  // Defaults point at the live data/ dir; tests pass tmp paths (hermetic).
+  settingsFile?: string;
+  pinFile?: string;
   log?: (msg: string) => void;
 }
 
@@ -80,12 +94,29 @@ export async function buildApp(deps: ServerDeps = {}) {
         : undefined,
     });
   const ais = deps.ais ?? new AisClient({ apiKey: config.AISSTREAM_API_KEY, store, log });
+  const settingsFile = deps.settingsFile ?? resolve(process.cwd(), "data/settings.json");
+  const pinFile = deps.pinFile ?? resolve(process.cwd(), "data/history/pins.json");
+  const settingsOpts = {
+    file: settingsFile,
+    envDefaults: {
+      storageCapBytes: config.HISTORY_MAX_BYTES,
+      ramCacheBytes: config.HISTORY_RAM_CACHE_GB * GB,
+    },
+    log,
+  };
+  // `let`: the settings.update handler mutates it live.
+  let settingsDoc: SettingsDoc = await loadSettingsDoc(settingsOpts);
+  const pinStore = new PinStore({ file: pinFile, log });
+  await pinStore.init();
+  const snapshotCache = new SnapshotCache({ maxBytes: toRuntime(settingsDoc).ramCacheBytes, log });
   let recorder: HistoryRecorder | null =
     deps.recorder === undefined
       ? new HistoryRecorder({
           dir: resolve(process.cwd(), "data/history"),
           snapshotMs: config.HISTORY_SNAPSHOT_MS,
-          maxBytes: config.HISTORY_MAX_BYTES,
+          maxBytes: toRuntime(settingsDoc).storageCapBytes,
+          pins: pinStore,
+          cache: snapshotCache,
           log,
         })
       : deps.recorder;
@@ -97,7 +128,6 @@ export async function buildApp(deps: ServerDeps = {}) {
       recorder = null;
     }
   }
-  const emptyRange: HistoryRange = { from: null, to: null, snapshots: 0 };
   if (faa) void faa.init().catch((e) => log(`faa: init failed — enrichment disabled (${e instanceof Error ? e.message : String(e)})`));
   const faaLookup = faa
     ? new FaaLookup(faa, { cacheFile: join(faaDir, "enrichment.json"), log })
@@ -123,7 +153,16 @@ export async function buildApp(deps: ServerDeps = {}) {
             flushMs: hub.aisFlushMs,
           },
         },
-        history: recorder ? recorder.range() : emptyRange,
+        history: recorder
+          ? recorder.status(pinStore)
+          : { from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: config.HISTORY_SNAPSHOT_MS },
+        settings: {
+          storageCapGb: settingsDoc.storageCapGb,
+          ramCacheGb: settingsDoc.ramCacheGb,
+          cacheUsedBytes: snapshotCache.usedBytes(),
+        },
+        pins: pinStore.all(),
+        staleMs: config.STALE_MS,
         faa: faa?.status() ?? { state: "loading", updatedAt: null, aircraft: 0, lastError: null },
         icons: iconPack ? iconPack.status() : { state: "absent", count: 0, updatedAt: null, lastError: null },
       }),
@@ -170,6 +209,63 @@ export async function buildApp(deps: ServerDeps = {}) {
         case "timeline.live":
           reply({ type: "snapshot", craft: store.all() });
           break;
+        case "settings.update": {
+          const p = msg.patch;
+          // Finite fields only; non-finite/absent fields are left untouched.
+          if (typeof p.storageCapGb === "number" && Number.isFinite(p.storageCapGb)) {
+            settingsDoc.storageCapGb = clampStorageCapGb(p.storageCapGb);
+          }
+          if (typeof p.ramCacheGb === "number" && Number.isFinite(p.ramCacheGb)) {
+            settingsDoc.ramCacheGb = clampRamCacheGb(p.ramCacheGb);
+          }
+          // All idempotent, so an empty patch is a harmless no-op.
+          recorder?.setCap(toRuntime(settingsDoc).storageCapBytes);
+          snapshotCache.resize(toRuntime(settingsDoc).ramCacheBytes);
+          void persistSettingsDoc(settingsOpts, settingsDoc).catch((e) =>
+            log(`settings: persist failed: ${e instanceof Error ? e.message : String(e)}`),
+          );
+          break;
+        }
+        case "pin.add": {
+          const r = recorder;
+          if (!r) break;
+          const range = r.range();
+          if (range.from == null || range.to == null) break;
+          const pin = pinStore.add(msg.from, msg.to, { from: range.from, to: range.to });
+          if (pin) reply({ type: "pins", pins: pinStore.all() });
+          break;
+        }
+        case "pin.remove": {
+          const p = pinStore.remove(msg.id);
+          if (p) reply({ type: "pins", pins: pinStore.all() });
+          break;
+        }
+        case "timeline.window": {
+          const r = recorder;
+          if (!r) break;
+          const maxBytes = Math.min(WINDOW_MAX_BYTES_MAX, Math.max(WINDOW_MAX_BYTES_MIN, msg.maxBytes));
+          void r
+            .window(msg.from, msg.to, msg.stride, maxBytes)
+            .then((items) => {
+              if (items.length === 0) {
+                reply({ type: "timeline.window.chunk", seq: msg.seq, items: [], done: true, reachedTo: null });
+                return;
+              }
+              for (let i = 0; i < items.length; i += WINDOW_CHUNK_ITEMS) {
+                const slice = items.slice(i, i + WINDOW_CHUNK_ITEMS);
+                const last = i + slice.length === items.length;
+                reply({
+                  type: "timeline.window.chunk",
+                  seq: msg.seq,
+                  items: slice.map((it) => ({ ts: it.ts, b64: it.gz.toString("base64") })),
+                  done: last,
+                  reachedTo: last ? slice[slice.length - 1].ts : null,
+                });
+              }
+            })
+            .catch((e) => log(`history: window failed: ${e instanceof Error ? e.message : String(e)}`));
+          break;
+        }
         case "aircraft.info": {
           const provider = faa;
           if (!provider) break;

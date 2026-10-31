@@ -1,8 +1,9 @@
 import type { Craft } from "../shared/craft.js";
 import type { CraftStore } from "./store.js";
-import type { HistoryRange } from "./history.js";
+import type { HistoryStatus } from "./history.js";
 import type { FaaStatus } from "./faa.js";
 import type { IconStatus } from "./iconpack.js";
+import type { Pin } from "./pins.js";
 
 export interface WsLike {
   send(data: string): void;
@@ -31,7 +32,11 @@ export type ClientMessage =
   | { type: "feed.rate"; feed: FeedId; ms: number }
   | { type: "timeline.seek"; time: number }
   | { type: "timeline.live" }
-  | { type: "aircraft.info"; id: string };
+  | { type: "aircraft.info"; id: string }
+  | { type: "settings.update"; patch: { storageCapGb?: number; ramCacheGb?: number } }
+  | { type: "pin.add"; from: number; to: number }
+  | { type: "pin.remove"; id: string }
+  | { type: "timeline.window"; seq: number; from: number; to: number; stride: number; maxBytes: number };
 
 export function parseClientMessage(raw: string): ClientMessage | null {
   try {
@@ -48,6 +53,28 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     if (m.type === "timeline.seek" && typeof m.time === "number" && Number.isFinite(m.time)) return m;
     if (m.type === "timeline.live") return m;
     if (m.type === "aircraft.info" && typeof m.id === "string" && m.id.length > 0) return m;
+    if (m.type === "settings.update" && typeof m.patch === "object" && m.patch !== null && !Array.isArray(m.patch)) return m;
+    if (
+      m.type === "pin.add" &&
+      typeof m.from === "number" &&
+      Number.isFinite(m.from) &&
+      typeof m.to === "number" &&
+      Number.isFinite(m.to)
+    ) return m;
+    if (m.type === "pin.remove" && typeof m.id === "string" && m.id.length > 0) return m;
+    if (
+      m.type === "timeline.window" &&
+      Number.isInteger(m.seq) &&
+      typeof m.from === "number" &&
+      Number.isFinite(m.from) &&
+      typeof m.to === "number" &&
+      Number.isFinite(m.to) &&
+      Number.isInteger(m.stride) &&
+      m.stride >= 1 &&
+      typeof m.maxBytes === "number" &&
+      Number.isFinite(m.maxBytes) &&
+      m.maxBytes > 0
+    ) return m;
     return null;
   } catch {
     return null;
@@ -56,7 +83,10 @@ export function parseClientMessage(raw: string): ClientMessage | null {
 
 export interface StatusPayload {
   feeds: FeedStatus;
-  history: HistoryRange;
+  history: HistoryStatus;
+  settings: { storageCapGb: number; ramCacheGb: number; cacheUsedBytes: number };
+  pins: Pin[];
+  staleMs: number;
   faa: FaaStatus;
   icons: IconStatus;
 }
@@ -103,7 +133,7 @@ export class Hub {
     socket.send(JSON.stringify({ type: "snapshot", craft: this.opts.store.all() }));
     const payload = this.opts.statusPayload?.();
     if (payload) {
-      socket.send(JSON.stringify({ type: "status", feeds: payload.feeds, history: payload.history, faa: payload.faa, icons: payload.icons, serverTime: Date.now() }));
+      socket.send(JSON.stringify({ type: "status", ...payload, serverTime: Date.now() }));
     }
   }
 
@@ -136,10 +166,10 @@ export class Hub {
   private tick(): void {
     const payload = this.opts.statusPayload?.();
     if (payload) {
-      const json = JSON.stringify({ feeds: payload.feeds, history: payload.history, faa: payload.faa, icons: payload.icons });
+      const json = JSON.stringify(payload);
       if (this.lastStatusJson !== json) {
         this.lastStatusJson = json;
-        const frame = JSON.stringify({ type: "status", feeds: payload.feeds, history: payload.history, faa: payload.faa, icons: payload.icons, serverTime: Date.now() });
+        const frame = JSON.stringify({ type: "status", ...payload, serverTime: Date.now() });
         for (const c of this.clients) {
           try {
             c.send(frame);

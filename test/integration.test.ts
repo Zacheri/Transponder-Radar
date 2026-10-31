@@ -45,8 +45,11 @@ describe("full pipeline (stub feeds -> hub)", () => {
   let hport: number;
   let wport: number;
   let current: { time: number; states: (string | number | boolean | null)[][] } = { time: 0, states: [] };
+  let appTmp: string;
 
   beforeAll(async () => {
+    // Hermetic: settings + pins files live in a tmp dir, never the live data/.
+    appTmp = await mkdtemp(join(tmpdir(), "radar-it-app-"));
     httpServer = http.createServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(current));
@@ -100,13 +103,16 @@ describe("full pipeline (stub feeds -> hub)", () => {
             flushMs: 50, // mirrors the explicit aisFlushMs above
           },
         },
-        history: { from: null, to: null, snapshots: 0 },
+        history: { from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: 60000 },
+        settings: { storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0 },
+        pins: [],
+        staleMs: 120000,
         faa: fakeFaa.status(),
         icons: { state: "absent", count: 0, updatedAt: null, lastError: null },
       }),
     });
 
-    server = await buildApp({ store, hub, opensky, ais, recorder: null, faa: fakeFaa, iconPack: null });
+    server = await buildApp({ store, hub, opensky, ais, recorder: null, faa: fakeFaa, iconPack: null, settingsFile: join(appTmp, "settings.json"), pinFile: join(appTmp, "pins.json") });
     await server.app.listen({ port: 0, host: "127.0.0.1" });
     port = (server.app.server.address() as { port: number }).port;
   });
@@ -115,6 +121,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
     await server.stop();
     await new Promise<void>((r) => httpServer.close(() => r()));
     await new Promise<void>((r) => wsServer.close(() => r()));
+    await rm(appTmp, { recursive: true, force: true });
   });
 
   it("streams a snapshot and updates for both domains", async () => {
@@ -129,7 +136,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
     await waitFor(() => messages.some((m) => m.type === "status"), 3000);
     const st = messages.find((m) => m.type === "status");
     expect(st.feeds.opensky.pollMs).toBeTypeOf("number");
-    expect(st.history).toEqual({ from: null, to: null, snapshots: 0 });
+    expect(st.history).toEqual({ from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: 60000 });
 
     await waitFor(
       () => messages.some((m: any) => m.type === "status" && m.feeds.ais?.lastMessageAt != null),
@@ -211,7 +218,9 @@ describe("full pipeline (stub feeds -> hub)", () => {
       store,
     });
     const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
-    const app2 = await buildApp({ store, hub, opensky, ais, recorder, faa: fakeFaa, iconPack: null });
+    // Hermetic: settings + pins files share the tmp history dir (the
+    // recorder's init() ignores non-snapshot files; the dir is removed below).
+    const app2 = await buildApp({ store, hub, opensky, ais, recorder, faa: fakeFaa, iconPack: null, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
     await app2.app.listen({ port: 0, host: "127.0.0.1" });
     const port2 = (app2.app.server.address() as { port: number }).port;
 
@@ -277,11 +286,14 @@ describe("icon pack routes (fixture pack)", () => {
 
   let fix: string;
   let dir: string;
+  let appTmp: string;
   let fixturePack: IconPack;
   let server: Awaited<ReturnType<typeof buildApp>>;
   let port: number;
 
   beforeAll(async () => {
+    // Hermetic: settings + pins files live in a tmp dir, never the live data/.
+    appTmp = mkdtempSync(join(tmpdir(), "radar-iconpack-it-app-"));
     fix = mkdtempSync(join(tmpdir(), "radar-iconpack-it-fix-"));
     const airframes = join(fix, "plane-watch", "airframes");
     const silhouettes = join(fix, "plane-watch", "silhouettes");
@@ -326,7 +338,10 @@ describe("icon pack routes (fixture pack)", () => {
           opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
           ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 50 },
         },
-        history: { from: null, to: null, snapshots: 0 },
+        history: { from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: 60000 },
+        settings: { storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0 },
+        pins: [],
+        staleMs: 120000,
         faa: { state: "loading", updatedAt: null, aircraft: 0, lastError: null },
         icons: fixturePack.status(),
       }),
@@ -345,13 +360,14 @@ describe("icon pack routes (fixture pack)", () => {
       start: () => {},
       stop: () => {},
     } as unknown as AisClient;
-    server = await buildApp({ store, hub, opensky: noPoller, ais: noAis, recorder: null, faa: null, iconPack: fixturePack });
+    server = await buildApp({ store, hub, opensky: noPoller, ais: noAis, recorder: null, faa: null, iconPack: fixturePack, settingsFile: join(appTmp, "settings.json"), pinFile: join(appTmp, "pins.json") });
     await server.app.listen({ port: 0, host: "127.0.0.1" });
     port = (server.app.server.address() as { port: number }).port;
   });
 
   afterAll(async () => {
     await server.stop();
+    rmSync(appTmp, { recursive: true, force: true });
     rmSync(fix, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
   });
