@@ -122,6 +122,33 @@ describe("createDecodePool", () => {
     expect(fakes[0].stats.maxConcurrency + fakes[1].stats.maxConcurrency).toBeLessThanOrEqual(2);
   });
 
+  it("rejects pending decodes and respawns the slot when a worker fails to load (onerror)", async () => {
+    const workers: PoolWorker[] = [];
+    const spawn = (): PoolWorker => {
+      const first = workers.length === 0; // first worker: load failure (never answers)
+      const w: PoolWorker = {
+        onmessage: null,
+        postMessage(msg: { id: number; buf: ArrayBuffer }): void {
+          if (!first) w.onmessage?.({ data: { id: msg.id, crafts: [craft("respawned")] } });
+        },
+      };
+      workers.push(w);
+      return w;
+    };
+    const pool: DecodePool = createDecodePool(1, spawn);
+
+    const p = pool.decode(gzBuffer([craft("x")])); // stays pending: the fake never answers
+    expect(workers).toHaveLength(1);
+    expect(typeof workers[0].onerror).toBe("function"); // pool attached the load-failure handler
+    workers[0].onerror!(undefined);
+
+    await expect(p).rejects.toThrow("decode worker died");
+
+    const out = await pool.decode(gzBuffer([craft("x")]));
+    expect(workers).toHaveLength(2); // the killed slot respawned a fresh worker
+    expect(out).toEqual([craft("respawned")]);
+  });
+
   it("rejects a decode when a worker errors and replaces it so subsequent decodes succeed", async () => {
     let spawns = 0;
     const spawn = (): PoolWorker => {
