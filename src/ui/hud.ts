@@ -1,4 +1,5 @@
 import type { FeedStatus, IconStatus } from "../data/ws.js";
+import { formatReplayClock } from "./format.js";
 
 export type ConnStatus = "connecting" | "open" | "closed";
 
@@ -38,8 +39,7 @@ export function createHud(root: HTMLElement): {
   function renderClock(): void {
     const pad = (n: number) => String(n).padStart(2, "0");
     if (replayT != null) {
-      const d = new Date(replayT);
-      clock.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      clock.textContent = formatReplayClock(replayT);
       clock.classList.add("replay");
       return;
     }

@@ -361,23 +361,73 @@ body {
   opacity: 0.5;
   pointer-events: none;
 }
-.timeline input[type="range"] {
-  flex: 1;
-  accent-color: #4fc3f7;
-}
 .timeline-range {
   color: var(--muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+.timeline-track {
+  position: relative;
+  flex: 1;
+}
+.timeline-track input[type="range"] {
+  display: block;
+  width: 100%;
+  accent-color: #4fc3f7;
+}
+.timeline-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.timeline-tick {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 4px;
+  background: var(--muted);
+}
+.timeline-pin,
+.timeline-pin-preview {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: #ffb300;
+}
+.timeline-pin {
+  opacity: 0.35;
+}
+.timeline-pin-preview {
+  opacity: 0.6;
+}
+.timeline-track.marking {
+  cursor: crosshair;
+}
 .timeline-sel {
   color: var(--text);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  min-width: 64px;
+  min-width: 96px;
   text-align: right;
 }
-.timeline-live {
+.timeline-speed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.timeline-speed input[type="range"] {
+  width: 90px;
+  accent-color: #4fc3f7;
+}
+.timeline-speed-lbl {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.timeline-live,
+.timeline-play,
+.timeline-mark {
   background: none;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -386,9 +436,15 @@ body {
   padding: 2px 10px;
   cursor: pointer;
 }
-.timeline-live.active {
+.timeline-live.active,
+.timeline-play.active,
+.timeline-mark.active {
   border-color: #ffb300;
   color: #ffb300;
+}
+.timeline-play:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .hud-replay {
   display: none;
