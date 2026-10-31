@@ -74,6 +74,14 @@ describe("formatReplayClock", () => {
       ),
     ).toBe("Oct 24 14:32");
   });
+
+  it("omitted `now` defaults to actual now (non-today t is dated)", () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 2);
+    expect(formatReplayClock(d.getTime())).toBe(
+      `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" })}`,
+    );
+  });
 });
 
 describe("dayTicks (local-midnight epochs strictly within (from, to])", () => {

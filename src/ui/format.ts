@@ -54,7 +54,7 @@ export function formatSelectedTime(t: number): string {
 }
 
 export function formatReplayClock(t: number, now?: number): string {
-  if (now !== undefined && !sameLocalDay(t, now)) return `${fmtDate(t)} ${fmtHM(t)}`;
+  if (!sameLocalDay(t, now ?? Date.now())) return `${fmtDate(t)} ${fmtHM(t)}`;
   return fmtHMS(t);
 }
 
