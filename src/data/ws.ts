@@ -9,6 +9,9 @@ export interface HistoryRange {
   from: number | null;
   to: number | null;
   snapshots: number;
+  usedBytes?: number;
+  pinnedBytes?: number;
+  snapshotMs?: number;
 }
 
 export interface FaaStatus {
@@ -38,6 +41,19 @@ export interface AircraftInfo {
   source: "db" | "live";
 }
 
+export interface Pin {
+  id: string;
+  from: number;
+  to: number;
+}
+
+export interface WindowChunk {
+  seq: number;
+  items: { ts: number; b64: string }[];
+  done: boolean;
+  reachedTo: number | null;
+}
+
 export interface StatusMessage {
   type: "status";
   feeds: FeedStatus;
@@ -45,6 +61,9 @@ export interface StatusMessage {
   faa: FaaStatus;
   icons: IconStatus;
   serverTime: number;
+  settings?: { storageCapGb: number; ramCacheGb: number; cacheUsedBytes: number };
+  pins?: Pin[];
+  staleMs?: number;
 }
 
 export type RadarMessage =
@@ -52,7 +71,9 @@ export type RadarMessage =
   | { type: "update"; upsert: Craft[]; remove: string[] }
   | StatusMessage
   | { type: "timeline.state"; time: number | null; craft: Craft[] }
-  | { type: "aircraft.info"; id: string; info: AircraftInfo | null };
+  | { type: "aircraft.info"; id: string; info: AircraftInfo | null }
+  | { type: "pins"; pins: Pin[] }
+  | { type: "timeline.window.chunk" } & WindowChunk;
 
 export function parseRadarMessage(raw: string): RadarMessage | null {
   try {
@@ -70,6 +91,16 @@ export function parseRadarMessage(raw: string): RadarMessage | null {
       return msg;
     }
     if (msg.type === "aircraft.info" && typeof msg.id === "string" && (msg.info === null || (msg.info && typeof msg.info.nNumber === "string"))) return msg;
+    if (msg.type === "pins" && Array.isArray(msg.pins)) return msg;
+    if (
+      msg.type === "timeline.window.chunk" &&
+      typeof msg.seq === "number" &&
+      Array.isArray(msg.items) &&
+      typeof msg.done === "boolean" &&
+      (msg.reachedTo === null || typeof msg.reachedTo === "number")
+    ) {
+      return msg;
+    }
     return null;
   } catch {
     return null;
@@ -83,6 +114,8 @@ export interface RadarSocketHandlers {
   onStatus?: (s: StatusMessage) => void;
   onTimelineState?: (time: number | null, craft: Craft[]) => void;
   onAircraftInfo?: (id: string, info: AircraftInfo | null) => void;
+  onPins?: (pins: Pin[]) => void;
+  onWindowChunk?: (chunk: WindowChunk) => void;
 }
 
 export class RadarSocket {
@@ -113,6 +146,22 @@ export class RadarSocket {
 
   sendAircraftInfo(id: string): void {
     this.send({ type: "aircraft.info", id });
+  }
+
+  sendSettingsUpdate(patch: { storageCapGb?: number; ramCacheGb?: number }): void {
+    this.send({ type: "settings.update", patch });
+  }
+
+  sendPinAdd(from: number, to: number): void {
+    this.send({ type: "pin.add", from, to });
+  }
+
+  sendPinRemove(id: string): void {
+    this.send({ type: "pin.remove", id });
+  }
+
+  sendTimelineWindow(seq: number, from: number, to: number, stride: number, maxBytes: number): void {
+    this.send({ type: "timeline.window", seq, from, to, stride, maxBytes });
   }
 
   connect(): void {
@@ -146,6 +195,8 @@ export class RadarSocket {
       else if (msg.type === "update") this.handlers.onUpdate(msg.upsert, msg.remove);
       else if (msg.type === "status") this.handlers.onStatus?.(msg);
       else if (msg.type === "aircraft.info") this.handlers.onAircraftInfo?.(msg.id, msg.info);
+      else if (msg.type === "pins") this.handlers.onPins?.(msg.pins);
+      else if (msg.type === "timeline.window.chunk") this.handlers.onWindowChunk?.(msg);
       else this.handlers.onTimelineState?.(msg.time, msg.craft);
     };
     ws.onclose = () => {
