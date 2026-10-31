@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { HistoryRecorder, type HistoryRecorderOpts } from "../server/history.js";
 import { PinStore } from "../server/pins.js";
+import { SnapshotCache } from "../server/snapshot-cache.js";
 import { MIN_PIN_MS } from "../shared/limits.js";
 import type { Craft } from "../shared/craft.js";
 
@@ -223,6 +224,55 @@ describe("HistoryRecorder", () => {
       expect(await readFile(join(dir, "pins.json"), "utf8")).toBe(pinsJson);
       expect(h.range()).toEqual({ from: 2000, to: 2000, snapshots: 1 });
       expect(lines.some((l) => l.includes("1000.json.gz"))).toBe(true);
+    });
+  });
+
+  describe("snapshot cache + status", () => {
+    it("seek warms the cache on a miss; a later seek is served from the cache", async () => {
+      const cache = new SnapshotCache({ maxBytes: 1_000_000 });
+      const h = rec(1_000_000, { cache });
+      await h.init();
+      t = 1000;
+      await h.recordNow(() => [craft("s1")]);
+      expect(cache.get(1000)).toEqual([craft("s1")]); // recordNow warms the cache
+      cache.drop(1000); // force the seek-miss path
+      expect((await h.seek(1000)).craft[0].id).toBe("s1"); // miss: read disk, warm
+      expect(cache.get(1000)).toEqual([craft("s1")]);
+      await rm(join(dir, "1000.json.gz"));
+      expect(await h.seek(1000)).toEqual({ time: 1000, craft: [craft("s1")] }); // hit: no disk
+    });
+
+    it("recordNow warms the snapshot cache", async () => {
+      const cache = new SnapshotCache({ maxBytes: 1_000_000 });
+      const h = rec(1_000_000, { cache });
+      await h.init();
+      t = 1000;
+      await h.recordNow(() => [craft("r1")]);
+      expect(cache.get(1000)).toEqual([craft("r1")]);
+    });
+
+    it("status(pins) reports range, usedBytes, pinnedBytes and snapshotMs", async () => {
+      const pins = new PinStore({ file: join(dir, "pins.json") });
+      await pins.init();
+      const h = rec(1_000_000, { pins });
+      await h.init();
+      t = BASE;
+      await h.recordNow(() => [craft("s0")]);
+      t = BASE + 120_000; // 120 s apart so a valid pin can cover s0 but not s1
+      await h.recordNow(() => [craft("s1")]);
+      // contains() is inclusive and spans must be >= MIN_PIN_MS, so the pin
+      // ends 1 ms before s1.
+      expect(pins.add(BASE, BASE + 120_000 - 1, null)).not.toBeNull();
+      const e = h.entries();
+      const st = h.status(pins);
+      expect({ from: st.from, to: st.to, snapshots: st.snapshots }).toEqual({
+        from: BASE,
+        to: BASE + 120_000,
+        snapshots: 2,
+      });
+      expect(st.usedBytes).toBe(e[0].size + e[1].size);
+      expect(st.pinnedBytes).toBe(e[0].size);
+      expect(st.snapshotMs).toBe(60000);
     });
   });
 });
