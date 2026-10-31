@@ -183,7 +183,14 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
   function setSpeed(s: number): void {
     if (!Number.isFinite(s)) return;
     speed = Math.max(SPEED_MIN, Math.min(SPEED_MAX, s));
-    seq++; // in-flight request superseded; the next tick re-requests
+    seq++;
+    // Supersede any in-flight request (its answer drops via the seq check):
+    // clear it and re-seed nextFrom so the next tick's requestNext fires
+    // with the new seq and stride.
+    if (inflightTo !== null) {
+      inflightTo = null;
+      nextFrom = cursor;
+    }
   }
 
   function feed(chunk: WindowChunk): void {

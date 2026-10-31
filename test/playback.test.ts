@@ -232,23 +232,42 @@ describe("createPlaybackEngine", () => {
     expect(a0.lat).toBe(0);
   });
 
-  it("feed: chunk with a stale seq is ignored — no insert, request chain intact", async () => {
+  it("setSpeed mid-flight: in-flight cleared, stale-seq answer dropped, re-request at new seq and stride", async () => {
     const A = 10_000_000;
     const B = A + 60_000;
-    const h = makeEngine([
-      { ts: A, crafts: [craft("a", { updatedAt: A })] },
-      { ts: B, crafts: [craft("b", { updatedAt: B })] },
-    ]);
+    // Withholding requestWindow: capture each request; the test answers.
+    const issued: { req: PlaybackWindowReq; answer: () => void }[] = [];
+    const h = makeEngine(
+      [
+        { ts: A, crafts: [craft("a", { updatedAt: A })] },
+        { ts: B, crafts: [craft("b", { updatedAt: B })] },
+      ],
+      {
+        requestWindow: (req) => {
+          issued.push({
+            req,
+            answer: () =>
+              h.engine.feed({ seq: req.seq, items: [{ ts: B, b64: tsB64(B) }], done: true, reachedTo: B }),
+          });
+        },
+      }
+    );
     h.engine.start(A);
-    h.engine.setSpeed(60); // supersedes the seq-2 request
-    await h.flush();
-    h.engine.feed({ seq: 2, items: [{ ts: B, b64: tsB64(B) }], done: true, reachedTo: B });
+    expect(issued).toHaveLength(1); // seq-2 request in flight, answer withheld
+    expect(issued[0].req.seq).toBe(2);
+    h.engine.setSpeed(86_400); // bumps seq, supersedes the in-flight request
+    issued[0].answer(); // server answers the superseded request: stale seq
+    expect(h.decodes.get(B)).toBeUndefined(); // dropped: not even decoded
     h.engine.tick(h.advanceNow(1000 / 60));
-    expect(h.requests).toHaveLength(2);
-    expect(h.requests[1].seq).toBe(4);
-    expect(h.requests[1].from).toBe(A + 1); // old chunk's reachedTo (B) not adopted
+    expect(issued).toHaveLength(2); // re-issued after the supersede
+    expect(issued[1].req.seq).toBe(4); // bumped seq (2 superseded), re-request increments
+    expect(issued[1].req.from).toBe(A); // dropped chunk's reachedTo (B) not adopted
+    expect(issued[1].req.stride).toBe(24); // stride at the new speed (was 1 at default)
+    // probe: the dropped item never entered the buffer
+    h.engine.feed({ seq: 4, items: [{ ts: B, b64: tsB64(B) }], done: false, reachedTo: null });
     await h.flush();
-    expect(h.frames.every((fr) => fr.crafts.every((c) => c.id !== "b"))).toBe(true);
+    expect(h.decodes.get(B)).toBe(1);
+    expect(h.frames).toHaveLength(0);
   });
 
   it("done chunk: next request from === reachedTo + 1; empty done chunk: no further request", async () => {
