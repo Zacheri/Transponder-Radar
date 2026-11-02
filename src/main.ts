@@ -136,12 +136,7 @@ function onFrame(crafts: Craft[], t: number): void {
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 
 let socket: RadarSocket | null = null;
-// One positioned container for both sliders: .pollrate pills stack vertically
-// (two absolutely-positioned pills at the same corner would overlap).
-const feedRates = document.createElement("div");
-feedRates.className = "pollrates";
-(document.getElementById("app") as HTMLElement).appendChild(feedRates);
-const pollRate = createFeedRate(feedRates, {
+const pollRate = createFeedRate(settingsUi.feedRates, {
   label: "Aircraft poll",
   ariaLabel: "Aircraft poll interval",
   minMs: 30000,
@@ -151,7 +146,7 @@ const pollRate = createFeedRate(feedRates, {
   creditsPerPoll: 4,
   send: (ms) => socket?.sendFeedRate("opensky", ms),
 });
-const shipRate = createFeedRate(feedRates, {
+const shipRate = createFeedRate(settingsUi.feedRates, {
   label: "Ship updates",
   ariaLabel: "Ship update interval",
   title: "The vessel stream is continuous; this is how often the map applies vessel updates.",

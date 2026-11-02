@@ -16,7 +16,7 @@ export interface SettingsStats {
   pins: Pin[];
 }
 
-export interface SettingsApi { setStats: (s: SettingsStats) => void }
+export interface SettingsApi { setStats: (s: SettingsStats) => void; feedRates: HTMLElement }
 
 function formatPinRange(pin: Pin): string {
   const start = `${new Date(pin.from).toLocaleDateString([], DATE_OPTS)} ${new Date(pin.from).toLocaleTimeString([], HHMM)}`;
@@ -98,6 +98,13 @@ export function createSettings(
   pins.textContent = "(none)";
   group.appendChild(pins);
 
+  const feedGroup = document.createElement("div");
+  feedGroup.className = "settings-group";
+  const feedTitle = document.createElement("div");
+  feedTitle.className = "settings-group-title";
+  feedTitle.textContent = "Feed rates";
+  feedGroup.appendChild(feedTitle);
+  body.appendChild(feedGroup);
   body.appendChild(group);
   root.appendChild(el);
 
@@ -197,5 +204,5 @@ export function createSettings(
     renderPins(s.pins);
   }
 
-  return { setStats };
+  return { setStats, feedRates: feedGroup };
 }

@@ -19,9 +19,9 @@ export function createFeedRate(
 ): { setMs: (ms: number) => void } {
   const { minMs, maxMs, stepMs, defaultMs, creditsPerPoll } = opts;
   const el = document.createElement("div");
-  el.className = "pollrate";
-  const label = document.createElement("span");
-  label.className = "pollrate-label";
+  el.className = "settings-row";
+  const label = document.createElement("label");
+  label.textContent = opts.label;
   if (opts.title) label.title = opts.title;
   const slider = document.createElement("input");
   slider.type = "range";
@@ -30,15 +30,21 @@ export function createFeedRate(
   slider.step = String(stepMs);
   slider.value = String(defaultMs);
   slider.setAttribute("aria-label", opts.ariaLabel);
-  const credits = document.createElement("span");
-  credits.className = "pollrate-credits";
-  el.append(label, slider, credits);
+  const value = document.createElement("span");
+  value.className = "settings-value";
+  let credits: HTMLElement | null = null;
+  if (creditsPerPoll != null) {
+    credits = document.createElement("div");
+    credits.className = "settings-line";
+  }
+  el.append(label, slider, value);
+  if (credits != null) el.appendChild(credits);
   root.appendChild(el);
 
   function render(ms: number): void {
     const s = ms / 1000;
-    label.textContent = `${opts.label} ${s % 1 ? s.toFixed(1) : s} s`;
-    if (creditsPerPoll == null) return;
+    value.textContent = `${s % 1 ? s.toFixed(1) : s} s`;
+    if (credits == null || creditsPerPoll == null) return;
     const c = Math.ceil(86400000 / ms) * creditsPerPoll;
     credits.textContent = `≈${c.toLocaleString()} credits/day`;
     credits.dataset.level = c >= DANGER_CREDITS_PER_DAY ? "danger" : c >= WARN_CREDITS_PER_DAY ? "warn" : "ok";
