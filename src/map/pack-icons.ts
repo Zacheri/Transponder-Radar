@@ -1,6 +1,6 @@
 import type maplibregl from "maplibre-gl";
 import { isPackIconName } from "../../shared/craft.js";
-import { hexToRgb, lineSvgToFill, recolorPixels } from "../../shared/pack-transforms.js";
+import { hexToRgb, lineSvgToFill, recolorPixels, type CropRect } from "../../shared/pack-transforms.js";
 
 // Client-side loader for the vendored aircraft icon pack (Task 8). The
 // server serves raw pack files under /icons/*; this module fetches them on
@@ -19,7 +19,7 @@ const SIZE = 96;
 interface ListEntry {
   style: "filled" | "line" | "gapfill";
   color: string;
-  cropTopRatio?: number;
+  crop?: CropRect; // gapfill only: the region of the file that is the top view
 }
 
 export interface PackIconLoader {
@@ -47,15 +47,15 @@ export function createPackIconLoader(
   let styleReloadRegistered = false;
 
   // GET /icons/list — one cached fetch per loader (style / color /
-  // cropTopRatio per name). A rejected promise is discarded so a transient
-  // failure (pack still downloading, server restarting) can be retried.
+  // crop per name). A rejected promise is discarded so a transient failure
+  // (pack still downloading, server restarting) can be retried.
   const list = (): Promise<Map<string, ListEntry>> => {
     if (listPromise === null) {
       listPromise = doFetch("/icons/list")
         .then((r) => {
           if (!r.ok) throw new Error(`/icons/list: HTTP ${r.status}`);
           return r.json() as Promise<{
-            entries: { name: string; style: string; color: string; cropTopRatio?: number }[];
+            entries: { name: string; style: string; color: string; crop?: CropRect }[];
           }>;
         })
         .then((body) => new Map(body.entries.map((e) => [e.name, e as ListEntry])))
@@ -103,14 +103,15 @@ export function createPackIconLoader(
   }
 
   /**
-   * Rasterize a pd gap-fill scan: draw the top-view crop
-   * [0, 0, w, h·cropTopRatio] into the fixed canvas, then paper→silhouette —
-   * the scans are white paper + dark ink (OPAQUE; two of the four are even
-   * JPEGs), so: alpha = lum < 128 ? 255 : 0 (ink kept, paper gone) and every
-   * surviving pixel is tinted `color` directly (the ink is dark, so
-   * recolorPixels' near-white rule would not reach it).
+   * Rasterize a pd gap-fill scan: draw the top-view crop rectangle (fractions
+   * of the file; no crop = the whole image) into the fixed canvas, then
+   * paper→silhouette — the scans are white paper + dark ink (OPAQUE; two of
+   * the originals are even JPEGs, one a GIF), so: alpha = lum < 128 ? 255 : 0
+   * (ink kept, paper gone) and every surviving pixel is tinted `color`
+   * directly (the ink is dark, so recolorPixels' near-white rule would not
+   * reach it).
    */
-  async function rasterizeGapfill(url: string, cropTopRatio: number, color: string): Promise<ImageData | null> {
+  async function rasterizeGapfill(url: string, crop: CropRect | undefined, color: string): Promise<ImageData | null> {
     const r = await doFetch(url);
     if (!r.ok) throw new Error(`GET ${url}: HTTP ${r.status}`);
     const img = new Image();
@@ -121,8 +122,11 @@ export function createPackIconLoader(
       const w = img.naturalWidth;
       const h = img.naturalHeight;
       if (w === 0 || h === 0) return null;
-      const ratio = cropTopRatio > 0 && cropTopRatio <= 1 ? cropTopRatio : 1;
-      const data = drawFitted(img, 0, 0, w, Math.max(1, Math.round(h * ratio)));
+      const sx = Math.max(0, Math.min(1, crop?.x ?? 0));
+      const sy = Math.max(0, Math.min(1, crop?.y ?? 0));
+      const sw = Math.max(0, Math.min(1 - sx, crop?.w ?? 1));
+      const sh = Math.max(0, Math.min(1 - sy, crop?.h ?? 1));
+      const data = drawFitted(img, sx * w, sy * h, Math.max(1, Math.round(sw * w)), Math.max(1, Math.round(sh * h)));
       if (!data) return null;
       const px = data.data;
       for (let i = 0; i + 3 < px.length; i += 4) {
@@ -171,7 +175,7 @@ export function createPackIconLoader(
         if (!e) throw new Error(`not in /icons/list: ${name}`);
         let data: ImageData | null;
         if (e.style === "gapfill") {
-          data = await rasterizeGapfill(iconUrl(name), e.cropTopRatio ?? 1, e.color);
+          data = await rasterizeGapfill(iconUrl(name), e.crop, e.color);
         } else {
           const r = await doFetch(iconUrl(name));
           if (!r.ok) throw new Error(`GET ${name}: HTTP ${r.status}`);

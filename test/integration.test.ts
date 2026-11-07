@@ -496,6 +496,16 @@ describe("icon pack routes (fixture pack)", () => {
         attribution: "Test Author",
         cropTopRatio: 0.5,
       },
+      {
+        name: "pd:WUZ",
+        file: "pd/WUZ.png",
+        url: "https://example.com/WUZ.png",
+        sha256: QUX_SHA,
+        title: "Wuz Aircraft",
+        license: "Public Domain (US Government work)",
+        attribution: "Test Author",
+        crop: { x: 0.5, y: 0, w: 0.5, h: 0.6 },
+      },
     ],
     gapTargets: [],
   };
@@ -588,20 +598,22 @@ describe("icon pack routes (fixture pack)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("GET /icons/list returns entries with style, cropTopRatio, and color", async () => {
+  it("GET /icons/list returns entries with style, crop rectangle, and color", async () => {
     const res = await server.app.inject({ url: "/icons/list" });
     expect(res.statusCode).toBe(200);
     const { entries } = res.json() as {
-      entries: { name: string; style: string; cropTopRatio?: number; color: string }[];
+      entries: { name: string; style: string; crop?: { x: number; y: number; w: number; h: number }; color: string }[];
     };
-    expect(entries.map((e) => e.name).sort()).toEqual(["pd:QUX", "pw:FOO", "rk:BAZ"]);
+    expect(entries.map((e) => e.name).sort()).toEqual(["pd:QUX", "pd:WUZ", "pw:FOO", "rk:BAZ"]);
     for (const e of entries) expect([PACK_COLORS.military, PACK_COLORS.civil]).toContain(e.color);
     const qux = entries.find((e) => e.name === "pd:QUX")!;
     expect(qux.style).toBe("gapfill");
-    expect(qux.cropTopRatio).toBe(0.5);
+    expect(qux.crop).toEqual({ x: 0, y: 0, w: 1, h: 0.5 }); // cropTopRatio normalized
+    const wuz = entries.find((e) => e.name === "pd:WUZ")!;
+    expect(wuz.crop).toEqual({ x: 0.5, y: 0, w: 0.5, h: 0.6 });
     const foo = entries.find((e) => e.name === "pw:FOO")!;
     expect(foo.style).toBe("filled");
-    expect(foo.cropTopRatio).toBeUndefined();
+    expect(foo.crop).toBeUndefined();
   });
 
   it("GET /icons/:name serves file bytes with the right content type; unknown names 404", async () => {
@@ -633,7 +645,7 @@ describe("icon pack routes (fixture pack)", () => {
     await waitFor(() => messages.some((m) => m.type === "status"), 3000);
     const st = messages.find((m) => m.type === "status")!;
     expect(st.icons.state).toBe("ready");
-    expect(st.icons.count).toBe(3);
+    expect(st.icons.count).toBe(4);
     ws.close();
   });
 
@@ -642,7 +654,7 @@ describe("icon pack routes (fixture pack)", () => {
     // re-init) after the tests above have pinned the no-veto behavior.
     writeFileSync(join(dir, "exclude.json"), JSON.stringify({ vetoed: ["rk:BAZ"] }));
     await fixturePack.init(); // pins verified → rebuild from disk, reloads exclude.json
-    expect(fixturePack.status().count).toBe(2);
+    expect(fixturePack.status().count).toBe(3);
 
     const vetoed = await server.app.inject({ url: "/icons/rk%3ABAZ" });
     expect(vetoed.statusCode).toBe(404);
@@ -650,7 +662,7 @@ describe("icon pack routes (fixture pack)", () => {
     const list = await server.app.inject({ url: "/icons/list" });
     expect(list.statusCode).toBe(200);
     const { entries } = list.json() as { entries: { name: string }[] };
-    expect(entries.map((e) => e.name).sort()).toEqual(["pd:QUX", "pw:FOO"]);
+    expect(entries.map((e) => e.name).sort()).toEqual(["pd:QUX", "pd:WUZ", "pw:FOO"]);
 
     const ok = await server.app.inject({ url: "/icons/pw%3AFOO" });
     expect(ok.statusCode).toBe(200); // non-vetoed names still resolve

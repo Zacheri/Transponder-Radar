@@ -1,5 +1,8 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { loadIconSources } from "../server/iconpack-sources.js";
+import { loadIconSources, type IconSources } from "../server/iconpack-sources.js";
 
 describe("iconpack-sources manifest", () => {
   const s = loadIconSources(); // committed file
@@ -17,14 +20,21 @@ describe("iconpack-sources manifest", () => {
     expect(new Set(s.pd.map((e) => e.name)).size).toBe(s.pd.length);
     for (const e of s.pd) {
       expect(e.name).toMatch(/^pd:[A-Z0-9]+$/);
-      expect(e.file).toMatch(/^pd\/.+\.png$/);
+      expect(e.file).toMatch(/^pd\/.+\.(png|svg|gif)$/);
       expect(e.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(e.url).toMatch(/^https:\/\/(commons\.wikimedia\.org|upload\.wikimedia\.org)\//);
       expect(e.title.length).toBeGreaterThan(0);
       expect(e.license.length).toBeGreaterThan(0);
       expect(e.attribution.length).toBeGreaterThan(0);
-      expect(e.cropTopRatio).toBeGreaterThan(0);
-      expect(e.cropTopRatio).toBeLessThanOrEqual(1);
+      // exactly one of cropTopRatio / crop, each well-formed
+      const ratioOk = typeof e.cropTopRatio === "number" && e.cropTopRatio > 0 && e.cropTopRatio <= 1;
+      const cropOk =
+        e.crop !== undefined &&
+        [e.crop.x, e.crop.y, e.crop.w, e.crop.h].every((v) => typeof v === "number" && v >= 0 && v <= 1) &&
+        e.crop.w > 0 &&
+        e.crop.h > 0;
+      expect(ratioOk || cropOk).toBe(true);
+      expect(ratioOk && cropOk).toBe(false);
     }
   });
 
@@ -38,4 +48,53 @@ describe("iconpack-sources manifest", () => {
   });
   // (full collision validation — family/sea/tanker_air — lives in IconPack
   // index build, pinned in test/iconpack.test.ts Task 2.)
+
+  // pdEntryShape is exercised through loadIconSources on a temp manifest so
+  // the real committed file is never mutated by a synthetic case.
+  function tempSources(mutate: (s: IconSources) => void): string {
+    const base = loadIconSources();
+    mutate(base);
+    const p = join(mkdtempSync(join(tmpdir(), "radar-sources-")), "iconpack-sources.json");
+    writeFileSync(p, JSON.stringify(base, null, 2));
+    return p;
+  }
+
+  it("pd entry with a crop rectangle loads", () => {
+    const p = tempSources((s) => {
+      const e = s.pd[0];
+      delete e.cropTopRatio;
+      e.crop = { x: 0.5, y: 0, w: 0.5, h: 0.6 };
+    });
+    const s = loadIconSources(p);
+    expect(s.pd[0].crop).toEqual({ x: 0.5, y: 0, w: 0.5, h: 0.6 });
+  });
+
+  it("pd entry with BOTH crop and cropTopRatio throws", () => {
+    const p = tempSources((s) => {
+      s.pd[0].crop = { x: 0, y: 0, w: 1, h: 1 };
+    });
+    expect(() => loadIconSources(p)).toThrowError(/exactly one/);
+  });
+
+  it("pd entry with NEITHER crop nor cropTopRatio throws", () => {
+    const p = tempSources((s) => {
+      delete s.pd[0].cropTopRatio;
+    });
+    expect(() => loadIconSources(p)).toThrowError(/exactly one/);
+  });
+
+  it("pd crop coordinates outside [0,1] or zero size throw", () => {
+    for (const bad of [
+      { x: -0.1, y: 0, w: 1, h: 1 },
+      { x: 0, y: 1.5, w: 1, h: 1 },
+      { x: 0, y: 0, w: 0, h: 1 },
+      { x: 0, y: 0, w: 1, h: 0 },
+    ]) {
+      const p = tempSources((s) => {
+        delete s.pd[0].cropTopRatio;
+        s.pd[0].crop = bad;
+      });
+      expect(() => loadIconSources(p), JSON.stringify(bad)).toThrowError(/crop/);
+    }
+  });
 });

@@ -19,7 +19,7 @@ describe("renderCatalog", () => {
       cells: [
         { name: "pw:B737", title: "B737", license: "CC BY-NC-SA 4.0", style: "filled", svg: pwMini, color: "#4fc3f7", vetoed: false },
         { name: "rk:C130", title: "C-130", license: "GPL-3.0", style: "line", svg: rkMini, color: "#ef5350", vetoed: true },
-        { name: "pd:E3", title: "E-3", license: "Public Domain", style: "gapfill", pngDataUrl: "data:image/png;base64,AAAA", color: "#ef5350", vetoed: false, cropTopRatio: 0.5 },
+        { name: "pd:E3", title: "E-3", license: "Public Domain", style: "gapfill", pngDataUrl: "data:image/png;base64,AAAA", color: "#ef5350", vetoed: false, crop: { x: 0, y: 0, w: 1, h: 0.5 } },
       ],
       staticIcons: [{ name: "narrowbody", svg: "<svg></svg>", color: "#4fc3f7" }],
       gaps: [{ designator: "E4", title: "Boeing E-4" }],
@@ -33,6 +33,26 @@ describe("renderCatalog", () => {
     expect(html).toContain("data:image/png;base64,AAAA");
     expect(html).toContain("Boeing E-4");
     expect(html).toContain("narrowbody");
+  });
+
+  it("gapfill crop rectangles render as scaled/offset img styles", () => {
+    const html = renderCatalog({
+      cells: [
+        // top band (ex- cropTopRatio 0.5): full width, double height
+        { name: "pd:TOP", title: "Top", license: "PD", style: "gapfill", pngDataUrl: "data:image/png;base64,AAAA", color: "#ef5350", vetoed: false, crop: { x: 0, y: 0, w: 1, h: 0.5 } },
+        // right half, 60% height: scaled 2x/1.67x, offset left by half
+        { name: "pd:HALF", title: "Half", license: "PD", style: "gapfill", pngDataUrl: "data:image/png;base64,AAAA", color: "#ef5350", vetoed: false, crop: { x: 0.5, y: 0, w: 0.5, h: 0.6 } },
+        // full image: no crop style at all
+        { name: "pd:FULL", title: "Full", license: "PD", style: "gapfill", pngDataUrl: "data:image/png;base64,AAAA", color: "#ef5350", vetoed: false, crop: { x: 0, y: 0, w: 1, h: 1 } },
+      ],
+      staticIcons: [],
+      gaps: [],
+    });
+    expect(html).toContain('width:84px;height:168px');
+    expect(html).toContain("width:168px;height:140px;margin-left:-84px");
+    // the full-crop cell's img carries no crop style
+    const fullCell = html.split("pd:FULL")[0].split("class=\"prev\">").pop()!;
+    expect(fullCell).not.toContain("margin-");
   });
 
   it("cells without art still render their name", () => {

@@ -15,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { SEA_KINDS } from "../shared/craft.js";
-import { sniffImageType } from "../shared/pack-transforms.js";
+import { sniffImageType, type CropRect } from "../shared/pack-transforms.js";
 import { AIR_FAMILY_ICONS } from "./icons.js";
 import type { IconSources } from "./iconpack-sources.js";
 
@@ -43,7 +43,7 @@ export interface PackIconEntry {
   style: PackStyle;
   title: string;
   license: string;
-  cropTopRatio?: number; // gapfill only
+  crop?: CropRect; // gapfill only (normalized: cropTopRatio r ⇒ {0,0,1,r})
 }
 
 export interface IconPackTransport {
@@ -456,10 +456,10 @@ export class IconPack {
         name: e.name,
         source: "pd",
         file: e.file,
-        style: "gapfill",
+        style: e.style ?? "gapfill",
         title: e.title,
         license: e.license,
-        cropTopRatio: e.cropTopRatio,
+        crop: e.crop ?? (typeof e.cropTopRatio === "number" ? { x: 0, y: 0, w: 1, h: e.cropTopRatio } : undefined),
       });
     }
 

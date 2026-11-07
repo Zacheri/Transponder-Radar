@@ -180,9 +180,11 @@ describe("pack-transforms", () => {
     expect(hexToRgb("#ef5350")).toEqual([239, 83, 80]);
   });
 
-  it("sniffImageType detects PNG and JPEG by magic bytes (pd c5/kc10 are JPEGs named .png)", () => {
+  it("sniffImageType detects PNG, JPEG, and GIF by magic bytes (pd c5/kc10 are JPEGs named .png; pd B200 is a GIF)", () => {
     expect(sniffImageType(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe("image/png");
     expect(sniffImageType(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]))).toBe("image/jpeg");
+    expect(sniffImageType(Buffer.from("GIF89a"))).toBe("image/gif");
+    expect(sniffImageType(Buffer.from("GIF87a"))).toBe("image/gif");
     expect(sniffImageType(Buffer.from("qux-png-bytes\n"))).toBe("image/png"); // fallback
   });
 });

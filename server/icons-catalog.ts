@@ -1,4 +1,4 @@
-import { lineSvgToFill, PACK_COLORS } from "../shared/pack-transforms.js";
+import { lineSvgToFill, PACK_COLORS, type CropRect } from "../shared/pack-transforms.js";
 import { CIVIL_RULES, MILITARY_RULES } from "./icon-tables.js";
 import type { PackStyle } from "./iconpack.js";
 
@@ -18,7 +18,7 @@ export interface CatalogCell {
   pngDataUrl?: string; // pd, "data:<mime>;base64,…"
   color: string; // on-map color (ruling P7: follows resolver assignment)
   vetoed: boolean;
-  cropTopRatio?: number;
+  crop?: CropRect; // gapfill only
 }
 
 const MILITARY_PACKS = new Set(MILITARY_RULES.flatMap((r) => (r.pack ? [r.pack] : [])));
@@ -83,12 +83,21 @@ export function renderCatalog(opts: {
   const cellPreview = (c: CatalogCell): string => {
     if (c.style === "gapfill") {
       if (!c.pngDataUrl) return "";
-      // Crop rect: the top view is the top `cropTopRatio` of the file; scale
-      // the image so that portion exactly fills the 84px box height (the
-      // scan is paper + ink — shown as-is, the on-map color is a chip).
-      const style =
-        c.cropTopRatio && c.cropTopRatio < 1 ? ` style="height:calc(84px / ${c.cropTopRatio})"` : "";
-      return `<span class="pd"${style}><img src="${c.pngDataUrl}" alt=""></span>`;
+      // Crop rectangle: scale the img so the crop region exactly fills the
+      // 84px box and shift it into place (the .pd span is 84x84 overflow
+      // hidden — the inline style overrides the .pd img sizing). The scan is
+      // paper + ink — shown as-is, the on-map color is a chip.
+      const cr = c.crop;
+      let style = "";
+      if (cr && (cr.w < 1 || cr.h < 1 || cr.x > 0 || cr.y > 0)) {
+        const w = Math.round((84 / cr.w) * 100) / 100;
+        const h = Math.round((84 / cr.h) * 100) / 100;
+        let inner = `width:${w}px;height:${h}px`;
+        if (cr.x > 0) inner += `;margin-left:${Math.round(-cr.x * w * 100) / 100}px`;
+        if (cr.y > 0) inner += `;margin-top:${Math.round(-cr.y * h * 100) / 100}px`;
+        style = ` style="${inner}"`;
+      }
+      return `<span class="pd"><img src="${c.pngDataUrl}" alt=""${style}></span>`;
     }
     if (!c.svg) return "";
     // filled (pw) and line (rk) share the clean-fill transform: keep only

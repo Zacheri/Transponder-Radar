@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import type { CropRect } from "../shared/pack-transforms.js";
 
 // Pinned upstream sources for the vendored aircraft icon pack (Task 2's
 // IconPack downloads from these). pd[] = curated public-domain gap-fill
@@ -13,7 +14,12 @@ export interface PdSourceEntry {
   title: string; // "Boeing E-3 Sentry"
   license: string; // "Public Domain (US Government work)" etc.
   attribution: string; // author/creator string
-  cropTopRatio: number; // 0 < r <= 1: fraction of image height that is the top view (0.5 for standard two-views)
+  // Exactly one of these: cropTopRatio 0 < r <= 1 (legacy: the top view is
+  // the top r fraction of the image) or crop — a full rectangle, needed for
+  // multi-view sheets whose top view sits in an arbitrary quadrant.
+  cropTopRatio?: number;
+  crop?: CropRect;
+  style?: "gapfill" | "filled"; // default "gapfill"; "filled" for near-white SVG silhouettes (recolorPixels path)
 }
 
 export interface IconSources {
@@ -49,9 +55,25 @@ function pdEntryShape(v: unknown, i: number): void {
   if (!isStr(sha256) || !/^[0-9a-f]{64}$/.test(sha256)) {
     throw new Error(`iconpack-sources: pd[${i}].sha256 is not 64-hex`);
   }
-  const cropTopRatio = e.cropTopRatio;
-  if (typeof cropTopRatio !== "number" || !(cropTopRatio > 0 && cropTopRatio <= 1)) {
-    throw new Error(`iconpack-sources: pd[${i}].cropTopRatio must be in (0, 1]`);
+  const hasRatio = typeof e.cropTopRatio === "number";
+  const hasCrop = e.crop !== undefined;
+  if (hasRatio === hasCrop) {
+    throw new Error(`iconpack-sources: pd[${i}] must have exactly one of cropTopRatio or crop`);
+  }
+  if (hasRatio) {
+    const r = e.cropTopRatio as number;
+    if (!(r > 0 && r <= 1)) throw new Error(`iconpack-sources: pd[${i}].cropTopRatio must be in (0, 1]`);
+  } else {
+    const c = e.crop as CropRect;
+    for (const k of ["x", "y", "w", "h"] as const) {
+      if (typeof c[k] !== "number" || !(c[k] >= 0 && c[k] <= 1)) {
+        throw new Error(`iconpack-sources: pd[${i}].crop.${k} must be in [0, 1]`);
+      }
+    }
+    if (c.w <= 0 || c.h <= 0) throw new Error(`iconpack-sources: pd[${i}].crop must have positive w and h`);
+  }
+  if (e.style !== undefined && e.style !== "gapfill" && e.style !== "filled") {
+    throw new Error(`iconpack-sources: pd[${i}].style must be "gapfill" or "filled"`);
   }
 }
 

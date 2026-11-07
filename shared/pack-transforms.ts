@@ -7,6 +7,14 @@ import { AIR_KINDS, type AirKind } from "./craft.js";
 
 export const PACK_COLORS = { military: "#ef5350", civil: "#4fc3f7" } as const;
 
+/** Crop rectangle as fractions of the source image: (x, y) = top-left corner, w/h = size. */
+export interface CropRect {
+  x: number; // 0..1
+  y: number; // 0..1
+  w: number; // (0, 1]
+  h: number; // (0, 1]
+}
+
 /** True when `kind` is one of the four air kinds (AIR_KINDS). */
 function isAirKind(kind: string): kind is AirKind {
   return (AIR_KINDS as readonly string[]).includes(kind);
@@ -41,13 +49,14 @@ export function recolorPixels(data: Uint8ClampedArray, rgb: [number, number, num
 }
 
 /**
- * "image/png" | "image/jpeg" from magic bytes. The pd gap-fill files are
- * stored as .png, but two of the four (c5, kc10) are actually JPEGs — their
- * Commons sources are .jpg. Unknown bytes fall back to "image/png".
+ * "image/png" | "image/jpeg" | "image/gif" from magic bytes. The pd
+ * gap-fill files' extensions lie: c5/kc10 are JPEGs (Commons .jpg sources)
+ * and B200 is a GIF. Unknown bytes fall back to "image/png".
  */
-export function sniffImageType(bytes: Uint8Array): "image/png" | "image/jpeg" {
+export function sniffImageType(bytes: Uint8Array): "image/png" | "image/jpeg" | "image/gif" {
   if (bytes.length > 3 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
   if (bytes.length > 2 && bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
+  if (bytes.length > 3 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return "image/gif";
   return "image/png";
 }
 
