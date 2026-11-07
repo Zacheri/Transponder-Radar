@@ -5,6 +5,7 @@ import {
   renderCatalog,
 } from "../server/icons-catalog.js";
 import { PACK_COLORS } from "../shared/pack-transforms.js";
+import { loadIconSources } from "../server/iconpack-sources.js";
 
 // Mini line SVG with a visible top-level <g>: the catalog previews go
 // through lineSvgToFill, which keeps only the first visible top-level group
@@ -118,5 +119,19 @@ describe("coveredDesignators (catalog gap list is resolver-based, both tables)",
   it("no prefix false-coverage: the C172 rule does not cover designator C17", () => {
     const cov = coveredDesignators(new Set(["pw:C172"]));
     expect(cov.has("C17")).toBe(false);
+  });
+
+  it("post-curation coverage: curated pd: names close their designators; standing gaps stay open", () => {
+    // The committed manifest is the hermetic stand-in for the index: every
+    // pd: name in it is downloadable/verifiable, so if a rule points at one
+    // the designator is covered.
+    const pdNames = new Set(loadIconSources().pd.map((e) => e.name));
+    const cov = coveredDesignators(pdNames);
+    for (const d of ["CH47", "CH53", "MQ9", "E6", "C5", "KC10", "C141"]) {
+      expect(cov.has(d), `expected ${d} covered`).toBe(true);
+    }
+    for (const d of ["E3", "B2", "F14", "F117", "E4"]) {
+      expect(cov.has(d), `expected ${d} uncovered (standing gap)`).toBe(false);
+    }
   });
 });
