@@ -157,6 +157,18 @@ registered by `src/map/pack-icons.ts`. Family/sea SVGs are browser-verified
 only (no canvas in unit tests) — tune paths in
 `src/assets/icons/` and re-run the gate; names are the contract.
 
+Gap status (2026-11-06 curation): every type with a clean, variant-correct
+plan-view drawing in a usable license has art — the 2026-11-06 gap
+curation wired 9 military tokens to existing art, added 6 military tokens,
+and curated 8 new `pd:` entries (CH-47, MQ-9, CH-53E, E-6/707, MD-8x/9x,
+ATR-72, King Air 200/300, 737 Classic for the 737-600). Standing gaps:
+military `E3 B2 F14 F117 E4` (photos only, no plan-view drawings found) and
+the civil variants listed in `ML_Docs/Radar/OmittedModels.md` (737 MAX 7,
+true DC-9, Challenger 600-series, L-410, MQ-4C Triton, Hawker 400/800) —
+one entry per omitted variant (code, rule, reason, search log, date) so a
+future agent can re-source. Anything else renders the shape-family
+fallback.
+
 ### Icon pack (`server/iconpack.ts`, `data/icons/`)
 
 The vendored per-model silhouette pack is the **primary aircraft art**
@@ -165,8 +177,8 @@ sources (`server/iconpack-sources.json`: repo commits + a per-file
 public-domain manifest): `pw` = `plane-watch/pw-silhouettes`
 (CC BY‑NC‑SA 4.0, filled SVGs; `-N` animation frames → use `-1`),
 `rk` = `RexKramer1/AircraftShapesSVG` (GPL‑3.0, line‑art SVGs),
-`pd` = curated Wikimedia Commons PNGs for gap types (per-file license +
-attribution). Names are namespaced by source — `pw:B737`, `rk:C130`,
+`pd` = curated Wikimedia Commons files for gap types (PNG/GIF/SVG,
+per-file license + attribution). Names are namespaced by source — `pw:B737`, `rk:C130`,
 `pd:E3` — and the 13 family + 10 sea names are reserved: an index entry
 colliding with them fails `init` (a curation bug, never a runtime choice).
 
@@ -193,10 +205,16 @@ serves the pack over `GET /icons/*`; a failed download retries on each
 start and degrades to the 13 family icons. `GET /icons/catalog` is the
 eyeball surface (every icon at final color/size + title/source/license +
 the gap list); `GET /icons/list` is the machine surface the client loader
-reads — `{entries: [{name, style, cropTopRatio?, color}]}` (`cropTopRatio`
-only on gapfill entries). pd `.png` files can be JPEG bytes (Commons .jpg
-sources) — the extension is part of the sha pin; never "fix" the filename,
-it would invalidate verification. Recolor limit: `recolorPixels`
+reads — `{entries: [{name, style, crop?, color}]}` (`crop` only on gapfill
+entries, a `{x,y,w,h}` rectangle in fractions of the file — the manifest's
+legacy `cropTopRatio` normalizes to `{0,0,1,r}`; every sourced sheet's top
+view sits in an arbitrary quadrant, so top-band crops can't express them).
+pd entries may carry `style: "filled"` (near-white SVG silhouettes like
+`pd:737C` ride the `recolorPixels` path; default is `"gapfill"`). pd files
+can be JPEG bytes (Commons .jpg sources — c5/kc10), GIF (`pd:B200`), or
+SVG (`pd:CH53`, `pd:737C`) under any extension — the extension is part of
+the sha pin; never "fix" the filename, it would invalidate verification.
+Recolor limit: `recolorPixels`
 (`shared/pack-transforms.ts`) recolors only near‑white pixels (r, g, b all
 ≥ 200) — non‑white painted details keep their color.
 
