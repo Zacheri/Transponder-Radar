@@ -58,7 +58,10 @@ export interface KindMeta {
 }
 
 export const KINDS: Record<CraftKind, KindMeta> = {
-  commercial: { label: "Commercial", domain: "air", icon: "narrowbody", color: "#4fc3f7" },
+  // color = the kind's default MAP ICON color (the color picker resets to
+  // it). commercial #ffd500 and general #90a4ae were re-ruled 2026-11-06;
+  // the rest are the pre-pick family/sea fills.
+  commercial: { label: "Commercial", domain: "air", icon: "narrowbody", color: "#ffd500" },
   business: { label: "Business", domain: "air", icon: "bizjet", color: "#81d4fa" },
   military: { label: "Military", domain: "air", icon: "fighter", color: "#ef5350" },
   general: { label: "General", domain: "air", icon: "piston", color: "#90a4ae" },
@@ -103,4 +106,21 @@ export const KIND_FALLBACK_ICON: Record<AirKind, string> = {
 export const PACK_NAME_PREFIXES = ["pw:", "rk:", "pd:"] as const;
 export function isPackIconName(name: string): boolean {
   return PACK_NAME_PREFIXES.some((p) => name.startsWith(p));
+}
+
+// Map icons are pre-rasterized with color baked in, so a per-category color
+// cannot repaint an existing registration — the color travels in the image
+// NAME. One silhouette base can serve two kinds at different colors
+// (military C-21 and civil 737 → the same 737-700 art), which is why the
+// key is per (base, color), not per kind.
+export function colorKey(name: string, hex: string): string {
+  return `${name}@${hex}`;
+}
+export function parseColorKey(key: string): { name: string; hex: string | null } {
+  const i = key.lastIndexOf("@");
+  if (i === -1) return { name: key, hex: null };
+  const name = key.slice(0, i);
+  const hex = key.slice(i + 1);
+  if (name === "" || !/^#[0-9a-f]{6}$/i.test(hex)) throw new Error(`bad color key: ${key}`);
+  return { name, hex };
 }

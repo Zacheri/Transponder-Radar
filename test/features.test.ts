@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { buildFeatureCollection } from "../src/data/features.js";
 import { buildIconFilter } from "../src/data/filter.js";
-import type { Craft } from "../shared/craft.js";
-import { KIND_FALLBACK_ICON } from "../shared/craft.js";
+import type { Craft, CraftKind } from "../shared/craft.js";
+import { KINDS, KIND_FALLBACK_ICON, colorKey } from "../shared/craft.js";
 
 function air(over: Partial<Craft> = {}): Craft {
   return {
@@ -91,5 +91,29 @@ describe("icon property with iconRegistered (pack loader, Task 9)", () => {
     expect(fc.features[0].properties.icon).toBe("narrowbody"); // family name passes
     expect(fc.features[1].properties.icon).toBe("bizjet"); // air kind fallback
     expect(fc.features[2].properties.icon).toBe("cargo"); // sea kind passes
+  });
+});
+
+describe("icon property with colorFor (per-category color picker)", () => {
+  const colorFor = (kind: CraftKind): string => KINDS[kind].color;
+
+  it("keys every icon name by the kind's color (air + sea)", () => {
+    const fc = buildFeatureCollection([air(), sea({ kind: "cargo" })], { colorFor });
+    expect(fc.features[0].properties.icon).toBe(colorKey("narrowbody", "#ffd500"));
+    expect(fc.features[1].properties.icon).toBe(colorKey("cargo", "#ffb74d"));
+  });
+
+  it("server-set pack icons are keyed too; registered set is checked by key", () => {
+    const key = colorKey("rk:C130", "#ef5350");
+    const ok = buildFeatureCollection([air({ icon: "rk:C130", kind: "military" })], { iconRegistered: new Set([key]), colorFor });
+    expect(ok.features[0].properties.icon).toBe(key);
+    const miss = buildFeatureCollection([air({ icon: "rk:C130", kind: "military" })], { iconRegistered: new Set(), colorFor });
+    expect(miss.features[0].properties.icon).toBe(colorKey("fighter", "#ef5350")); // family fallback, keyed
+  });
+
+  it("a user override changes the key without changing the base", () => {
+    const custom = (k: CraftKind): string => (k === "commercial" ? "#00ff00" : KINDS[k].color);
+    const fc = buildFeatureCollection([air({ icon: "widebody" })], { colorFor: custom });
+    expect(fc.features[0].properties.icon).toBe(colorKey("widebody", "#00ff00"));
   });
 });
