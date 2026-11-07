@@ -1,6 +1,9 @@
 # Icon Pack Gap Curation — Design
 
-- **Status:** draft (pending owner review)
+- **Status:** approved (owner ruled 2026-11-06; plan in
+  `docs/superpowers/plans/2026-11-06-iconpack-gap-curation.md`). Phase 2
+  color-picker defaults ruled: commercial `#ffd500`, general `#90a4ae`;
+  picker targets the map icons (not the sidebar label color).
 - **Date:** 2026-11-06
 - **Follow-up to:** `docs/superpowers/specs/2026-10-13-vendored-aircraft-icon-pack-design.md`
   (implemented 2026-10-25). Supersedes nothing; extends the vendored pack.
