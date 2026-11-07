@@ -41,6 +41,87 @@
       "license": "Public Domain (scan of US Air Force work — PD-scan of PD-USGov-Military)",
       "attribution": "U.S. Air Force",
       "cropTopRatio": 0.54
+    },
+    {
+      "name": "pd:CH47",
+      "file": "pd/ch47.png",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/0/07/Boeing_Vertol_CH-47_Chinook_3-view_line_drawing.png",
+      "sha256": "dd8cbe47eef479a8fb015da8da6a91a52ff6bd606f275069f8c3a3eb42e7aa63",
+      "title": "Boeing CH-47 Chinook",
+      "license": "Public Domain (scan of US Air Force work — PD-scan of PD-USGov-Military)",
+      "attribution": "U.S. Air Force",
+      "crop": { "x": 0.02, "y": 0, "w": 0.40, "h": 1 }
+    },
+    {
+      "name": "pd:MQ9",
+      "file": "pd/mq9.png",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/d/d8/MQ-9_Reaper_dimensioned_sketch.png",
+      "sha256": "bcd51e5ebc16c87a413eb483fffdd1b0ec6be93f88898267a44e426c5f5f0943",
+      "title": "General Atomics MQ-9 Reaper",
+      "license": "Public Domain",
+      "attribution": "Tomáš Hruška",
+      "crop": { "x": 0.33, "y": 0.17, "w": 0.66, "h": 0.70 }
+    },
+    {
+      "name": "pd:CH53",
+      "file": "pd/ch53.svg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/15/Sikorsky_CH-53E_Super_Stallion_Drawing.svg",
+      "sha256": "e27339b3e0342b863b49a225213e62f5b0189160c133eac6f49602e265d2be51",
+      "title": "Sikorsky CH-53E Super Stallion",
+      "license": "CC BY 3.0",
+      "attribution": "Jetijones",
+      "crop": { "x": 0, "y": 0, "w": 0.53, "h": 0.99 }
+    },
+    {
+      "name": "pd:E6",
+      "file": "pd/e6.png",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/2/2c/Boeing_707-300_v1.0.png",
+      "sha256": "191e864123fdaef374bd38a403e758278d2d0b1e46b4e4a340920b2069e337f2",
+      "title": "Boeing E-6 TACAMO (707-300 planform)",
+      "license": "CC BY-SA 3.0",
+      "attribution": "Julien.scavini",
+      "crop": { "x": 0, "y": 0.25, "w": 0.48, "h": 0.63 }
+    },
+    {
+      "name": "pd:MD8",
+      "file": "pd/md8.png",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/1d/McDonnell_Douglas_MD-82_v1.0.png",
+      "sha256": "7729b43de903b373237f605f5c2698600ec350d4dfd8ca2261f5d647b1956d17",
+      "title": "McDonnell Douglas MD-8x/MD-90",
+      "license": "CC BY-SA 3.0",
+      "attribution": "Julien.scavini",
+      "crop": { "x": 0.56, "y": 0, "w": 0.43, "h": 0.62 }
+    },
+    {
+      "name": "pd:ATR72",
+      "file": "pd/atr72.png",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/3/38/ATR_family_v1.0.png",
+      "sha256": "b61abe4c9213bd1f8da93b44ffb43ed7e0463b5992ec081989ec91bc4dfa0383",
+      "title": "ATR 72 (-200/-212)",
+      "license": "CC BY-SA 3.0",
+      "attribution": "Julien.scavini",
+      "crop": { "x": 0, "y": 0.22, "w": 0.52, "h": 0.58 }
+    },
+    {
+      "name": "pd:B200",
+      "file": "pd/b200.gif",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/a/aa/Beechcraft_B200_King_Air_3-view_line_drawing.gif",
+      "sha256": "ae2e15e56323f34f611110916ae402ab1752fecfbbeaac7cb9db1cdc4d01d52a",
+      "title": "Beechcraft King Air 200/300",
+      "license": "Public Domain (US Government work — PD-USGov-NASA EG-0057-01)",
+      "attribution": "NASA",
+      "crop": { "x": 0, "y": 0, "w": 0.50, "h": 0.99 }
+    },
+    {
+      "name": "pd:737C",
+      "file": "pd/737c.svg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/3/3e/Boeing_737-300_silhouette.svg",
+      "sha256": "3fd32335c775f5179ed5982e507c87ec4e99e721bf1c738feeec535331aa58cb",
+      "title": "Boeing 737 Classic (737-300 silhouette; used for the 737-600)",
+      "license": "CC BY-SA 4.0",
+      "attribution": "Peter James Lowden",
+      "style": "filled",
+      "crop": { "x": 0, "y": 0, "w": 1, "h": 1 }
     }
   ],
   "gapTargets": [
@@ -54,6 +135,9 @@
     { "designator": "KC10", "title": "McDonnell Douglas KC-10 Extender" },
     { "designator": "AH64", "title": "Boeing AH-64 Apache" },
     { "designator": "CH47", "title": "Boeing CH-47 Chinook" },
+    { "designator": "CH53", "title": "Sikorsky CH-53 Super Stallion" },
+    { "designator": "MQ9", "title": "General Atomics MQ-9 Reaper" },
+    { "designator": "E6", "title": "Boeing E-6 TACAMO" },
     { "designator": "C130", "title": "Lockheed C-130 Hercules" },
     { "designator": "C17", "title": "Boeing C-17 Globemaster III" },
     { "designator": "H60", "title": "Sikorsky UH-60 Black Hawk" },
