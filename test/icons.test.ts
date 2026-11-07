@@ -65,6 +65,59 @@ describe("resolver pack emission", () => {
   });
 });
 
+describe("military table curation wiring (gap curation 2026-11-06)", () => {
+  const pack = new Set([
+    "pd:CH53", "pd:MQ9", "pd:E6", "rk:B737", "rk:B748", "rk:P3", "rk:R135",
+    "rk:B1 fast", "rk:F5", "rk:T38", "rk:LYNX", "rk:HAWK", "rk:TOR fast",
+  ]);
+
+  const rows: Array<[callsign: string, expected: string]> = [
+    // re-wired existing tokens
+    ["CH53", "pd:CH53"],
+    ["CH53E", "pd:CH53"],
+    ["REAPER", "pd:MQ9"],
+    ["MQ9", "pd:MQ9"],
+    ["TACAMO", "pd:E6"],
+    ["KCTC", "rk:R135"], // USN KC-135 variant — RC-135 art (same C-135 airframe)
+    ["C21", "rk:B737"], // C-21A = 737-700 derivative
+    ["C40", "rk:B737"], // C-40 = 737-based
+    ["VC25", "rk:B748"], // VC-25A = 747-8F airframe
+    ["EP3E", "rk:P3"], // EP-3E = P-3C airframe
+    // new tokens
+    ["B1", "rk:B1 fast"],
+    ["B1B", "rk:B1 fast"],
+    ["F5E", "rk:F5"],
+    ["T38", "rk:T38"],
+    ["LYNX", "rk:LYNX"],
+    ["HAWK", "rk:HAWK"],
+    ["TOR", "rk:TOR fast"],
+    ["TORNADO", "rk:TOR fast"],
+  ];
+
+  for (const [cs, exp] of rows) {
+    it(`${cs} → ${exp}`, () => {
+      expect(resolveAirIcon({ kind: "military", callsign: cs, faaModel: null, faaMfr: null, pack })).toBe(exp);
+    });
+  }
+
+  it("each wiring falls back to its family when the pack lacks the name", () => {
+    const bare = new Set<string>();
+    expect(resolveAirIcon({ kind: "military", callsign: "CH53", faaModel: null, faaMfr: null, pack: bare })).toBe("milheli");
+    expect(resolveAirIcon({ kind: "military", callsign: "REAPER", faaModel: null, faaMfr: null, pack: bare })).toBe("isr");
+    expect(resolveAirIcon({ kind: "military", callsign: "TACAMO", faaModel: null, faaMfr: null, pack: bare })).toBe("isr");
+    expect(resolveAirIcon({ kind: "military", callsign: "KCTC", faaModel: null, faaMfr: null, pack: bare })).toBe("tanker_air");
+    expect(resolveAirIcon({ kind: "military", callsign: "C21", faaModel: null, faaMfr: null, pack: bare })).toBe("transport");
+    expect(resolveAirIcon({ kind: "military", callsign: "VC25", faaModel: null, faaMfr: null, pack: bare })).toBe("transport");
+    expect(resolveAirIcon({ kind: "military", callsign: "B1", faaModel: null, faaMfr: null, pack: bare })).toBe("attack");
+  });
+
+  it("strict tokens: F5 has no rule, HAWKER ≠ HAWK (different airframe), TORCH ≠ TOR", () => {
+    expect(resolveAirIcon({ kind: "military", callsign: "F5", faaModel: null, faaMfr: null, pack })).toBe("fighter");
+    expect(resolveAirIcon({ kind: "military", callsign: "HAWKER", faaModel: null, faaMfr: null, pack })).toBe("fighter");
+    expect(resolveAirIcon({ kind: "military", callsign: "TORCH", faaModel: null, faaMfr: null, pack })).toBe("fighter");
+  });
+});
+
 describe("civil resolver pack emission (Task 6 curation lock)", () => {
   // [model, mfr, expected] — real FAA ACFTREF model strings (normalizeModel
   // applies: uppercase, spaces/hyphens stripped). expected = the pack name
@@ -94,7 +147,7 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["P-180", "PIAGGIO", "rk:P180"],
     ["560XL", "CESSNA AIRCRAFT CO", "pw:C560"],
     // helis
-    ["CH-47D", "MCDONNELL DOUGLAS", "milheli"], // pd:CH47 dropped (3-view sheet) — family fallback
+    ["CH-47D", "MCDONNELL DOUGLAS", "pd:CH47"], // gap fill curated 2026-11-06
     ["UH-60A", "AAR AIRLIFT GROUP INC", "rk:H60"],
     ["212", "BELL", "rk:UH1"],
     ["206", "BELL", "pw:B06"],
@@ -119,12 +172,21 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["BN-2B-21", "PILATUS BRITTEN NORMAN", "rk:BN2P"],
     ["8GCBC", "BELLANCA", "pw:BL8"],
     ["EMB-820", "EMBRAER", "pw:PA31"],
+    // gap fills curated 2026-11-06 (pd: from Commons, rect-cropped)
+    ["737-600", "BOEING", "pd:737C"], // 737 Classic silhouette (same family as the 600)
+    ["737-66N", "BOEING", "pd:737C"],
+    ["ATR-72-212", "AEROSPATIALE", "pd:ATR72"],
+    ["ATR-72-201", "AEROSPATIALE", "pd:ATR72"],
+    ["MD-88", "MCDONNELL DOUGLAS", "pd:MD8"],
+    ["DC-9-82(MD-82)", "MCDONNELL DOUGLAS", "pd:MD8"], // real registry code form
+    ["MD-90-30", "BOEING", "pd:MD8"],
+    ["B200", "BEECHCRAFT CORP", "pd:B200"], // King Air 200
+    ["B300", "BEECH", "pd:B200"], // King Air 300 — same airframe art
+    ["C-295", "AIRBUS DEFENSE AND SPACE S A", "rk:C295"],
     // no-art controls (family layer must stay put)
-    ["737-600", "BOEING", "narrowbody"],
-    ["ATR-72-212", "AEROSPATIALE", "turboprop"],
-    ["CL-600-2B16", "BOMBARDIER INC", "bizjet"], // Challenger 600 — no art
+    ["CL-600-2B16", "BOMBARDIER INC", "bizjet"], // Challenger 600 — no art (OmittedModels)
+    ["DC-9-30", "MCDONNELL DOUGLAS", "narrowbody"], // true DC-9 series — no top-view art (OmittedModels)
     ["B206", "BELL", "heli"], // custom B-prefixed name
-    ["MD-88", "MCDONNELL DOUGLAS", "narrowbody"],
   ];
 
   const pack = new Set(rows.map(([, , e]) => (e.includes(":") ? e : "")).filter(Boolean));

@@ -35,20 +35,25 @@ export interface CivilRule {
 // designator (server/iconpack-sources.json, checked against
 // data/icons/index.json) gets its pack name on the matching token entry; new
 // entries were added where the token table had none (K35E, S61, UH1, NH90,
-// MI24, B52, KC2, C141, V22, P1, P8, E8, SB39). Uncovered designators (B2,
-// F14, F117, E4) and non-designator tokens (KCTC, CH53, C21, VC25, C40,
-// EP3, TACAMO, AWACS, GRIFIN, REAPER, MQ9) stay family-only.
+// MI24, B52, KC2, C141, V22, P1, P8, E8, SB39, B1, F5E, T38, TOR/TORNADO,
+// HAWK, LYNX). The 2026-11-06 gap curation wired the remaining tokens to
+// existing or curated art (KCTC→RC-135, CH53→pd:CH53, C21/C40→737-700,
+// VC25→747-8, EP3→P-3, TACAMO→pd:E6, REAPER/MQ9→pd:MQ9). Uncovered
+// designators: B2, F14, F117, E4 (and E3 — referenced by the prefix token
+// below, art still to curate). AWACS and GRIFIN stay family-only: no rotodome
+// plan view exists for the E-3, and the RQ-4 art is a different airframe than
+// the MQ-4C Triton (both tracked in OmittedModels.md).
 
 export const MILITARY_RULES: MilitaryRule[] = [
   // ── tanker_air ─────────────────────────────────────────────────────────
   { re: /\bKC135\w*\b/, anchor: "word", pack: "rk:R135", family: "tanker_air" }, // KC-135 → RC-135 art (same C-135 airframe family)
   { re: /\bKC10\w*\b/, anchor: "word", pack: "pd:KC10", family: "tanker_air" },
   { re: /\bKC46\w*\b/, anchor: "word", pack: "rk:KC46", family: "tanker_air" },
-  { re: /\bKCTC\w*\b/, anchor: "word", family: "tanker_air" }, // training-tanker callsign; not a gapTarget
+  { re: /\bKCTC\w*\b/, anchor: "word", pack: "rk:R135", family: "tanker_air" }, // USN KC-135 variant — RC-135 art (same C-135 airframe)
   { re: /\bK35E\w*\b/, anchor: "word", pack: "rk:K35E", family: "tanker_air" }, // gapTarget K35E (KC-135E); KC135\w* already covers "KC135E" callsigns
   // ── milheli ────────────────────────────────────────────────────────────
   { re: /\bCH47\w*\b/, anchor: "word", pack: "pd:CH47", family: "milheli" },
-  { re: /\bCH53\w*\b/, anchor: "word", family: "milheli" }, // not a gapTarget
+  { re: /\bCH53\w*\b/, anchor: "word", pack: "pd:CH53", family: "milheli" },
   { re: /\bUH60\w*\b/, anchor: "word", pack: "rk:H60", family: "milheli" },
   { re: /\bUH6\w*\b/, anchor: "word", pack: "rk:H60", family: "milheli" },
   { re: /\bMH60\w*\b/, anchor: "word", pack: "rk:H60", family: "milheli" },
@@ -60,21 +65,23 @@ export const MILITARY_RULES: MilitaryRule[] = [
   { re: /\bUH1\w*\b/, anchor: "word", pack: "rk:UH1", family: "milheli" },
   { re: /\bNH90\w*\b/, anchor: "word", pack: "rk:NH90", family: "milheli" },
   { re: /\bMI24\w*\b/, anchor: "word", pack: "rk:MI24", family: "milheli" },
+  { re: /\bLYNX\w*\b/, anchor: "word", pack: "rk:LYNX", family: "milheli" },
   // ── attack ─────────────────────────────────────────────────────────────
   { re: /\bA10\w*\b/, anchor: "word", pack: "rk:A10", family: "attack" },
   // B-52: no bomber family exists in the 13 air families; a strategic bomber is
   // closer to attack (combat role) than to the fighter fallback.
   { re: /\bB52\w*\b/, anchor: "word", pack: "rk:B52", family: "attack" },
+  { re: /\bB1\w*\b/, anchor: "word", pack: "rk:B1 fast", family: "attack" },
   // ── transport ──────────────────────────────────────────────────────────
   { re: /\bC130\w*\b/, anchor: "word", pack: "rk:C130", family: "transport" },
   { re: /\bC17\b/, anchor: "word", pack: "rk:C17", family: "transport" }, // strict: C172 (Cessna 172) must not match
   { re: /\bC5\b/, anchor: "word", pack: "pd:C5", family: "transport" }, // strict: C550 (Citation V) must not match
-  { re: /\bC21\w*\b/, anchor: "word", family: "transport" }, // not a gapTarget
+  { re: /\bC21\w*\b/, anchor: "word", pack: "rk:B737", family: "transport" }, // C-21A = 737-700 derivative
   // Token widened from A400M to the A400 base + suffix (plan: A400\w*);
   // pw:A400 also exists — rk: used per the plan's curation value.
   { re: /\bA400\w*\b/, anchor: "word", pack: "rk:A400", family: "transport" },
-  { re: /\bVC25\w*\b/, anchor: "word", family: "transport" }, // not a gapTarget
-  { re: /\bC40\w*\b/, anchor: "word", family: "transport" }, // not a gapTarget
+  { re: /\bVC25\w*\b/, anchor: "word", pack: "rk:B748", family: "transport" }, // VC-25A = 747-8F airframe
+  { re: /\bC40\w*\b/, anchor: "word", pack: "rk:B737", family: "transport" }, // C-40 = 737-based
   { re: /\bKC2\w*\b/, anchor: "word", pack: "rk:KC2", family: "transport" }, // Kawasaki C-2
   { re: /\bC141\w*\b/, anchor: "word", pack: "pd:C141", family: "transport" },
   // The pack has no bare rk:V22 — only "V22 fast"/"V22 slow" rotor variants;
@@ -82,14 +89,12 @@ export const MILITARY_RULES: MilitaryRule[] = [
   { re: /\bV22\w*\b/, anchor: "word", pack: "rk:V22 fast", family: "transport" },
   // ── isr (word tokens) ──────────────────────────────────────────────────
   { re: /\bRC135\w*\b/, anchor: "word", pack: "rk:R135", family: "isr" },
-  { re: /\bEP3\w*\b/, anchor: "word", family: "isr" }, // not a gapTarget
-  { re: /\bTACAMO\w*\b/, anchor: "word", family: "isr" }, // not a gapTarget
-  { re: /\bAWACS\w*\b/, anchor: "word", family: "isr" }, // not a gapTarget
-  { re: /\bGRIFIN\w*\b/, anchor: "word", family: "isr" }, // not a gapTarget
-  { re: /\bREAPER\w*\b/, anchor: "word", family: "isr" }, // not a gapTarget
-  // No MQ-9 art exists in the pack → family-only. (The plan's "MQ9|Q4"
-  // shorthand resolves designator-driven: Q4 is a gapTarget, MQ9 is not.)
-  { re: /\bMQ9\w*\b/, anchor: "word", family: "isr" },
+  { re: /\bEP3\w*\b/, anchor: "word", pack: "rk:P3", family: "isr" }, // EP-3E = P-3C airframe
+  { re: /\bTACAMO\w*\b/, anchor: "word", pack: "pd:E6", family: "isr" }, // TACAMO = E-6 callsign
+  { re: /\bAWACS\w*\b/, anchor: "word", family: "isr" }, // E-3 — no rotodome art (OmittedModels)
+  { re: /\bGRIFIN\w*\b/, anchor: "word", family: "isr" }, // MQ-4C Triton — RQ-4 art is a different airframe (OmittedModels)
+  { re: /\bREAPER\w*\b/, anchor: "word", pack: "pd:MQ9", family: "isr" },
+  { re: /\bMQ9\w*\b/, anchor: "word", pack: "pd:MQ9", family: "isr" },
   { re: /\bRQ4\w*\b/, anchor: "word", pack: "rk:Q4", family: "isr" }, // gapTarget Q4 (Global Hawk)
   { re: /\bP1\b/, anchor: "word", pack: "rk:P1", family: "isr" }, // strict: P1\w* would swallow P180 (Piaggio P-180 — different aircraft, own art)
   { re: /\bP8\w*\b/, anchor: "word", pack: "rk:P8", family: "isr" },
@@ -113,6 +118,14 @@ export const MILITARY_RULES: MilitaryRule[] = [
   { re: /\bF22\w*\b/, anchor: "word", pack: "rk:F22", family: "fighter" },
   { re: /\bF35\w*\b/, anchor: "word", pack: "rk:F35", family: "fighter" },
   { re: /\bSB39\w*\b/, anchor: "word", pack: "rk:SB39", family: "fighter" }, // Gripen
+  { re: /\bF5E\w*\b/, anchor: "word", pack: "rk:F5", family: "fighter" },
+  { re: /\bT38\w*\b/, anchor: "word", pack: "rk:T38", family: "fighter" },
+  // Tornado: strict base token + TORNADO — a \w* suffix on TOR would swallow
+  // unrelated callsigns (TORCH).
+  { re: /\bTOR\b/, anchor: "word", pack: "rk:TOR fast", family: "fighter" },
+  { re: /\bTORNADO\w*\b/, anchor: "word", pack: "rk:TOR fast", family: "fighter" },
+  // Strict: HAWKER (Beech Hawker bizjet) is a different airframe.
+  { re: /\bHAWK\b/, anchor: "word", pack: "rk:HAWK", family: "fighter" },
 ];
 
 // ── FAA model table (spec §3.2; ordered; helis before fixed-wing) ───────────
@@ -128,10 +141,11 @@ export const MILITARY_RULES: MilitaryRule[] = [
 // survive). pw: art is preferred where both pw: and rk: have the type; rk:
 // where pw lacks it. Most-specific rules precede the pre-pack catch rules
 // (marked "catch") that they refine; a rule whose pack type the pack lacks
-// stays family-only. No-art gap list: 737-600/737-700 MAX, Challenger 600/
-// 604/605 (CL600-2B16), ATR-72-212, MD-8x/9x, DC-9, L-410, King Air 200/300/
-// 360, F-100/F-70, An-12/28… (see docs/superpowers/specs/
-// 2026-10-13-vendored-aircraft-icon-pack-design.md §2 for the pack contents).
+// stays family-only. Curated 2026-11-06: 737-600 (pd:737C), MD-8x/9x
+// (pd:MD8), ATR-72-2xx (pd:ATR72), King Air 200/300 (pd:B200), C-295
+// (rk:C295). Standing no-art gap list (tracked in OmittedModels.md): 737 MAX
+// 7, Challenger 600/604/605 (CL600-2B16), true DC-9 series, ATR-42, L-410,
+// King Air 360 (no B360 code in the registry).
 
 export const CIVIL_RULES: CivilRule[] = [
   // ── helis — bizheli ────────────────────────────────────────────────────
@@ -252,7 +266,8 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["BOEING"], re: /^7373/, pack: "rk:B733", family: "narrowbody" },
   { mfr: ["BOEING"], re: /^7374/, pack: "rk:B734", family: "narrowbody" },
   { mfr: ["BOEING"], re: /^7375/, pack: "rk:B735", family: "narrowbody" },
-  { mfr: ["BOEING"], re: /^7377[A-Z0-9]*M/, family: "narrowbody" }, // MAX 7: no art — guard before B737
+  { mfr: ["BOEING"], re: /^7376/, pack: "pd:737C", family: "narrowbody" }, // 737-600 — Classic silhouette (737-300 art, same family)
+  { mfr: ["BOEING"], re: /^7377[A-Z0-9]*M/, family: "narrowbody" }, // MAX 7: no art — guard before B737 (OmittedModels)
   { mfr: ["BOEING"], re: /^7377/, pack: "rk:B737", family: "narrowbody" },
   { mfr: ["BOEING"], re: /^7378200/, pack: "pw:B38M", family: "narrowbody" },
   { mfr: ["BOEING"], re: /^7378[A-Z0-9]*M/, pack: "pw:B38M", family: "narrowbody" },
@@ -286,8 +301,13 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["AIRBUS"], re: /^A3(1[89]|2[01])/, family: "narrowbody" }, // catch (shadowed)
   { mfr: ["EMBRAER"], re: /^(E[12]\d\d|EMB\d)/, family: "narrowbody" }, // catch
   { mfr: ["BOMBARDIER"], re: /^CRJ/, family: "narrowbody" }, // catch (CRJ-100 style names)
-  { mfr: ["MCDONNELL"], re: /^MD(8\d|9\d)/, family: "narrowbody" }, // catch (no MD-8x/9x art)
-  { mfr: ["DOUGLAS", "BOEING"], re: /^DC9/, family: "narrowbody" }, // catch (no DC-9 art)
+  // MD-8x/9x: the registry codes are "DC-9-8x(MD-8x)" (MCDONNELL DOUGLAS /
+  // DOUGLAS / BOEING) and "MD-90-30" (BOEING) — two rules cover both forms;
+  // one art (the MD-8x top view) fits the whole family (the MD-90 shares the
+  // airframe). True DC-9 series (DC-9-10/30) stays family-only (OmittedModels).
+  { mfr: ["MCDONNELL", "DOUGLAS", "BOEING"], re: /^DC9[89]\d/, pack: "pd:MD8", family: "narrowbody" },
+  { mfr: ["MCDONNELL", "DOUGLAS", "BOEING"], re: /^MD(8\d|9\d)/, pack: "pd:MD8", family: "narrowbody" },
+  { mfr: ["DOUGLAS", "BOEING", "MCDONNELL"], re: /^DC9/, family: "narrowbody" }, // catch (true DC-9 — no top-view art)
   { mfr: ["BRITISH AEROSPACE", "BAE"], re: /^146/, family: "narrowbody" }, // catch
   { mfr: ["FOKKER"], re: /^(F100|F70|F28)/, family: "narrowbody" }, // catch
   { re: /^F70([A-Z]|$)/, family: "bizjet" }, // F70 without FOKKER mfr defaults to Falcon (spec trap)
@@ -295,6 +315,8 @@ export const CIVIL_RULES: CivilRule[] = [
   // ── turboprop ──────────────────────────────────────────────────────────
   { re: /^ATR425/, pack: "rk:AT45", family: "turboprop" },
   { re: /^ATR725/, pack: "rk:AT75", family: "turboprop" }, // 72-500: no FAA codes yet
+  { re: /^ATR72/, pack: "pd:ATR72", family: "turboprop" }, // 72-2xx — mfr varies (ATR, AEROSPATIALE…), no constraint
+  { mfr: ["AIRBUS"], re: /^C295/, pack: "rk:C295", family: "turboprop" },
   { re: /^DHC82/, pack: "pw:DH8B", family: "turboprop" },
   { re: /^DHC83/, pack: "rk:DH8C", family: "turboprop" },
   { re: /^DHC84/, pack: "pw:DH8D", family: "turboprop" },
@@ -307,6 +329,7 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["BEECH", "TEXTRON"], re: /^1900D/, pack: "pw:B190D", family: "turboprop" },
   { re: /^1900/, pack: "rk:B190", family: "turboprop" },
   { re: /^B?350/, pack: "pw:B350", family: "turboprop" }, // King Air 350 (not B35 Bonanza)
+  { mfr: ["BEECH", "TEXTRON"], re: /^B(200|300)/, pack: "pd:B200", family: "turboprop" }, // King Air 200/300 (same airframe art; no B360 codes)
   { mfr: ["DORNIER"], re: /^228/, pack: "rk:D228", family: "turboprop" }, // 228-2xx codes
   { mfr: ["DORNIER"], re: /^DO228/, pack: "rk:D228", family: "turboprop" },
   { mfr: ["DORNIER"], re: /^328/, pack: "rk:D328", family: "turboprop" },
