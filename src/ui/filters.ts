@@ -19,10 +19,16 @@ function readSavedVisible(): Set<CraftKind> | null {
   }
 }
 
+export interface FilterColorApi {
+  getColor(kind: CraftKind): string; // effective color (override ?? kind default)
+  setColor(kind: CraftKind, hex: string | null): void; // null = back to default
+}
+
 export function createFilters(
   root: HTMLElement,
   initial: Set<CraftKind>,
   onChange: (v: Set<CraftKind>) => void,
+  color?: FilterColorApi,
 ): { setCounts(counts: Map<CraftKind, number>): void } {
   const el = document.createElement("aside");
   el.className = "drawer";
@@ -66,7 +72,6 @@ export function createFilters(
       });
       const sw = document.createElement("span");
       sw.className = "swatch";
-      sw.style.background = KINDS[k].color;
       const txt = document.createElement("span");
       txt.className = "drawer-label";
       txt.textContent = KINDS[k].label;
@@ -75,6 +80,33 @@ export function createFilters(
       n.textContent = "(0)";
       countsEl.set(k, n);
       label.append(cb, sw, txt, n);
+      if (color) {
+        const pick = document.createElement("input");
+        pick.type = "color";
+        pick.className = "drawer-color";
+        pick.title = "Map icon color";
+        pick.value = color.getColor(k);
+        const reset = document.createElement("button");
+        reset.type = "button";
+        reset.className = "drawer-color-reset";
+        reset.textContent = "×";
+        reset.title = "Reset to default";
+        const syncSwatch = (): void => {
+          sw.style.background = color.getColor(k);
+          pick.value = color.getColor(k);
+          reset.style.display = color.getColor(k) === KINDS[k].color ? "none" : "";
+        };
+        pick.addEventListener("input", () => {
+          color.setColor(k, pick.value);
+          syncSwatch();
+        });
+        reset.addEventListener("click", () => {
+          color.setColor(k, null);
+          syncSwatch();
+        });
+        syncSwatch();
+        label.append(pick, reset);
+      }
       body.appendChild(label);
     }
   }

@@ -1,37 +1,41 @@
 import type maplibregl from "maplibre-gl";
-import { isPackIconName } from "../../shared/craft.js";
+import { isPackIconName, parseColorKey } from "../../shared/craft.js";
 import { hexToRgb, lineSvgToFill, recolorPixels, type CropRect } from "../../shared/pack-transforms.js";
 
 // Client-side loader for the vendored aircraft icon pack (Task 8). The
 // server serves raw pack files under /icons/*; this module fetches them on
 // demand (lazy — only names that actually appear on the map), rasterizes
 // each into a fixed 96×96 ImageData, and registers it with the map
-// (addImage pixelRatio 2 → displayed at 48 logical px). Colors come from
-// the /icons/list entries (ruling P7 — the server computes them from the
-// resolver tables); the loader never computes a color itself.
+// (addImage pixelRatio 2 → displayed at 48 logical px).
+//
+// Color picker (phase 2): registrations are COLOR-KEYED (`base@hex`) — the
+// raster bakes color in, so one image name per (art, color) pair. The
+// fetch+transform result is cached per BASE as a pre-color raster (white
+// silhouette + alpha); each color-key registration tints a copy:
+// gapfill → every alpha pixel to the hex; line/filled → recolorPixels
+// (near-white body → exact hex, painted detail kept).
 //
 // Browser-only by design (DOM canvas / <img> decode / fetch) — verification
-// is the Task 7 catalog page + the user's browser; no unit tests per repo
+// is the catalog page + the user's browser; no unit tests per repo
 // convention.
 
 const SIZE = 96;
 
 interface ListEntry {
   style: "filled" | "line" | "gapfill";
-  color: string;
   crop?: CropRect; // gapfill only: the region of the file that is the top view
 }
 
 export interface PackIconLoader {
   /**
-   * Register the given pack names with the map. Resolves to the set of
-   * successfully registered names (incl. ones already registered);
-   * non-pack names (family/sea icons) are ignored. Never rejects —
-   * per-name failures (404 / decode / empty raster) are tracked via
-   * failed() and retried on the next ensure().
+   * Register the given COLOR-KEYED pack names (`base@hex`) with the map.
+   * Resolves to the set of successfully registered keys (incl. ones already
+   * registered); non-pack names (family/sea icons) are ignored. Never
+   * rejects — per-name failures (404 / decode / empty raster) are tracked
+   * via failed() (base names) and retried on the next ensure().
    */
   ensure(names: Iterable<string>): Promise<ReadonlySet<string>>;
-  /** Pack names that have failed at least once and are not yet registered. */
+  /** Pack base names that have failed at least once and are not yet registered. */
   failed(): ReadonlySet<string>;
 }
 
@@ -40,9 +44,10 @@ export function createPackIconLoader(
   opts: { fetchImpl?: typeof fetch } = {},
 ): PackIconLoader {
   const doFetch = opts.fetchImpl ?? fetch;
-  const cached = new Map<string, ImageData>();
-  const inFlight = new Map<string, Promise<boolean>>();
-  const failed = new Set<string>();
+  const cached = new Map<string, ImageData>(); // base → PRE-COLOR raster
+  const registered = new Set<string>(); // color keys registered on the map
+  const inFlight = new Map<string, Promise<boolean>>(); // key → promise
+  const failed = new Set<string>(); // base names
   let listPromise: Promise<Map<string, ListEntry>> | null = null;
   let styleReloadRegistered = false;
 
@@ -103,15 +108,14 @@ export function createPackIconLoader(
   }
 
   /**
-   * Rasterize a pd gap-fill scan: draw the top-view crop rectangle (fractions
-   * of the file; no crop = the whole image) into the fixed canvas, then
-   * paper→silhouette — the scans are white paper + dark ink (OPAQUE; two of
-   * the originals are even JPEGs, one a GIF), so: alpha = lum < 128 ? 255 : 0
-   * (ink kept, paper gone) and every surviving pixel is tinted `color`
-   * directly (the ink is dark, so recolorPixels' near-white rule would not
-   * reach it).
+   * Rasterize a pd gap-fill scan into a PRE-COLOR alpha mask: draw the
+   * top-view crop rectangle (fractions of the file; no crop = the whole
+   * image) into the fixed canvas, then paper→silhouette — the scans are
+   * white paper + dark ink (OPAQUE; two of the originals are even JPEGs,
+   * one a GIF), so alpha = lum < 128 ? 255 : 0 (ink kept, paper gone). The
+   * color-key registration tints the mask (every alpha pixel → hex).
    */
-  async function rasterizeGapfill(url: string, crop: CropRect | undefined, color: string): Promise<ImageData | null> {
+  async function rasterizeGapfill(url: string, crop: CropRect | undefined): Promise<ImageData | null> {
     const r = await doFetch(url);
     if (!r.ok) throw new Error(`GET ${url}: HTTP ${r.status}`);
     const img = new Image();
@@ -133,14 +137,6 @@ export function createPackIconLoader(
         const lum = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
         px[i + 3] = lum < 128 ? 255 : 0;
       }
-      const [cr, cg, cb] = hexToRgb(color);
-      for (let i = 0; i + 3 < px.length; i += 4) {
-        if (px[i + 3] > 0) {
-          px[i] = cr;
-          px[i + 1] = cg;
-          px[i + 2] = cb;
-        }
-      }
       return data;
     } finally {
       URL.revokeObjectURL(objUrl);
@@ -156,84 +152,123 @@ export function createPackIconLoader(
 
   const iconUrl = (name: string): string => `/icons/${encodeURIComponent(name)}`;
 
-  // One fetch+transform+register per name at a time (in-flight dedupe):
-  // concurrent ensure() calls for the same name share the promise.
-  const ensureOne = (name: string): Promise<boolean> => {
-    const existing = inFlight.get(name);
+  // Tint a PRE-COLOR raster copy for one color key: gapfill masks take a
+  // full alpha pass (every alpha pixel → exact hex); line/filled take
+  // recolorPixels (near-white body → exact hex, painted detail kept).
+  function tintFor(base: string, style: ListEntry["style"], hex: string): ImageData {
+    const pre = cached.get(base);
+    if (!pre) throw new Error(`no pre-color raster for ${base}`);
+    const data = new ImageData(new Uint8ClampedArray(pre.data), pre.width, pre.height);
+    if (style === "gapfill") {
+      const [cr, cg, cb] = hexToRgb(hex);
+      const px = data.data;
+      for (let i = 0; i + 3 < px.length; i += 4) {
+        if (px[i + 3] > 0) {
+          px[i] = cr;
+          px[i + 1] = cg;
+          px[i + 2] = cb;
+        }
+      }
+    } else {
+      recolorPixels(data.data, hexToRgb(hex));
+    }
+    return data;
+  }
+
+  // Fetch+transform once per BASE; register once per (base, color) key.
+  // In-flight dedupe is per key (two colors of the same base may race).
+  const ensureOne = (key: string): Promise<boolean> => {
+    const existing = inFlight.get(key);
     if (existing) return existing;
+    const { name, hex } = parseColorKey(key);
     const p = (async () => {
       try {
-        // Already rasterized (e.g. style rebuild dropped it before the
-        // style.load re-add ran): re-register from cache, no network.
-        const hit = cached.get(name);
-        if (hit) {
-          if (!map.hasImage(name)) map.addImage(name, hit, { pixelRatio: 2 });
-          failed.delete(name);
-          return true;
-        }
+        if (hex === null) throw new Error(`not a color key: ${key}`);
         const e = (await list()).get(name);
         if (!e) throw new Error(`not in /icons/list: ${name}`);
-        let data: ImageData | null;
-        if (e.style === "gapfill") {
-          data = await rasterizeGapfill(iconUrl(name), e.crop, e.color);
-        } else {
-          const r = await doFetch(iconUrl(name));
-          if (!r.ok) throw new Error(`GET ${name}: HTTP ${r.status}`);
-          const text = await r.text();
-          // line (rk): clean-fill transform first (single colored layer);
-          // filled (pw): raw svg, body is fill:#ffffff. Both end up colored
-          // by the same recolorPixels pass on the raster.
-          data = await rasterizeSvg(e.style === "line" ? lineSvgToFill(text, e.color) : text);
-          if (data) recolorPixels(data.data, hexToRgb(e.color));
+        let pre = cached.get(name);
+        if (pre === undefined) {
+          pre = await fetchPrecolor(name, e);
+          cached.set(name, pre);
         }
-        if (!data || !hasOpaque(data.data)) throw new Error("empty raster");
-        // Guarded: a style.load re-add can register the same name between
+        styles.set(name, e.style);
+        const data = tintFor(name, e.style, hex);
+        // Guarded: a style.load re-add can register the same key between
         // the ensure() hasImage check and here (unconditional addImage
         // would throw "Image already exists" and mark a live icon failed).
-        if (!map.hasImage(name)) map.addImage(name, data, { pixelRatio: 2 });
-        cached.set(name, data);
+        if (!map.hasImage(key)) map.addImage(key, data, { pixelRatio: 2 });
+        registered.add(key);
         failed.delete(name);
         return true;
       } catch {
         failed.add(name);
         return false;
       } finally {
-        inFlight.delete(name);
+        inFlight.delete(key);
       }
     })();
-    inFlight.set(name, p);
+    inFlight.set(key, p);
     return p;
   };
 
+  async function fetchPrecolor(name: string, e: ListEntry): Promise<ImageData> {
+    let data: ImageData | null;
+    if (e.style === "gapfill") {
+      data = await rasterizeGapfill(iconUrl(name), e.crop);
+    } else {
+      const r = await doFetch(iconUrl(name));
+      if (!r.ok) throw new Error(`GET ${name}: HTTP ${r.status}`);
+      const text = await r.text();
+      // Pre-color = white: line (rk) gets the clean-fill transform in white
+      // (single layer); filled (pw, and pd filled silhouettes) raster raw —
+      // the body is near-white. The color-key tint lands the exact hex.
+      data = await rasterizeSvg(e.style === "line" ? lineSvgToFill(text, "#ffffff") : text);
+    }
+    if (!data || !hasOpaque(data.data)) throw new Error("empty raster");
+    return data;
+  }
+
   // A basemap switch (Carto probe → OpenFreeMap fallback) rebuilds the style
-  // and drops custom images — re-add everything cached, once.
+  // and drops custom images — re-add every registered key from the pre-color
+  // cache (no network), once. A registered key's style is always known
+  // (its pre-color fetch cached it).
+  const styles = new Map<string, ListEntry["style"]>();
   const registerStyleReload = (): void => {
     if (styleReloadRegistered) return;
     styleReloadRegistered = true;
     map.on("style.load", () => {
-      for (const [name, data] of cached) {
-        if (map.hasImage(name)) continue;
+      for (const key of [...registered]) {
+        if (map.hasImage(key)) continue;
+        const { name, hex } = parseColorKey(key);
+        const style = styles.get(name);
+        if (style === undefined || hex === null) {
+          registered.delete(key);
+          continue;
+        }
         try {
-          map.addImage(name, data, { pixelRatio: 2 });
+          map.addImage(key, tintFor(name, style, hex), { pixelRatio: 2 });
         } catch {
-          /* map in teardown — ignore */
+          registered.delete(key); // map in teardown — ignore
         }
       }
     });
   };
 
-  const ensure = async (names: Iterable<string>): Promise<ReadonlySet<string>> => {
+  const ensure = async (keys: Iterable<string>): Promise<ReadonlySet<string>> => {
     const ok = new Set<string>();
     const pending: Promise<void>[] = [];
-    for (const name of names) {
-      if (!isPackIconName(name)) continue; // family/sea icons register via icons.ts
-      if (map.hasImage(name)) {
-        ok.add(name);
+    for (const key of keys) {
+      const { name, hex } = parseColorKey(key);
+      // color keys only: family/sea icons register via icons.ts, and a bare
+      // pack name has no color to register
+      if (!isPackIconName(name) || hex === null) continue;
+      if (map.hasImage(key)) {
+        ok.add(key);
         continue;
       }
       pending.push(
-        ensureOne(name).then((s) => {
-          if (s) ok.add(name);
+        ensureOne(key).then((s) => {
+          if (s) ok.add(key);
         }),
       );
     }

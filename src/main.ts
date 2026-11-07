@@ -1,5 +1,5 @@
 import { createMap } from "./map/map.js";
-import { registerIcons } from "./map/icons.js";
+import { createKindIconRegistrar, type KindIconRegistrar } from "./map/icons.js";
 import { createPackIconLoader, type PackIconLoader } from "./map/pack-icons.js";
 import { addCraftSource, addCraftLayers, setCraftData, setPlaybackMode } from "./map/layers.js";
 import { ClientStore } from "./data/store.js";
@@ -10,8 +10,9 @@ import { buildIconFilter } from "./data/filter.js";
 import { createCoalescedRun } from "./data/coalesce.js";
 import { decodeSupported, createDecodePool, type DecodePool } from "./data/decode.js";
 import { createPlaybackEngine, type PlaybackApi } from "./data/playback.js";
-import { AIR_KINDS, SEA_KINDS, isPackIconName } from "../shared/craft.js";
-import type { Craft, CraftKind } from "../shared/craft.js";
+import { AIR_KINDS, SEA_KINDS, KIND_FALLBACK_ICON, colorKey } from "../shared/craft.js";
+import type { AirKind, Craft, CraftKind } from "../shared/craft.js";
+import { effectiveColor, loadIconColors, saveIconColors, setKindColor, type IconColorState } from "./data/icon-colors.js";
 import { RAM_CACHE_GB_DEFAULT } from "../shared/limits.js";
 import { createPanel } from "./ui/panel.js";
 import { createFilters } from "./ui/filters.js";
@@ -40,11 +41,16 @@ const settingsUi = createSettings(document.getElementById("app") as HTMLElement,
   removePin: (id) => socket?.sendPinRemove(id),
 });
 
-// Set after registerIcons in the map.load flow; null until then.
+// Set after the map.load flow; null until then.
 let packLoader: PackIconLoader | null = null;
-// Pack names registered on the map by the last refresh(); playback frames
-// reuse it instead of touching the store.
+let kindRegistrar: KindIconRegistrar | null = null;
+// Color-keyed names registered on the map by the last refresh(); playback
+// frames reuse it instead of touching the store.
 let lastRegistered: ReadonlySet<string> | undefined;
+// Per-category icon colors (phase 2 of the iconpack gap curation): user
+// overrides from localStorage over the kind defaults (KINDS[].color).
+let iconColorState: IconColorState = loadIconColors(localStorage);
+const iconColorFor = (kind: CraftKind): string => effectiveColor(kind, iconColorState);
 // Playback wiring, created in the map.load flow; null until then.
 // pool != null ⇔ decodeSupported() (checked once at timeline creation).
 let pool: DecodePool | null = null;
@@ -69,15 +75,22 @@ let lastStats: SettingsStats = {
 
 async function refresh(): Promise<void> {
   const crafts = store.all();
-  // Lazy pack registration: only names on the map are fetched. Unregistered
-  // pack names fall back to the family silhouette inside buildFeatureCollection.
+  // Lazy registration: only names on the map are fetched. Unregistered pack
+  // names fall back to the family silhouette inside buildFeatureCollection.
+  // Both registrars get the same color-keyed set (each ignores the other's
+  // names); the combined ok-set is the registered set for feature building.
   let registered: ReadonlySet<string> | undefined;
-  if (packLoader) {
-    const packNames = new Set(crafts.map((c) => c.icon).filter((n): n is string => typeof n === "string" && isPackIconName(n)));
-    registered = await packLoader.ensure(packNames);
+  if (packLoader && kindRegistrar) {
+    const keys = new Set<string>();
+    for (const c of crafts) {
+      const base = c.icon ?? (c.domain === "air" ? KIND_FALLBACK_ICON[c.kind as AirKind] : c.kind);
+      keys.add(colorKey(base, iconColorFor(c.kind)));
+    }
+    const [packKeys, kindKeys] = await Promise.all([packLoader.ensure(keys), kindRegistrar.ensure(keys)]);
+    registered = new Set([...packKeys, ...kindKeys]);
   }
   lastRegistered = registered;
-  setCraftData(map, buildFeatureCollection(crafts, registered !== undefined ? { iconRegistered: registered } : undefined));
+  setCraftData(map, buildFeatureCollection(crafts, registered !== undefined ? { iconRegistered: registered, colorFor: iconColorFor } : undefined));
   let air = 0;
   let sea = 0;
   const counts = new Map<CraftKind, number>();
@@ -104,7 +117,7 @@ let lastCountFrame = 0;
 
 function onFrame(crafts: Craft[], t: number): void {
   lastPlayFrame = new Map(crafts.map((c) => [c.id, c]));
-  setCraftData(map, buildFeatureCollection(crafts, lastRegistered !== undefined ? { iconRegistered: lastRegistered } : undefined));
+  setCraftData(map, buildFeatureCollection(crafts, lastRegistered !== undefined ? { iconRegistered: lastRegistered, colorFor: iconColorFor } : undefined));
   // Thumb tracks every frame; HUD and counts are throttled.
   timeline.setCursor(t);
   const nowMs = performance.now();
@@ -220,11 +233,9 @@ const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
 });
 
 map.on("load", async () => {
-  try {
-    await registerIcons(map);
-  } catch (err) {
-    console.error("icon registration failed", err);
-  }
+  // Family/sea icons are lazy color-keyed registrations (the first refresh
+  // registers the keys in use) — no start-up registration anymore.
+  kindRegistrar = createKindIconRegistrar(map);
   packLoader = createPackIconLoader(map);
   addCraftSource(map);
   addCraftLayers(map, buildIconFilter(visible));
@@ -336,13 +347,27 @@ map.on("load", async () => {
 
   store.subscribe(() => refreshRun.request());
 
-  filters = createFilters(document.getElementById("app") as HTMLElement, visible, (v) => {
-    visible = v;
-    const f = buildIconFilter(v);
-    map.setFilter("craft-icons", f);
-    map.setFilter("craft-labels", f);
-    map.setFilter("craft-sublabels", f);
-  });
+  filters = createFilters(
+    document.getElementById("app") as HTMLElement,
+    visible,
+    (v) => {
+      visible = v;
+      const f = buildIconFilter(v);
+      map.setFilter("craft-icons", f);
+      map.setFilter("craft-labels", f);
+      map.setFilter("craft-sublabels", f);
+    },
+    {
+      getColor: (k) => effectiveColor(k, iconColorState),
+      setColor: (k, hex) => {
+        iconColorState = setKindColor(iconColorState, k, hex);
+        saveIconColors(iconColorState, localStorage);
+        // immediate (not coalesced): closes the window where playback frames
+        // would reference a color key that is not registered yet
+        void refresh();
+      },
+    },
+  );
 
   map.on("click", "craft-icons", (e) => {
     const f = e.features?.[0];
