@@ -144,6 +144,16 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["F.28 2000", "FOKKER", "pw:F28"],
     // bizjet
     ["GVI (G650)", "GULFSTREAM AEROSPACE", "rk:GLF6"],
+    // Global Express family (2026-11-09): roman-numeral and parenthetical
+    // codes resolve the generic Global silhouette; G280 codes carry IAI mfr
+    ["G-IV", "GULFSTREAM AEROSPACE", "pw:GLEX"],
+    ["G-V", "GULFSTREAM AEROSPACE", "pw:GLEX"],
+    ["GV-SP(G550)", "GULFSTREAM AEROSPACE CORP", "pw:GLEX"],
+    ["GVII(G500)", "GULFSTREAM AEROSPACE CORP", "pw:GLEX"],
+    ["GVII(G600)", "GULFSTREAM AEROSPACE CORP", "pw:GLEX"],
+    ["GVIII(G700)", "GULFSTREAM AEROSPACE CORP", "pw:GLEX"],
+    ["G200", "GULFSTREAM", "pw:GLEX"],
+    ["G280", "IAI LTD", "bizjet"], // family until dedicated art (OmittedModels)
     ["P-180", "PIAGGIO", "rk:P180"],
     ["560XL", "CESSNA AIRCRAFT CO", "pw:C560"],
     // helis

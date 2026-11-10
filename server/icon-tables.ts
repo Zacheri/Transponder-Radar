@@ -190,8 +190,21 @@ export const CIVIL_RULES: CivilRule[] = [
   { re: /^AH64/, pack: "rk:H64", family: "milheli" },
   { re: /^CH53/, family: "milheli" }, // no CH-53 art
   // ── bizjet ─────────────────────────────────────────────────────────────
-  { mfr: ["GULFSTREAM"], re: /^GVI|^G650/, pack: "rk:GLF6", family: "bizjet" },
-  { mfr: ["GULFSTREAM"], re: /^G(150|280|550|650)/, family: "bizjet" },
+  // GVI = G-VI (Global Express, G650-line); (?!I) keeps GVII (G500/G600)
+  // from prefix-matching the GVI rule
+  { mfr: ["GULFSTREAM"], re: /^GVI(?!I)|^G650/, pack: "rk:GLF6", family: "bizjet" },
+  // G280 codes carry IAI LTD mfr (Israel Aerospace, builder)
+  { mfr: ["GULFSTREAM", "IAI"], re: /^G(150|280|550|650)/, family: "bizjet" },
+  // Global Express family codes without dedicated art: roman-numeral and
+  // parenthetical forms (G-IV, G-V, GV-SP(G550), GVII(G500/G600),
+  // GVIII(G700)) plus G200/G450 — the generic Global silhouette. G650 has
+  // its own art above; G280/G550 dedicated art is a curation target
+  {
+    mfr: ["GULFSTREAM", "IAI"],
+    re: /^G(200|450)|^GIV$|^GV$|^GVII|^GVIII|^GVSP/,
+    pack: "pw:GLEX",
+    family: "bizjet",
+  },
   // Cessna Citation — codes carry no C prefix; 525/550/560/750 were mis-bucketed
   // as piston by the CESSNA catch below, bizjet is correct
   { mfr: ["CESSNA", "TEXTRON"], re: /^525/, pack: "rk:C25B", family: "bizjet" },
