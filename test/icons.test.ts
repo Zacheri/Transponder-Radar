@@ -140,7 +140,6 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["A321-253NY", "AIRBUS", "pw:A21N"], // neo — digits + N
     ["CL-600-2B19", "BOMBARDIER INC", "rk:CRJ7"],
     ["CL-600-2E25", "BOMBARDIER INC", "rk:CRJX"],
-    ["BD-700-2A12", "BOMBARDIER INC", "rk:GL5T"],
     ["RJ85A", "BAE SYSTEMS", "rk:RJ85"],
     ["F.28 2000", "FOKKER", "pw:F28"],
     // bizjet
@@ -184,6 +183,13 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["B200", "BEECHCRAFT CORP", "pd:B200"], // King Air 200
     ["B300", "BEECH", "pd:B200"], // King Air 300 — same airframe art
     ["C-295", "AIRBUS DEFENSE AND SPACE S A", "rk:C295"],
+    // Bombardier Global/Challenger (2026-11-09 wave): BD-100 = Global Express
+    // family (generic Global silhouette); BD-700 = Challenger 300/350 — the
+    // pre-wave rules pointed at Global art, wrong airframe (family until
+    // Challenger art is curated; OmittedModels)
+    ["BD-100-1A10", "BOMBARDIER INC", "pw:GLEX"],
+    ["BD-700-1A10", "BOMBARDIER INC", "narrowbody"],
+    ["BD-700-2A12", "BOMBARDIER INC", "narrowbody"],
     // no-art controls (family layer must stay put)
     ["CL-600-2B16", "BOMBARDIER INC", "bizjet"], // Challenger 600 — no art (OmittedModels)
     ["DC-9-30", "MCDONNELL DOUGLAS", "narrowbody"], // true DC-9 series — no top-view art (OmittedModels)

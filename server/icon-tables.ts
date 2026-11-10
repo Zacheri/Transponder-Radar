@@ -203,8 +203,15 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["BOMBARDIER", "CANADAIR"], re: /^CL6002B19/, pack: "rk:CRJ7", family: "narrowbody" },
   { mfr: ["BOMBARDIER", "CANADAIR"], re: /^CL6002C1/, pack: "rk:CRJ9", family: "narrowbody" },
   { mfr: ["BOMBARDIER", "CANADAIR"], re: /^CL6002[DE]/, pack: "rk:CRJX", family: "narrowbody" }, // CRJ-1000
-  { mfr: ["BOMBARDIER"], re: /^BD7002/, pack: "rk:GL5T", family: "narrowbody" }, // Challenger 300
-  { mfr: ["BOMBARDIER"], re: /^BD700/, pack: "pw:GLEX", family: "narrowbody" }, // Global Express
+  // BD-100 = the Global Express family (G-IV, G-V, GV-SP(G550),
+  // GVII(G500/G600), GVIII(G700); G280 codes carry IAI mfr). pw:GLEX is a
+  // generic Global silhouette — family-level art until the dedicated
+  // per-generation art lands (G280/G550 curation).
+  { mfr: ["BOMBARDIER"], re: /^BD100/, pack: "pw:GLEX", family: "narrowbody" },
+  // BD-700 = Challenger 300/350 — the pre-wave rules pointed these at
+  // Global Express art (rk:GL5T / pw:GLEX), the wrong airframe. Family
+  // until Challenger art is curated (OmittedModels).
+  { mfr: ["BOMBARDIER"], re: /^BD700/, family: "narrowbody" },
   { mfr: ["BOMBARDIER", "CANADAIR"], re: /^CL6/, family: "bizjet" }, // CL600-2B16 Challenger 600 — no art
   { mfr: ["DASSAULT"], re: /^FALCON7X|^F7X/, pack: "rk:FA7X", family: "bizjet" },
   { mfr: ["DASSAULT"], re: /^(FALCON|F50|F500|F5XR|F7X|F70|F10|MD31[123])/, family: "bizjet" },
