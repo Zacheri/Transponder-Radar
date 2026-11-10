@@ -205,6 +205,19 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["BD-100-1A10", "BOMBARDIER INC", "pw:GLEX"],
     ["BD-700-1A10", "BOMBARDIER INC", "narrowbody"],
     ["BD-700-2A12", "BOMBARDIER INC", "narrowbody"],
+    // Bonanza/Baron (2026-11-09): A36 art exists; classic 33/35 and Baron
+    // 55/58 are family until their art is curated (OmittedModels)
+    ["A36", "BEECHCRAFT", "pw:BE36"],
+    ["A36", "RAYTHEON AIRCRAFT COMPANY", "pw:BE36"], // 445 ac registered under the parent co
+    ["A36A", "NORTH AMERICAN", "piston"], // vintage NA-36 Navy 36 — not a Bonanza
+    ["V35A", "BEECH", "piston"],
+    ["S35", "BEECH", "piston"],
+    ["P35", "BEECH", "piston"],
+    ["35-B33", "BEECH", "piston"],
+    ["F33A", "BEECH", "piston"],
+    ["95-B55", "BEECH", "piston"],
+    ["58P", "BEECH", "piston"],
+    ["B350", "BEECH", "pw:B350"], // King Air 350 — must not fall to the Bonanza 35 rule
     // no-art controls (family layer must stay put)
     ["CL-600-2B16", "BOMBARDIER INC", "bizjet"], // Challenger 600 — no art (OmittedModels)
     ["DC-9-30", "MCDONNELL DOUGLAS", "narrowbody"], // true DC-9 series — no top-view art (OmittedModels)
