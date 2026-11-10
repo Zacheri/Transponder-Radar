@@ -150,7 +150,10 @@ export const MILITARY_RULES: MilitaryRule[] = [
 export const CIVIL_RULES: CivilRule[] = [
   // ── helis — bizheli ────────────────────────────────────────────────────
   { mfr: ["ROBINSON"], re: /^R66/, family: "bizheli" },
-  { mfr: ["BELL"], re: /^B(407|429|52|76)/, family: "bizheli" },
+  // Bare "407"/"429" codes exist in the registry (984/175 ac) alongside the
+  // B-prefixed forms; 52/76 keep the required B (bare "52" is too generic)
+  { mfr: ["BELL"], re: /^B?(407|429)|^B(52|76)/, family: "bizheli" },
+  { mfr: ["BELL"], re: /^525/, family: "heli" }, // 525 — a heli, not a fixed-wing
   // Agusta/Leonardo (AW- and bare-A-coded; "AGUSTA A109"-style model names occur)
   { mfr: ["AGUSTA", "LEONARDO"], re: /^A?GUSTA?A109/, pack: "pw:A109", family: "bizheli" },
   { mfr: ["AGUSTA", "LEONARDO"], re: /^A119|^AW119/, pack: "pw:A119", family: "bizheli" },

@@ -154,6 +154,12 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["SA365N", "AEROSPATIALE", "pw:AS65"],
     ["BK117A-4", "KAWASAKI", "pw:EC45"],
     ["AGUSTA A109", "AGUSTA SPA", "pw:A109"],
+    // Bell 407/429 (2026-11-09): bare "407"/"429" codes exist in the
+    // registry (984/175 ac) and bypassed the B-prefixed rule
+    ["407", "BELL", "bizheli"],
+    ["407", "BELL HELICOPTER TEXTRON CANADA", "bizheli"],
+    ["429", "BELL", "bizheli"],
+    ["525", "BELL", "heli"], // 525 was falling to the fixed-wing family icon
     // turboprop
     ["HS.748 SERIES 2A", "HAWKER SIDDELEY", "pw:A748"],
     ["ATR42-500", "AEROSPATIALE", "rk:AT45"],
