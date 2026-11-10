@@ -44,6 +44,7 @@ export interface PackIconEntry {
   title: string;
   license: string;
   crop?: CropRect; // gapfill only (normalized: cropTopRatio r ⇒ {0,0,1,r})
+  rot?: 90 | 180 | 270; // gapfill only: clockwise rotation applied after the crop
 }
 
 export interface IconPackTransport {
@@ -460,6 +461,7 @@ export class IconPack {
         title: e.title,
         license: e.license,
         crop: e.crop ?? (typeof e.cropTopRatio === "number" ? { x: 0, y: 0, w: 1, h: e.cropTopRatio } : undefined),
+        rot: e.rot,
       });
     }
 

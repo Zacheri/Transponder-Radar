@@ -1,6 +1,13 @@
 import type maplibregl from "maplibre-gl";
 import { isPackIconName, parseColorKey } from "../../shared/craft.js";
-import { hexToRgb, lineSvgToFill, recolorPixels, type CropRect } from "../../shared/pack-transforms.js";
+import {
+  hexToRgb,
+  lineSvgToFill,
+  recolorPixels,
+  rotFitSize,
+  type CropRect,
+  type GapfillRot,
+} from "../../shared/pack-transforms.js";
 
 // Client-side loader for the vendored aircraft icon pack (Task 8). The
 // server serves raw pack files under /icons/*; this module fetches them on
@@ -24,6 +31,7 @@ const SIZE = 96;
 interface ListEntry {
   style: "filled" | "line" | "gapfill";
   crop?: CropRect; // gapfill only: the region of the file that is the top view
+  rot?: GapfillRot; // gapfill only: clockwise rotation applied after the crop
 }
 
 export interface PackIconLoader {
@@ -89,6 +97,29 @@ export function createPackIconLoader(
   }
 
   /**
+   * Like drawFitted, but for gapfill crops: the (sw,sh) source region is
+   * drawn centered, then rotated clockwise about the canvas center (the
+   * on-screen extent follows rotFitSize). rot=undefined ≡ drawFitted.
+   */
+  function drawFittedRot(
+    img: HTMLImageElement,
+    sx: number,
+    sy: number,
+    sw: number,
+    sh: number,
+    rot: GapfillRot | undefined,
+  ): ImageData | null {
+    const ctx = newContext();
+    if (!ctx) return null;
+    const { ew, eh } = rotFitSize(rot, sw, sh);
+    const scale = Math.min(SIZE / ew, SIZE / eh);
+    ctx.translate(SIZE / 2, SIZE / 2);
+    if (rot) ctx.rotate((rot * Math.PI) / 180);
+    ctx.drawImage(img, sx, sy, sw, sh, (-sw * scale) / 2, (-sh * scale) / 2, sw * scale, sh * scale);
+    return ctx.getImageData(0, 0, SIZE, SIZE);
+  }
+
+  /**
    * Decode an SVG string through the browser's <img> (MapLibre's loadImage
    * cannot decode SVG — see icons.ts) into the fixed canvas.
    */
@@ -115,7 +146,11 @@ export function createPackIconLoader(
    * one a GIF), so alpha = lum < 128 ? 255 : 0 (ink kept, paper gone). The
    * color-key registration tints the mask (every alpha pixel → hex).
    */
-  async function rasterizeGapfill(url: string, crop: CropRect | undefined): Promise<ImageData | null> {
+  async function rasterizeGapfill(
+    url: string,
+    crop: CropRect | undefined,
+    rot: GapfillRot | undefined,
+  ): Promise<ImageData | null> {
     const r = await doFetch(url);
     if (!r.ok) throw new Error(`GET ${url}: HTTP ${r.status}`);
     const img = new Image();
@@ -130,7 +165,14 @@ export function createPackIconLoader(
       const sy = Math.max(0, Math.min(1, crop?.y ?? 0));
       const sw = Math.max(0, Math.min(1 - sx, crop?.w ?? 1));
       const sh = Math.max(0, Math.min(1 - sy, crop?.h ?? 1));
-      const data = drawFitted(img, sx * w, sy * h, Math.max(1, Math.round(sw * w)), Math.max(1, Math.round(sh * h)));
+      const data = drawFittedRot(
+        img,
+        sx * w,
+        sy * h,
+        Math.max(1, Math.round(sw * w)),
+        Math.max(1, Math.round(sh * h)),
+        rot,
+      );
       if (!data) return null;
       const px = data.data;
       for (let i = 0; i + 3 < px.length; i += 4) {
@@ -214,7 +256,7 @@ export function createPackIconLoader(
   async function fetchPrecolor(name: string, e: ListEntry): Promise<ImageData> {
     let data: ImageData | null;
     if (e.style === "gapfill") {
-      data = await rasterizeGapfill(iconUrl(name), e.crop);
+      data = await rasterizeGapfill(iconUrl(name), e.crop, e.rot);
     } else {
       const r = await doFetch(iconUrl(name));
       if (!r.ok) throw new Error(`GET ${name}: HTTP ${r.status}`);

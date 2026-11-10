@@ -15,12 +15,20 @@ export const RAM_CACHE_GB_DEFAULT = 1;
 // Timeline rewind: minimum gap between pinned snapshots (ms).
 export const MIN_PIN_MS = 60_000;
 
-// Playback speed: history-ms consumed per real-ms.
-export const SPEED_MIN = 30;        // history-ms per real-ms (30 s/s)
-export const SPEED_DEFAULT = 3_600; // 1 h/s
-export const SPEED_MAX = 86_400;    // 1 d/s
-// Slider resolution (0..SPEED_SLIDER_MAX) the UI binds to.
-export const SPEED_SLIDER_MAX = 1000;
+// Playback speed: history-ms consumed per real-ms. Discrete step scale:
+// 0.5, 1, 1.5, 3 min/s, then 5-min/s increments up to 60 min/s (1 h/s).
+export const SPEED_STEPS = [
+  30, 60, 90, 180, 300, 600, 900, 1200, 1500, 1800, 2100, 2400, 2700, 3000, 3300, 3600,
+];
+export const SPEED_MIN = SPEED_STEPS[0];
+export const SPEED_DEFAULT = 3_600; // 1 h/s (top of the step scale)
+export const SPEED_MAX = SPEED_STEPS[SPEED_STEPS.length - 1];
+// Slider position (0..SPEED_SLIDER_MAX) = index into SPEED_STEPS.
+export const SPEED_SLIDER_MAX = SPEED_STEPS.length - 1;
+
+// Starting playback at (or past) the end of history anchors to this much
+// before the end, so the play button always has something to play.
+export const PLAYBACK_TAIL_MS = 30 * 60_000;
 
 // Timeline window chunk: max frames rendered per animation frame.
 export const WINDOW_CHUNK_ITEMS = 3;
@@ -30,18 +38,24 @@ export const WINDOW_MAX_BYTES_MIN = 1 << 20;       // 1 MiB
 export const WINDOW_MAX_BYTES_MAX = 64 << 20;      // 64 MiB
 export const WINDOW_MAX_BYTES_DEFAULT = 32 << 20;  // 32 MiB (client request default)
 
-// Log-scale speed ↔ slider mapping. speedFromSlider(v) = SPEED_MIN
-// × (SPEED_MAX/SPEED_MIN)^(v/SPEED_SLIDER_MAX); sliderFromSpeed is its exact
-// inverse, rounded to an int and clamped to [0, SPEED_SLIDER_MAX].
+// Step-scale speed ↔ slider mapping: the slider position is an index into
+// SPEED_STEPS; sliderFromSpeed picks the nearest step.
 export function speedFromSlider(v: number): number {
-  const x = Math.max(0, Math.min(SPEED_SLIDER_MAX, v));
-  return SPEED_MIN * Math.pow(SPEED_MAX / SPEED_MIN, x / SPEED_SLIDER_MAX);
+  const i = Math.round(Math.max(0, Math.min(SPEED_SLIDER_MAX, v)));
+  return SPEED_STEPS[i];
 }
 
 export function sliderFromSpeed(s: number): number {
-  const raw =
-    SPEED_SLIDER_MAX * Math.log(s / SPEED_MIN) / Math.log(SPEED_MAX / SPEED_MIN);
-  return Math.max(0, Math.min(SPEED_SLIDER_MAX, Math.round(raw)));
+  let best = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < SPEED_STEPS.length; i++) {
+    const d = Math.abs(SPEED_STEPS[i] - s);
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  return best;
 }
 
 export function clampStorageCapGb(gb: number): number {

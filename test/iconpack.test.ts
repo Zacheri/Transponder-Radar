@@ -38,6 +38,17 @@ const FIXTURE_SOURCES: IconSources = {
       attribution: "Test Author",
       crop: { x: 0.5, y: 0, w: 0.5, h: 0.6 },
     },
+    {
+      name: "pd:ROT",
+      file: "pd/ROT.png",
+      url: "https://example.com/ROT.png",
+      sha256: QUX_SHA,
+      title: "Rot Aircraft",
+      license: "Public Domain (US Government work)",
+      attribution: "Test Author",
+      crop: { x: 0, y: 0, w: 0.5, h: 0.5 },
+      rot: 180,
+    },
   ],
   gapTargets: [],
 };
@@ -108,13 +119,16 @@ describe("IconPack", () => {
     expect(pack.status().state).toBe("absent");
     await pack.init();
     expect(pack.status().state).toBe("ready");
-    expect([...pack.names()].sort()).toEqual(["pd:QUX", "pd:WUZ", "pw:BAR", "pw:FOO", "rk:BAZ"]);
-    expect(pack.status().count).toBe(5);
+    expect([...pack.names()].sort()).toEqual(["pd:QUX", "pd:ROT", "pd:WUZ", "pw:BAR", "pw:FOO", "rk:BAZ"]);
+    expect(pack.status().count).toBe(6);
     expect(pack.entry("rk:BAZ")?.title).toBe("BAZ Title");
     expect(pack.entry("pw:FOO")?.style).toBe("filled");
     // cropTopRatio normalizes to a top-band rectangle; an explicit crop passes through
     expect(pack.entry("pd:QUX")?.crop).toEqual({ x: 0, y: 0, w: 1, h: 0.5 });
     expect(pack.entry("pd:WUZ")?.crop).toEqual({ x: 0.5, y: 0, w: 0.5, h: 0.6 });
+    // rot passes through; entries without one are undefined
+    expect(pack.entry("pd:ROT")?.rot).toBe(180);
+    expect(pack.entry("pd:QUX")?.rot).toBeUndefined();
     expect(pack.fileBytes("rk:BAZ")?.contentType).toBe("image/svg+xml");
     expect(pack.fileBytes("nope")).toBeNull();
   });
@@ -132,14 +146,14 @@ describe("IconPack", () => {
     };
     expect(pins.pw).toEqual({ repo: FIXTURE_SOURCES.pw.repo, sha: PW_SHA });
     expect(pins.rk).toEqual({ repo: FIXTURE_SOURCES.rk.repo, sha: RK_SHA });
-    expect(pins.pd).toEqual({ "pd:QUX": QUX_SHA, "pd:WUZ": QUX_SHA });
+    expect(pins.pd).toEqual({ "pd:QUX": QUX_SHA, "pd:WUZ": QUX_SHA, "pd:ROT": QUX_SHA });
     expect(typeof pins.writtenAt).toBe("number");
     // index.json is a build artifact: deleting it must not force a re-download
     rmSync(join(dir, "index.json"));
     const pack2 = new IconPack({ dir, sources: FIXTURE_SOURCES, transport: throwingTransport() });
     await pack2.init();
     expect(pack2.status().state).toBe("ready");
-    expect(pack2.status().count).toBe(5);
+    expect(pack2.status().count).toBe(6);
   });
 
   it("collision with a family/sea name fails init", async () => {
@@ -206,11 +220,11 @@ describe("IconPack", () => {
     const pack = new IconPack({ dir, sources: FIXTURE_SOURCES, transport: makeFakeTransport(fix) });
     await pack.init();
     expect(pack.status().state).toBe("ready");
-    expect(pack.names().size).toBe(4);
-    expect(pack.status().count).toBe(4);
+    expect(pack.names().size).toBe(5);
+    expect(pack.status().count).toBe(5);
     expect(pack.fileBytes("rk:BAZ")).toBeNull();
     expect(pack.isVetoed("rk:BAZ")).toBe(true);
-    expect(pack.entries().length).toBe(5);
+    expect(pack.entries().length).toBe(6);
     expect(pack.entry("rk:BAZ")?.name).toBe("rk:BAZ");
   });
 

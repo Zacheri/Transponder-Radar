@@ -15,6 +15,7 @@ import {
   WINDOW_MAX_BYTES_MIN,
   WINDOW_MAX_BYTES_MAX,
   WINDOW_MAX_BYTES_DEFAULT,
+  PLAYBACK_TAIL_MS,
   speedFromSlider,
   sliderFromSpeed,
   clampStorageCapGb,
@@ -32,8 +33,9 @@ describe("timeline-modernization limits constants", () => {
     expect(MIN_PIN_MS).toBe(60_000);
     expect(SPEED_MIN).toBe(30);
     expect(SPEED_DEFAULT).toBe(3_600);
-    expect(SPEED_MAX).toBe(86_400);
-    expect(SPEED_SLIDER_MAX).toBe(1000);
+    expect(SPEED_MAX).toBe(3_600);
+    expect(SPEED_SLIDER_MAX).toBe(15);
+    expect(PLAYBACK_TAIL_MS).toBe(30 * 60_000);
     expect(WINDOW_CHUNK_ITEMS).toBe(3);
     expect(WINDOW_MAX_BYTES_MIN).toBe(1 << 20);
     expect(WINDOW_MAX_BYTES_MAX).toBe(64 << 20);
@@ -42,23 +44,32 @@ describe("timeline-modernization limits constants", () => {
 });
 
 describe("speedFromSlider / sliderFromSpeed", () => {
-  it("maps the slider endpoints exactly", () => {
+  it("follows the step scale: 0.5, 1, 1.5, 3 min/s, then 5-min/s steps to 60 min/s", () => {
     expect(speedFromSlider(0)).toBe(30);
-    expect(speedFromSlider(1000)).toBe(86_400);
+    expect(speedFromSlider(1)).toBe(60);
+    expect(speedFromSlider(2)).toBe(90);
+    expect(speedFromSlider(3)).toBe(180);
+    expect(speedFromSlider(4)).toBe(300);
+    expect(speedFromSlider(5)).toBe(600);
+    expect(speedFromSlider(14)).toBe(3300);
+    expect(speedFromSlider(15)).toBe(3600);
   });
 
   it("clamps out-of-range input to the slider bounds", () => {
     expect(speedFromSlider(-10)).toBe(30);
-    expect(speedFromSlider(1001)).toBe(86_400);
+    expect(speedFromSlider(16)).toBe(3600);
   });
 
-  it("maps speed to the slider endpoints", () => {
+  it("maps a speed to the nearest step", () => {
     expect(sliderFromSpeed(30)).toBe(0);
-    expect(sliderFromSpeed(86_400)).toBe(1000);
+    expect(sliderFromSpeed(3600)).toBe(15);
+    expect(sliderFromSpeed(181)).toBe(3);
   });
 
-  it("round-trips an interior speed to within ±2", () => {
-    expect(Math.abs(speedFromSlider(sliderFromSpeed(3600)) - 3600)).toBeLessThanOrEqual(2);
+  it("round-trips every step exactly", () => {
+    for (let i = 0; i <= SPEED_SLIDER_MAX; i++) {
+      expect(speedFromSlider(sliderFromSpeed(speedFromSlider(i)))).toBe(speedFromSlider(i));
+    }
   });
 });
 

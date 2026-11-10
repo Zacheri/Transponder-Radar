@@ -1,4 +1,4 @@
-import { lineSvgToFill, PACK_COLORS, type CropRect } from "../shared/pack-transforms.js";
+import { lineSvgToFill, PACK_COLORS, type CropRect, type GapfillRot } from "../shared/pack-transforms.js";
 import { CIVIL_RULES, MILITARY_RULES } from "./icon-tables.js";
 import type { PackStyle } from "./iconpack.js";
 
@@ -19,6 +19,7 @@ export interface CatalogCell {
   color: string; // on-map color (ruling P7: follows resolver assignment)
   vetoed: boolean;
   crop?: CropRect; // gapfill only
+  rot?: GapfillRot; // gapfill only: clockwise rotation applied after the crop
 }
 
 const MILITARY_PACKS = new Set(MILITARY_RULES.flatMap((r) => (r.pack ? [r.pack] : [])));
@@ -88,16 +89,27 @@ export function renderCatalog(opts: {
       // 84px box and shift it into place (the .pd span is 84x84 overflow
       // hidden — the inline style overrides the .pd img sizing). The scan is
       // paper + ink — shown as-is, the on-map color is a chip.
+      // The crop region is always placed as an 84×84 square inside the .pd
+      // clip; a rotation spins that square about its own center (the crop
+      // center in img-box px = offset + 42).
       const cr = c.crop;
-      let style = "";
+      const parts: string[] = [];
       if (cr && (cr.w < 1 || cr.h < 1 || cr.x > 0 || cr.y > 0)) {
         const w = Math.round((84 / cr.w) * 100) / 100;
         const h = Math.round((84 / cr.h) * 100) / 100;
-        let inner = `width:${w}px;height:${h}px`;
-        if (cr.x > 0) inner += `;margin-left:${Math.round(-cr.x * w * 100) / 100}px`;
-        if (cr.y > 0) inner += `;margin-top:${Math.round(-cr.y * h * 100) / 100}px`;
-        style = ` style="${inner}"`;
+        parts.push(`width:${w}px`, `height:${h}px`);
+        if (cr.x > 0) parts.push(`margin-left:${Math.round(-cr.x * w * 100) / 100}px`);
+        if (cr.y > 0) parts.push(`margin-top:${Math.round(-cr.y * h * 100) / 100}px`);
       }
+      if (c.rot) {
+        const w = cr ? Math.round((84 / cr.w) * 100) / 100 : 84;
+        const h = cr ? Math.round((84 / cr.h) * 100) / 100 : 84;
+        parts.push(
+          `transform-origin:${Math.round(((cr?.x ?? 0) * w + 42) * 100) / 100}px ${Math.round(((cr?.y ?? 0) * h + 42) * 100) / 100}px`,
+          `transform:rotate(${c.rot}deg)`,
+        );
+      }
+      const style = parts.length > 0 ? ` style="${parts.join(";")}"` : "";
       return `<span class="pd"><img src="${c.pngDataUrl}" alt=""${style}></span>`;
     }
     if (!c.svg) return "";

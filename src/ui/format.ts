@@ -72,8 +72,7 @@ export function dayTicks(from: number, to: number): number[] {
 }
 
 export function formatSpeed(s: number): string {
-  if (s < 60) return `${trim1(s)} s/s`;
-  if (s < 3600) return `${trim1(s / 60)} min/s`;
-  if (s < 86400) return `${trim1(s / 3600)} h/s`;
+  // The step scale is framed in min/s (0.5 → 60); label it that way throughout.
+  if (s < 86400) return `${trim1(s / 60)} min/s`;
   return `${trim1(s / 86400)} d/s`;
 }

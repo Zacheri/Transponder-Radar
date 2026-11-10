@@ -84,6 +84,21 @@ describe("iconpack-sources manifest", () => {
     expect(() => loadIconSources(p)).toThrowError(/exactly one/);
   });
 
+  it("pd entry rot: only 90/180/270 accepted", () => {
+    for (const rot of [90, 180, 270] as const) {
+      const p = tempSources((s) => {
+        s.pd[0].rot = rot;
+      });
+      expect(loadIconSources(p).pd[0].rot).toBe(rot);
+    }
+    for (const bad of [0, 45, 360, -90, "180"]) {
+      const p = tempSources((s) => {
+        (s.pd[0] as unknown as Record<string, unknown>).rot = bad;
+      });
+      expect(() => loadIconSources(p), String(bad)).toThrowError(/rot/);
+    }
+  });
+
   it("pd crop coordinates outside [0,1] or zero size throw", () => {
     for (const bad of [
       { x: -0.1, y: 0, w: 1, h: 1 },

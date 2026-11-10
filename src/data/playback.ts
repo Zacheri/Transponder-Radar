@@ -3,7 +3,13 @@
 // atob (browsers and Node 16+). Task 15 wires this into main.ts.
 
 import type { Craft } from "../../shared/craft.js";
-import { SPEED_DEFAULT, SPEED_MAX, SPEED_MIN, WINDOW_MAX_BYTES_DEFAULT } from "../../shared/limits.js";
+import {
+  PLAYBACK_TAIL_MS,
+  SPEED_DEFAULT,
+  SPEED_MAX,
+  SPEED_MIN,
+  WINDOW_MAX_BYTES_DEFAULT,
+} from "../../shared/limits.js";
 import type { WindowChunk } from "./ws.js";
 
 export type PlaybackState = "idle" | "buffering" | "playing" | "paused";
@@ -119,8 +125,17 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
   function trim(): void {
     const behind = cursor - 2 * snapMs();
     const ahead = cursor + lookAhead();
+    let atOrAfterKept = false;
+    let anchor: number | null = null; // nearest ts beyond the ahead bound
+    for (const ts of buffer.keys()) {
+      if (ts >= behind && ts <= ahead && ts >= cursor) atOrAfterKept = true;
+      if (ts > ahead && (anchor === null || ts < anchor)) anchor = ts;
+    }
+    // A data hole wider than the lookAhead must not starve the cursor jump:
+    // keep the nearest data ahead when the kept set has nothing at/after the cursor.
+    const keep = atOrAfterKept ? null : anchor;
     for (const ts of [...buffer.keys()]) {
-      if (ts < behind || ts > ahead) buffer.delete(ts);
+      if (ts < behind || (ts > ahead && ts !== keep)) buffer.delete(ts);
     }
   }
 
@@ -150,10 +165,27 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
     opts.requestWindow(req);
   }
 
+  // Oldest / newest buffered snapshot ts (only called on a non-empty buffer).
+  function minBufferedTs(): number {
+    let m = Infinity;
+    for (const ts of buffer.keys()) if (ts < m) m = ts;
+    return m;
+  }
+  function maxBufferedTs(): number {
+    let m = -Infinity;
+    for (const ts of buffer.keys()) if (ts > m) m = ts;
+    return m;
+  }
+
   function start(t0: number): void {
     const from = opts.historyFrom();
     const to = opts.historyTo();
     if (from === null || to === null) return; // empty history: no-op
+    let c = Math.max(from, Math.min(t0, to));
+    // At (or past) the end there is nothing to play forward: anchor to the
+    // recent tail so play is never a zero-length no-op.
+    if (c >= to) c = Math.max(from, to - PLAYBACK_TAIL_MS);
+    cursor = c;
     buffer.clear();
     targetFps = 60;
     ema = 0;
@@ -161,8 +193,9 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
     lastTick = opts.now();
     seq++;
     inflightTo = null; // superseded request's chunk drops via the seq check
-    cursor = Math.max(from, Math.min(t0, to));
-    nextFrom = from;
+    // Seed the prefetch around the cursor (trim rear boundary behind,
+    // historyTo ahead) — not at the start of history.
+    nextFrom = Math.max(from, cursor - 2 * snapMs());
     setState("buffering");
     requestNext();
   }
@@ -222,16 +255,31 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
 
   function tick(nowMs: number): void {
     if (state !== "buffering" && state !== "playing") return;
+    requestNext();
+    let br = bracket();
+    if (br === null) {
+      if (buffer.size > 0) {
+        // Data hole around the cursor: data is buffered but nothing at or
+        // below the cursor — jump the clock to the first buffered ts.
+        const to = opts.historyTo();
+        cursor = Math.min(minBufferedTs(), to ?? cursor);
+        br = bracket();
+        maybePromote();
+      } else {
+        return; // stall: nothing buffered; the clock holds
+      }
+    }
     if (state === "playing") {
       const dt = nowMs - lastTick;
       lastTick = nowMs;
       const to = opts.historyTo();
-      cursor = Math.min(cursor + speed * dt, to ?? cursor);
+      // Stall, don't skip: never run past what the buffer can render (the
+      // max never drags the cursor back while the seed is still loading).
+      const cap = Math.max(maxBufferedTs(), cursor);
+      cursor = Math.min(cursor + speed * dt, cap, to ?? cursor);
     }
-    requestNext();
     if (nowMs - lastRender < 1000 / targetFps) return; // governor gate
-    const br = bracket();
-    if (br === null) return; // stall: no renderable lo; the clock still advances
+    if (br === null) return;
     let frame: Craft[];
     if (
       br.hi !== null &&

@@ -123,13 +123,14 @@ describe("dayTicks (local-midnight epochs strictly within (from, to])", () => {
 });
 
 describe("formatSpeed", () => {
-  it("maps s/s, min/s, h/s and d/s tiers", () => {
-    expect(formatSpeed(30)).toBe("30 s/s");
-    expect(formatSpeed(59.4)).toBe("59.4 s/s");
+  it("labels the step scale in min/s (0.5 → 60), d/s above a day", () => {
+    expect(formatSpeed(30)).toBe("0.5 min/s");
     expect(formatSpeed(60)).toBe("1 min/s");
-    expect(formatSpeed(720)).toBe("12 min/s");
-    expect(formatSpeed(3600)).toBe("1 h/s");
-    expect(formatSpeed(21_600)).toBe("6 h/s");
+    expect(formatSpeed(90)).toBe("1.5 min/s");
+    expect(formatSpeed(180)).toBe("3 min/s");
+    expect(formatSpeed(300)).toBe("5 min/s");
+    expect(formatSpeed(3_300)).toBe("55 min/s");
+    expect(formatSpeed(3_600)).toBe("60 min/s");
     expect(formatSpeed(86_400)).toBe("1 d/s");
   });
 });

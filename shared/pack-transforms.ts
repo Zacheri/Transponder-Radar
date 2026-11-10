@@ -15,6 +15,14 @@ export interface CropRect {
   h: number; // (0, 1]
 }
 
+/** Clockwise degrees applied to a gapfill crop AFTER the crop (drawings whose top view is not nose-up). */
+export type GapfillRot = 90 | 180 | 270;
+
+/** On-screen extent of a crop (w, h) once rotated: 90/270 swap the axes. */
+export function rotFitSize(rot: GapfillRot | undefined, w: number, h: number): { ew: number; eh: number } {
+  return rot === 90 || rot === 270 ? { ew: h, eh: w } : { ew: w, eh: h };
+}
+
 /** True when `kind` is one of the four air kinds (AIR_KINDS). */
 function isAirKind(kind: string): kind is AirKind {
   return (AIR_KINDS as readonly string[]).includes(kind);

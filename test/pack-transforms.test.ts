@@ -5,6 +5,7 @@ import {
   hexToRgb,
   lineSvgToFill,
   recolorPixels,
+  rotFitSize,
   sniffImageType,
 } from "../shared/pack-transforms.js";
 
@@ -93,6 +94,15 @@ const pwFixture = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
        style="fill:#ffffff;stroke:#000000;stroke-width:0.26458333"
        d="M 1,1 L 10,1 L 5,9 Z" /></g></svg>
 `;
+
+describe("rotFitSize", () => {
+  it("no rot / 180 keep the crop's w/h; 90/270 swap", () => {
+    expect(rotFitSize(undefined, 100, 40)).toEqual({ ew: 100, eh: 40 });
+    expect(rotFitSize(180, 100, 40)).toEqual({ ew: 100, eh: 40 });
+    expect(rotFitSize(90, 100, 40)).toEqual({ ew: 40, eh: 100 });
+    expect(rotFitSize(270, 100, 40)).toEqual({ ew: 40, eh: 100 });
+  });
+});
 
 describe("PACK_COLORS", () => {
   it("pins the two domain colors", () => {

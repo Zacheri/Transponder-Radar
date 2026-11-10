@@ -304,6 +304,7 @@ export async function buildApp(deps: ServerDeps = {}) {
         name: e.name,
         style: e.style,
         crop: e.crop,
+        rot: e.rot,
         color: packColor(e.name, e.source),
       })),
   }));
@@ -319,6 +320,7 @@ export async function buildApp(deps: ServerDeps = {}) {
         color: packColor(e.name, e.source),
         vetoed: pack?.isVetoed(e.name) ?? false,
         crop: e.crop,
+        rot: e.rot,
       };
       const f = pack?.fileBytes(e.name);
       if (f) {

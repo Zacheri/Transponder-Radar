@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Craft } from "../shared/craft.js";
-import { SPEED_MAX } from "../shared/limits.js";
+import { PLAYBACK_TAIL_MS, SPEED_MAX } from "../shared/limits.js";
 import {
   createPlaybackEngine,
   lerpCrafts,
@@ -119,7 +119,7 @@ describe("createPlaybackEngine", () => {
     expect(h.frames).toHaveLength(0);
   });
 
-  it("first tick after start measures full elapsed dt: 30x, +1000ms -> +30_000", async () => {
+  it("cursor holds until the seed data decodes, then advances by speed × dt", async () => {
     const A = 10_000_000;
     const h = makeEngine([
       { ts: A, crafts: [craft("a", { updatedAt: A })] },
@@ -127,7 +127,9 @@ describe("createPlaybackEngine", () => {
     ]);
     h.engine.start(A);
     h.engine.setSpeed(30);
-    await h.flush();
+    h.engine.tick(h.advanceNow(1000)); // decodes still pending; buffer empty -> holds at A
+    expect(h.engine.cursor).toBe(A);
+    await h.flush(); // seed decodes
     h.engine.tick(h.advanceNow(1000));
     expect(h.engine.cursor).toBe(A + 30_000);
   });
@@ -135,14 +137,27 @@ describe("createPlaybackEngine", () => {
   it("clamps at historyTo and pauses after the final frame; further ticks are no-ops", async () => {
     const A = 10_000_000;
     const B = A + 60_000;
-    const h = makeEngine([
-      { ts: A, crafts: [craft("a", { updatedAt: A })] },
-      { ts: B, crafts: [craft("b", { updatedAt: B })] },
-    ]);
+    const h = makeEngine(
+      [
+        { ts: A, crafts: [craft("a", { updatedAt: A })] },
+        { ts: B, crafts: [craft("b", { updatedAt: B })] },
+      ],
+      {
+        // answer with every snapshot in range, one chunk (the default answers one)
+        requestWindow: (req) =>
+          h.engine.feed({
+            seq: req.seq,
+            items: [A, B].filter((t) => t >= req.from && t <= req.to).map((t) => ({ ts: t, b64: tsB64(t) })),
+            done: true,
+            reachedTo: req.to,
+          }),
+      },
+    );
     h.engine.start(A);
     h.engine.setSpeed(SPEED_MAX);
-    await h.flush();
-    h.engine.tick(h.advanceNow(1000 / 60));
+    await h.flush(); // seed chunk decodes
+    h.engine.tick(h.advanceNow(1000 / 60)); // 3600x × 16.67ms ≈ 59.99s — just short of B
+    h.engine.tick(h.advanceNow(1000 / 30)); // overshoots B: clamps to historyTo and pauses
     expect(h.engine.cursor).toBe(B);
     expect(h.engine.state).toBe("paused");
     const n = h.frames.length;
@@ -212,24 +227,105 @@ describe("createPlaybackEngine", () => {
     expect(lerpCrafts(mk(t - 120_001), mk(t - 120_001), 0.5, t, 120_000)[0].stale).toBe(true);
   });
 
-  it("skip mode at 86_400x: request stride 24, frame objects are fresh copies (buffer unmutated)", async () => {
+  it("skip mode at the 3600x top of the scale: stride 1 at 60fps, frame objects are fresh copies (buffer unmutated)", async () => {
     const A = 10_000_000;
     const B = A + 60_000;
-    const a0 = craft("a", { lat: 0, lon: 0, updatedAt: A });
+    const b0 = craft("b", { lat: 0, lon: 0, updatedAt: B });
     const h = makeEngine([
-      { ts: A, crafts: [a0] },
-      { ts: B, crafts: [craft("b", { updatedAt: B })] },
+      { ts: A, crafts: [craft("a", { updatedAt: A })] },
+      { ts: B, crafts: [b0] },
     ]);
     h.engine.start(A);
-    h.engine.setSpeed(86_400);
+    h.engine.setSpeed(SPEED_MAX);
     await h.flush();
     h.engine.tick(h.advanceNow(1000 / 60));
-    expect(h.requests.at(-1)!.stride).toBe(24);
+    expect(h.requests.at(-1)!.stride).toBe(1);
     expect(h.frames).toHaveLength(1);
     const f = h.frames[0].crafts[0];
-    expect(f).not.toBe(a0);
+    expect(f).not.toBe(b0);
     f.lat = 999; // mutating the frame must not touch the buffered copy
-    expect(a0.lat).toBe(0);
+    expect(b0.lat).toBe(0);
+  });
+
+  it("start at the end of history anchors to the 30-min tail and plays", async () => {
+    const A = 10_000_000;
+    const to = A + 3_600_000; // 61 snapshots, 1 min apart
+    const snaps: Snap[] = [];
+    for (let k = 0; k <= 60; k++) {
+      snaps.push({ ts: A + k * 60_000, crafts: [craft(`a${k}`, { updatedAt: A + k * 60_000 })] });
+    }
+    const h = makeEngine(snaps);
+    h.engine.start(to);
+    await h.flush();
+    expect(h.engine.cursor).toBe(to - PLAYBACK_TAIL_MS);
+    h.engine.setSpeed(30);
+    h.engine.tick(h.advanceNow(1000 / 60));
+    expect(h.engine.state).toBe("playing");
+    expect(h.frames.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("start seeds the first window near the cursor, not at history start", async () => {
+    const A = 10_000_000;
+    const to = A + 7_200_000;
+    const rec: PlaybackWindowReq[] = [];
+    const h = makeEngine(
+      [
+        { ts: A, crafts: [] },
+        { ts: to, crafts: [] },
+      ],
+      { requestWindow: (req) => rec.push(req) }
+    );
+    h.engine.start(to - 300_000);
+    expect(rec).toHaveLength(1);
+    expect(rec[0].from).toBe(to - 300_000 - 2 * 60_000); // cursor - 2 x snapshotMs
+    expect(rec[0].to).toBe(to);
+  });
+
+  it("stall: cursor holds at the newest buffered snapshot until more data arrives", async () => {
+    const A = 10_000_000;
+    const snaps: Snap[] = [];
+    for (let k = 0; k <= 20; k++) {
+      snaps.push({ ts: A + k * 60_000, crafts: [craft(`a${k}`, { updatedAt: A + k * 60_000 })] });
+    }
+    const rec: PlaybackWindowReq[] = [];
+    const h = makeEngine(snaps, { requestWindow: (req) => rec.push(req) });
+    h.engine.start(A + 600_000); // 10 min in
+    // Serve the seed window only up to the cursor: no data ahead yet.
+    for (let ts = A + 480_000; ts <= A + 600_000; ts += 60_000) {
+      const last = ts === A + 600_000;
+      h.engine.feed({ seq: 2, items: [{ ts, b64: tsB64(ts) }], done: last, reachedTo: last ? ts : null });
+    }
+    await h.flush();
+    expect(h.engine.state).toBe("playing");
+    h.engine.setSpeed(300);
+    const held = h.engine.cursor;
+    h.engine.tick(h.advanceNow(1000 / 60));
+    h.engine.tick(h.advanceNow(1000 / 60));
+    expect(h.engine.cursor).toBe(held);
+    h.engine.feed({ seq: 4, items: [{ ts: A + 660_000, b64: tsB64(A + 660_000) }], done: true, reachedTo: A + 660_000 });
+    await h.flush();
+    h.engine.tick(h.advanceNow(1000 / 60));
+    expect(h.engine.cursor).toBeGreaterThan(held);
+  });
+
+  it("data hole at the start: cursor jumps to the first buffered ts and playback resumes", async () => {
+    const A = 10_000_000;
+    const snaps: Snap[] = [
+      { ts: A, crafts: [craft("a", { updatedAt: A })] },
+      { ts: A + 1_200_000, crafts: [craft("b", { updatedAt: A + 1_200_000 })] }, // 20-min hole after A
+      { ts: A + 1_800_000, crafts: [craft("c", { updatedAt: A + 1_800_000 })] }, // history ends after the hole
+    ];
+    const rec: PlaybackWindowReq[] = [];
+    const h = makeEngine(snaps, { requestWindow: (req) => rec.push(req) });
+    h.engine.start(A + 300_000); // inside the hole
+    h.engine.feed({ seq: 2, items: [{ ts: A + 1_200_000, b64: tsB64(A + 1_200_000) }], done: true, reachedTo: A + 1_200_000 });
+    await h.flush();
+    h.engine.tick(h.advanceNow(1000 / 60));
+    expect(h.engine.state).toBe("playing");
+    expect(h.engine.cursor).toBe(A + 1_200_000);
+    expect(h.frames.at(-1)!.crafts[0].id).toBe("b");
+    // seed window starts cursor - 2·snapMs (clamped to historyFrom); then resume from the hole edge
+    expect(rec.map((r) => r.from)).toEqual([A + 180_000, A + 1_200_001]);
   });
 
   it("setSpeed mid-flight: in-flight cleared, stale-seq answer dropped, re-request at new seq and stride", async () => {
@@ -255,14 +351,14 @@ describe("createPlaybackEngine", () => {
     h.engine.start(A);
     expect(issued).toHaveLength(1); // seq-2 request in flight, answer withheld
     expect(issued[0].req.seq).toBe(2);
-    h.engine.setSpeed(86_400); // bumps seq, supersedes the in-flight request
+    h.engine.setSpeed(SPEED_MAX); // bumps seq, supersedes the in-flight request
     issued[0].answer(); // server answers the superseded request: stale seq
     expect(h.decodes.get(B)).toBeUndefined(); // dropped: not even decoded
     h.engine.tick(h.advanceNow(1000 / 60));
     expect(issued).toHaveLength(2); // re-issued after the supersede
     expect(issued[1].req.seq).toBe(4); // bumped seq (2 superseded), re-request increments
     expect(issued[1].req.from).toBe(A); // dropped chunk's reachedTo (B) not adopted
-    expect(issued[1].req.stride).toBe(24); // stride at the new speed (was 1 at default)
+    expect(issued[1].req.stride).toBe(1); // stride at 3600x / 60fps
     // probe: the dropped item never entered the buffer
     h.engine.feed({ seq: 4, items: [{ ts: B, b64: tsB64(B) }], done: false, reachedTo: null });
     await h.flush();
@@ -349,27 +445,27 @@ describe("createPlaybackEngine", () => {
     expect(h.engine.state).toBe("playing");
   });
 
-  it("corrupt item: decode reject logs, no frame from it, no throw; later chunks still render", async () => {
+  it("corrupt item: decode reject logs, no throw; the lost item is jumped over and playback continues", async () => {
     const A = 10_000_000;
     const B = A + 60_000;
+    const C = A + 120_000;
+    const D = A + 1_800_000;
     const h = makeEngine([
       { ts: A, crafts: [craft("a", { updatedAt: A })] },
       { ts: B, crafts: [craft("b", { updatedAt: B })] },
+      { ts: C, crafts: [craft("c", { updatedAt: C })] },
+      { ts: D, crafts: [craft("d", { updatedAt: D })] },
     ]);
     h.decodeFailNext = true;
     h.engine.start(A); // first item's decode rejects
     await h.flush();
     expect(h.logs.length).toBeGreaterThanOrEqual(1);
-    expect(h.engine.state).toBe("buffering");
     expect(h.frames).toHaveLength(0);
-    h.engine.tick(h.advanceNow(1000 / 60)); // prefetches B (good decode)
-    await h.flush();
-    expect(h.frames).toHaveLength(0); // A missing: no lo <= cursor yet
-    h.engine.feed({ seq: 3, items: [{ ts: A, b64: tsB64(A) }], done: true, reachedTo: A });
-    await h.flush();
-    h.engine.tick(h.advanceNow(1000 / 60));
-    expect(h.frames).toHaveLength(1);
-    expect(h.frames[0].crafts[0].id).toBe("a");
+    h.engine.tick(h.advanceNow(1000 / 60)); // requests the window after the lost A
+    await h.flush(); // B decodes
+    h.engine.tick(h.advanceNow(1000 / 60)); // hole jump past the lost A, resume from B
+    expect(h.engine.state).toBe("playing");
+    expect(h.frames.at(-1)!.crafts[0].id).toBe("b");
   });
 
   it("trim: 20min-ahead snapshot dropped (lookAhead floor 600_000), 1min-behind and 5min-ahead kept", async () => {

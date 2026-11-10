@@ -1,4 +1,4 @@
-import { KIND_FALLBACK_ICON, isPackIconName, type AirKind, type Craft } from "../../shared/craft.js";
+import { KIND_FALLBACK_ICON, colorKey, isPackIconName, type AirKind, type Craft, type CraftKind } from "../../shared/craft.js";
 
 export interface PointGeometry {
   type: "Point";
@@ -35,16 +35,24 @@ export interface FeatureCollection {
  * family silhouette until the image lands. `iconRegistered` undefined
  * (opt omitted) keeps the old pass-through for back-compat. Sea craft never
  * carry pack icons; their kind name passes through unchanged.
+ *
+ * Colors are baked into the rasterized registration, so the emitted name is
+ * color-keyed (`base@hex`) via `colorFor` when given — the loader registers
+ * one image per (base, color) pair. The registered check is on the keyed
+ * name, so a not-yet-downloaded pack icon at the CURRENT color falls back
+ * to the (always registered) keyed family silhouette.
  */
-function iconFor(c: Craft, registered: ReadonlySet<string> | undefined): string {
+function iconFor(c: Craft, registered: ReadonlySet<string> | undefined, colorFor: ((kind: CraftKind) => string) | undefined): string {
   const base = c.icon ?? (c.domain === "air" ? KIND_FALLBACK_ICON[c.kind as AirKind] : c.kind);
-  if (c.icon !== undefined && isPackIconName(c.icon) && registered !== undefined && !registered.has(c.icon)) {
-    if (c.domain === "air") return KIND_FALLBACK_ICON[c.kind as AirKind];
+  const color = colorFor ? colorFor(c.kind) : undefined;
+  const key = (n: string): string => (color !== undefined ? colorKey(n, color) : n);
+  if (c.icon !== undefined && isPackIconName(c.icon) && registered !== undefined && !registered.has(key(c.icon))) {
+    if (c.domain === "air") return key(KIND_FALLBACK_ICON[c.kind as AirKind]);
   }
-  return base;
+  return key(base);
 }
 
-function toFeature(c: Craft, registered: ReadonlySet<string> | undefined): CraftFeature {
+function toFeature(c: Craft, registered: ReadonlySet<string> | undefined, colorFor: ((kind: CraftKind) => string) | undefined): CraftFeature {
   const label = c.domain === "air" ? c.callsign ?? c.id : c.shipName ?? c.id;
   const parts: string[] = [];
   if (c.speed != null) parts.push(`${Math.round(c.speed)}kn`);
@@ -58,7 +66,7 @@ function toFeature(c: Craft, registered: ReadonlySet<string> | undefined): Craft
       id: c.id,
       domain: c.domain,
       kind: c.kind,
-      icon: iconFor(c, registered),
+      icon: iconFor(c, registered, colorFor),
       stale: c.stale,
       label,
       sublabel: parts.join(" "),
@@ -69,6 +77,9 @@ function toFeature(c: Craft, registered: ReadonlySet<string> | undefined): Craft
   };
 }
 
-export function buildFeatureCollection(crafts: Craft[], opts?: { iconRegistered?: ReadonlySet<string> }): FeatureCollection {
-  return { type: "FeatureCollection", features: crafts.map((c) => toFeature(c, opts?.iconRegistered)) };
+export function buildFeatureCollection(
+  crafts: Craft[],
+  opts?: { iconRegistered?: ReadonlySet<string>; colorFor?: (kind: CraftKind) => string },
+): FeatureCollection {
+  return { type: "FeatureCollection", features: crafts.map((c) => toFeature(c, opts?.iconRegistered, opts?.colorFor)) };
 }
