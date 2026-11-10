@@ -172,6 +172,10 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["525", "BELL", "heli"], // 525 was falling to the fixed-wing family icon
     // turboprop
     ["HS.748 SERIES 2A", "HAWKER SIDDELEY", "pw:A748"],
+    // Antonov An-12/28 (2026-11-09): 1/0 US ACFTREF codes — the rules wire
+    // the existing pack art so a registration, if one ever appears, resolves
+    ["AN-12", "ANTONOV", "pw:AN12"],
+    ["AN-28", "ANTONOV", "pw:AN28"],
     ["ATR42-500", "AEROSPATIALE", "rk:AT45"],
     ["DHC-8-300", "DEHAVILLAND", "rk:DH8C"],
     ["208B", "CESSNA", "rk:F406"],

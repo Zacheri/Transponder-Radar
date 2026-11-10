@@ -359,6 +359,9 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["HAWKER", "BAE"], re: /^748|^HS\.?748/, pack: "pw:A748", family: "turboprop" },
   { re: /^AN24/, pack: "pw:AN24", family: "turboprop" },
   { re: /^AN26/, pack: "pw:AN26", family: "turboprop" },
+  // An-12/28 — 1/0 US ACFTREF codes; the art exists in the pack, wire it
+  { re: /^AN12/, pack: "pw:AN12", family: "turboprop" },
+  { re: /^AN28/, pack: "pw:AN28", family: "turboprop" },
   { re: /^ATR/, family: "turboprop" }, // catch — real MFRs vary (ATR, AEROSPATIALE…)
   { re: /^(DHC6|DHC8|TWINOTTER|DASH)/, family: "turboprop" }, // catch — VIKING/DEHAVILLAND…
   { mfr: ["SAAB", "SIPA"], re: /^(SAAB)?2000/, family: "turboprop" },
