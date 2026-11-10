@@ -164,6 +164,21 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["328JET", "DORNIER", "rk:D328"],
     ["690A", "ROCKWELL INTERNATIONAL", "pw:AC90"],
     ["840", "GULFSTREAM TURBO COMMANDER", "pw:AC90"],
+    // Cessna prefix extension (2026-11-09): R/T/P/F-prefixed codes resolve
+    // their type; the mfr guard keeps non-Cessna "206/210" records (BELL/
+    // AGUSTA helis, AIRBUS A210) on their own rules or the family layer
+    ["R172G", "CESSNA", "pw:C172"],
+    ["F172H", "CESSNA", "pw:C172"],
+    ["P172D", "CESSNA", "pw:C172"],
+    ["R182", "CESSNA", "pw:C182"],
+    ["T182T", "CESSNA", "pw:C182"],
+    ["T206", "CESSNA", "pw:C206"],
+    ["U206D", "CESSNA", "pw:C206"],
+    ["P206C", "CESSNA", "pw:C206"],
+    ["P210N", "CESSNA", "pw:C210"],
+    ["T210M", "CESSNA", "pw:C210"],
+    ["2105", "CESSNA", "piston"], // registry 205 mislabeled 2105 — not a 210
+    ["A210-322", "AIRBUS INDUSTRIE", "piston"], // mfr guard: not the Cessna 210
     // piston / light
     ["C-47", "DOUGLAS", "rk:DC3"],
     ["75-L-3", "STEARMAN AIRCRAFT", "rk:ST75"],

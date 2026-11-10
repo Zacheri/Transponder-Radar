@@ -351,10 +351,13 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["FOKKER", "FAIRCHILD"], re: /^F27/, family: "turboprop" },
   { re: /^(D228|YAK40)/, family: "turboprop" }, // catch (D-prefixed 228 names)
   // ── piston / light ─────────────────────────────────────────────────────
-  { mfr: ["CESSNA", "TEXTRON"], re: /^T?172/, pack: "pw:C172", family: "piston" },
-  { re: /^T?182/, pack: "pw:C182", family: "piston" },
-  { re: /^T?206/, pack: "pw:C206", family: "piston" },
-  { re: /^210/, pack: "pw:C210", family: "piston" },
+  // Cessna codes carry 0–2 letter prefixes (R172G, T206, P210N, F182H…);
+  // the mfr guard is required — unguarded "206/210" matches BELL/AGUSTA
+  // helis, the AIRBUS A210, and balloon model numbers
+  { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}172/, pack: "pw:C172", family: "piston" },
+  { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}182/, pack: "pw:C182", family: "piston" },
+  { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}206/, pack: "pw:C206", family: "piston" },
+  { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}210(?!\d)/, pack: "pw:C210", family: "piston" }, // 2105 = registry 205 mislabel, not a 210
   { mfr: ["CESSNA"], re: /^40[12]/, pack: "pw:C402", family: "piston" },
   { mfr: ["CESSNA"], re: /^441/, pack: "pw:C441", family: "piston" },
   { mfr: ["BEECH"], re: /^[AB]?36/, pack: "pw:BE36", family: "piston" },
@@ -379,7 +382,7 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["DOUGLAS", "MCDONNELL"], re: /^DC87/, pack: "rk:DC87", family: "piston" },
   { mfr: ["DORNIER"], re: /^DO27/, pack: "rk:DO27", family: "piston" },
   { mfr: ["DORNIER"], re: /^D?O28/, pack: "rk:DO28", family: "piston" },
-  { mfr: ["CESSNA"], re: /^[1-7]\d\d(?!\d)/, family: "piston" }, // catch — 172S, 182T, 206… (208 → turboprop above)
+  { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}[1-7]\d\d(?!\d)/, family: "piston" }, // catch — 150H, 310, T337HSP… (208 → turboprop above)
   { mfr: ["BEECH"], re: /^B(25|35|55|58|99)([A-Z]|$)/, family: "piston" }, // catch — B350 → King Air above
   { mfr: ["PIPER"], re: /^PA\d/, family: "piston" }, // catch
   { mfr: ["DIAMOND"], re: /^DA\d/, family: "piston" }, // catch
