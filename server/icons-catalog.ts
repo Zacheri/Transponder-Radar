@@ -48,6 +48,7 @@ const DESIGNATOR_ALIASES: Record<string, string[]> = {
   V22: ["V22 fast"], // rk file name carries a space
   F18: ["F18S"], // art is the F-18S variant
   AH64: ["H64"], // art file is H64 (civil defensive rule)
+  E3: ["E3CF", "E3TF"], // art files are the engine-variant pair
 };
 
 /**

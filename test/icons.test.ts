@@ -46,12 +46,13 @@ describe("icon registry", () => {
 });
 
 describe("resolver pack emission", () => {
-  const pack = new Set(["rk:C130", "rk:H60", "pd:E3", "rk:R135", "rk:H64"]);
+  const pack = new Set(["rk:C130", "rk:H60", "rk:E3TF", "rk:R135", "rk:H64"]);
 
   test("military token emits pack name when present", () => {
     expect(resolveAirIcon({ kind: "military", callsign: "C130", faaModel: null, faaMfr: null, pack })).toBe("rk:C130");
     expect(resolveAirIcon({ kind: "military", callsign: "UH60A", faaModel: null, faaMfr: null, pack })).toBe("rk:H60");
-    expect(resolveAirIcon({ kind: "military", callsign: "E3", faaModel: null, faaMfr: null, pack })).toBe("pd:E3");
+    // E-3 Sentry: the vendored rk pack carries the art (TF33 engine variant)
+    expect(resolveAirIcon({ kind: "military", callsign: "E3", faaModel: null, faaMfr: null, pack })).toBe("rk:E3TF");
     expect(resolveAirIcon({ kind: "military", callsign: "AH64", faaModel: null, faaMfr: null, pack })).toBe("rk:H64");
   });
 

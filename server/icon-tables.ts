@@ -100,10 +100,10 @@ export const MILITARY_RULES: MilitaryRule[] = [
   { re: /\bP8\w*\b/, anchor: "word", pack: "rk:P8", family: "isr" },
   { re: /\bE8\w*\b/, anchor: "word", pack: "rk:E8", family: "isr" },
   // ── isr (prefix tokens — leading boundary only) ────────────────────────
-  // pd:E3 is NOT in the current index (only pd:C5/KC10/C141 are); the
-  // table points at it anyway — emission is gated on pack.has, so production
-  // stays family-only until a real pd:E3 is curated in.
-  { re: /\bE3/, anchor: "prefix", pack: "pd:E3", family: "isr" },
+  // E-3 Sentry: the vendored rk pack carries the art (E3CF/E3TF engine
+  // variants; TF33 = the classic standard engine). Visually verified:
+  // 707 top view + rotodome.
+  { re: /\bE3/, anchor: "prefix", pack: "rk:E3TF", family: "isr" },
   { re: /\bP3/, anchor: "prefix", pack: "rk:P3", family: "isr" },
   { re: /\bU2/, anchor: "prefix", pack: "rk:U2", family: "isr" },
   // ── fighter ────────────────────────────────────────────────────────────
