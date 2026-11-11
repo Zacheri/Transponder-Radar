@@ -157,26 +157,25 @@ registered by `src/map/pack-icons.ts`. Family/sea SVGs are browser-verified
 only (no canvas in unit tests) — tune paths in
 `src/assets/icons/` and re-run the gate; names are the contract.
 
-Gap status (2026-11-06 curation + 2026-11-09 expansion wave): the 2026-11-06
-wave wired 9 military tokens to existing art, added 6 military tokens, and
-curated 8 new `pd:` entries (CH-47, MQ-9, CH-53E, E-6/707, MD-8x/9x,
-ATR-72, King Air 200/300, 737 Classic for the 737-600). The 2026-11-09 wave
-(2nd) fixed two wrong-art bugs — `E3` now emits the vendored `rk:E3TF`
-(the art was in the pinned rk pack all along; every E-3 had rendered a bare
-family icon) and the BD-700 (Challenger 300/350) rules dropped the Global
-Express art they carried — plus breadth: Cessna 0–2-letter prefix codes
-with the required CESSNA/TEXTRON mfr guards (172/182/206/210/catch),
-Bonanza A36 mfr fixes (RAYTHEON/BEECHCRAFT) + classic 33/35 and Baron 55/58
-rules, Bell 407/429 bare codes + 525 heli, Global Express family rules
-(G-IV/G-V/GVII/GVIII/GVSP/G200/G450 + IAI-mfr G280), An-12/An-28 wired to
-existing pack art. `pw:CT4`/`pw:HAWK` art was inspected and vetoed
-(unidentifiable at pack size). Standing gaps: military `B2 F14 F117 E4`
-(photos only) and the civil entries in
-`ML_Docs/Radar/OmittedModels.md` (737 MAX 7, true DC-9, Challenger 600-
-series + 300/350, L-410, MQ-4C Triton, Hawker 400/800, Bonanza 33/35,
-Baron 55/58, Bell 407/429, G280/G550 dedicated art, …) — one entry per
-omitted variant (code, rule, reason, search log, date) so a future agent
-can re-source. Anything else renders the shape-family fallback.
+Gap status (through the 2026-11-11 light-GA wave): three curation waves —
+11-06 wired 9 military tokens + 6 new tokens + 8 `pd:` entries; 11-09
+fixed the `E3`/BD-700 wrong-art bugs + Cessna/Bonanza/Bell/Global breadth
+rules; 11-11 curated 10 more `pd:` entries from the Commons 3-view series
+(PA-28, C150, Mooney M20, Bonanza 33/35, Baron 55/58, A-37, PA-24, C177,
+C-310/L-27A, G-IV — the last fixing a G-IV→Global-art wrong-airframe bug)
+and re-sourced four shipped entries (TACAMO→`rk:B703`, ATR-72→`rk:AT75`,
+MQ-9/MD-8 flipped `rot:180`). Several entries use `rot: 90|180|270` (sheet
+top views drawn nose-down) — rotation is applied after the crop.
+`pw:CT4`/`pw:HAWK` vetoed (unidentifiable at pack size). Standing gaps —
+military `B2 F14 F117 E4` (photos only) and the civil entries in
+`ML_Docs/Radar/OmittedModels.md`, incl. the large fleets that Commons
+cannot serve: **Piper J-3 (3.8k — every Commons SVG clips its own top
+view)**, **PA-18 (3.7k — overlapping view regions, no clean rectangle)**,
+C170 (in-view text), C421/C411/C414, AA-5, C337, PA-34, plus Challenger
+300/350, 737 MAX 7, L-410, Hawker 400/800, DC-9, G280/G550 dedicated art
+— one entry per omitted variant (code, rule, reason, search log, date) so
+a future agent can re-source (archive.org PD manuals are the noted next
+step for J-3/PA-18). Anything else renders the shape-family fallback.
 
 ### Icon pack (`server/iconpack.ts`, `data/icons/`)
 
