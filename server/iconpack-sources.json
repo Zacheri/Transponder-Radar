@@ -89,6 +89,98 @@
       }
     },
     {
+      "name": "pd:PA28",
+      "file": "pd/pa28.png",
+      "title": "Piper PA-28 Archer II (PA-28-181)",
+      "license": "Public domain",
+      "attribution": "Publications Department, Piper Aircraft Corporation",
+      "sha256": "920f080442035b015739e0001a2f8a9cc212d5490210d64500bbbc3d1728e897",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 0.175
+      },
+      "rot": 180,
+      "url": "https://upload.wikimedia.org/wikipedia/commons/d/d8/Piper_PA-28-181_Cherokee_Archer_II_3-view_line_drawing.png"
+    },
+    {
+      "name": "pd:C150",
+      "file": "pd/c150.png",
+      "title": "Cessna 150F",
+      "license": "Public domain",
+      "attribution": "Cessna Aircraft Company",
+      "sha256": "b2cdc3e30ce98f1a84c75da3d5d2f9688ee96632645c2b756b81c990247eee05",
+      "crop": {
+        "x": 0,
+        "y": 0.83,
+        "w": 1,
+        "h": 0.16
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/b/bf/Cessna_150F_3-view_line_drawing.png"
+    },
+    {
+      "name": "pd:M20",
+      "file": "pd/m20.png",
+      "title": "Mooney M20C Ranger",
+      "license": "Public domain",
+      "attribution": "Mooney Aircraft, Inc.",
+      "sha256": "25277a8469eaefdc54fc92df5c90a99ca5e5efabf51763324564468dc6e6f545",
+      "crop": {
+        "x": 0,
+        "y": 0.26,
+        "w": 1,
+        "h": 0.42
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/7/7c/Mooney_M20C_Ranger_3-view_line_drawing.png"
+    },
+    {
+      "name": "pd:B35",
+      "file": "pd/b35.png",
+      "title": "Beechcraft E33 Bonanza",
+      "license": "Public domain",
+      "attribution": "Beech Aircraft Corporation",
+      "sha256": "617ff8557c7633f1405fae42336745edaa96a158d253ce2ea5278922f32eb4d1",
+      "crop": {
+        "x": 0,
+        "y": 0.78,
+        "w": 1,
+        "h": 0.21
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/6/63/Beechcraft_E33_Bonanza_3-view_line_drawing.png"
+    },
+    {
+      "name": "pd:A37",
+      "file": "pd/a37.png",
+      "title": "Cessna A-37 Dragonfly (C-37 Airmaster airframe)",
+      "license": "Public domain",
+      "attribution": "Public domain (author unknown)",
+      "sha256": "685b90965a10d75add68cdb86535d95b62c11abb2de126b72234fad1f16fa77e",
+      "crop": {
+        "x": 0.05,
+        "y": 0.03,
+        "w": 0.42,
+        "h": 0.94
+      },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/1d/Cessna_A-37_Dragonfly_3-view_line_drawing.png"
+    },
+    {
+      "name": "pd:D55",
+      "file": "pd/d55.png",
+      "title": "Beechcraft D55 Baron",
+      "license": "Public domain",
+      "attribution": "Beech Aircraft Corporation",
+      "sha256": "f2464d5e5d883c90d0684453b4f355f39b1805161e13bf41d255c4cb806b9e4a",
+      "crop": {
+        "x": 0.02,
+        "y": 0,
+        "w": 0.96,
+        "h": 0.47
+      },
+      "rot": 180,
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/11/Beechcraft_D55_Baron_3-view_line_drawing.png"
+    },
+    {
       "name": "pd:MD8",
       "file": "pd/md8.png",
       "url": "https://upload.wikimedia.org/wikipedia/commons/1/1d/McDonnell_Douglas_MD-82_v1.0.png",

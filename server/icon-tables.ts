@@ -233,7 +233,6 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["DASSAULT"], re: /^(FALCON|F50|F500|F5XR|F7X|F70|F10|MD31[123])/, family: "bizjet" },
   { mfr: ["LEARJET", "LEAR JET"], re: /^35/, pack: "rk:LJ35", family: "bizjet" }, // 35/35A codes
   { mfr: ["LEARJET", "TEXTRON"], re: /^(L420|LJ\d|L100|L200|L3\d{3})/, family: "bizjet" },
-  { mfr: ["PIPER"], re: /^P28/, pack: "pw:P28A", family: "bizjet" },
   { mfr: ["PIPER"], re: /^P(28|35)([A-Z]|$)/, family: "bizjet" },
   { mfr: ["HAWKER", "BRITISH AEROSPACE"], re: /^(HAWKERHUNT|HUNTER)/, pack: "rk:HUNT", family: "bizjet" },
   {
@@ -377,17 +376,22 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}182/, pack: "pw:C182", family: "piston" },
   { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}206/, pack: "pw:C206", family: "piston" },
   { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}210(?!\d)/, pack: "pw:C210", family: "piston" }, // 2105 = registry 205 mislabel, not a 210
+  { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}150/, pack: "pd:C150", family: "piston" },
+  { mfr: ["CESSNA", "TEXTRON"], re: /^(A37|C37)/, pack: "pd:A37", family: "piston" }, // A-37 = C-37 Airmaster airframe
   { mfr: ["CESSNA"], re: /^40[12]/, pack: "pw:C402", family: "piston" },
   { mfr: ["CESSNA"], re: /^441/, pack: "pw:C441", family: "piston" },
+  { mfr: ["MOONEY"], re: /^M20/, pack: "pd:M20", family: "piston" },
   // Bonanza A36 — 445 ac are registered under RAYTHEON AIRCRAFT COMPANY
   // (Beech's parent); NORTH AMERICAN A36A is the vintage Navy 36 (excluded)
   { mfr: ["BEECH", "BEECHCRAFT", "RAYTHEON"], re: /^[AB]?36/, pack: "pw:BE36", family: "piston" },
   // Classic Bonanza 33/35 (V35A, S35, P35, F33A, 35-B33) and Baron 55/58
   // (95-B55, 58P) — family until their art is curated. (?!\d) keeps B350
   // (King Air) out of the 35 rule; 95B- prefixed codes are Barons too
-  { mfr: ["BEECH", "BEECHCRAFT"], re: /^[A-Z]?35(?!\d)/, family: "piston" },
-  { mfr: ["BEECH", "BEECHCRAFT"], re: /^[A-Z]?33(?!\d)/, family: "piston" },
-  { mfr: ["BEECH", "BEECHCRAFT"], re: /^(95B)?5(5|8)/, family: "piston" },
+  // E33 art serves the classic 33/35 V-tail family (same airframe)
+  { mfr: ["BEECH", "BEECHCRAFT"], re: /^[A-Z]?35(?!\d)/, pack: "pd:B35", family: "piston" },
+  { mfr: ["BEECH", "BEECHCRAFT"], re: /^[A-Z]?33(?!\d)/, pack: "pd:B35", family: "piston" },
+  { mfr: ["BEECH", "BEECHCRAFT"], re: /^(95B|D)?5(5|8)/, pack: "pd:D55", family: "piston" }, // D55 = bare 55 code
+  { mfr: ["PIPER"], re: /^PA28/, pack: "pd:PA28", family: "piston" }, // 18.5k ac — was a dead ^P28 bizjet rule
   { mfr: ["PIPER"], re: /^PA31/, pack: "pw:PA31", family: "piston" },
   { re: /^PA32/, pack: "pw:P32T", family: "piston" },
   { re: /^PA44/, pack: "pw:PA44", family: "piston" },

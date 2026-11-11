@@ -207,6 +207,31 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["BN-2B-21", "PILATUS BRITTEN NORMAN", "rk:BN2P"],
     ["8GCBC", "BELLANCA", "pw:BL8"],
     ["EMB-820", "EMBRAER", "pw:PA31"],
+    // light-GA fleet curation 2026-11-11 (pd: from Commons, rect-cropped;
+    // PA-28 top view drawn nose-down → rot 180 in the manifest)
+    ["PA-28-181", "PIPER", "pd:PA28"],
+    ["PA-28-140FL", "PIPER", "pd:PA28"],
+    ["PA-28R-201T", "PIPER", "pd:PA28"],
+    ["150", "CESSNA", "pd:C150"],
+    ["150F", "CESSNA", "pd:C150"],
+    ["150M", "CESSNA", "pd:C150"],
+    ["M20C", "MOONEY", "pd:M20"],
+    ["M20", "MOONEY AIRCRAFT CORP.", "pd:M20"],
+    ["M-20G", "MOONEY INTERNATIONAL CORP", "pd:M20"],
+    // E33 art serves the classic 33/35 V-tail family (same airframe)
+    ["E33", "BEECH", "pd:B35"],
+    ["G35", "BEECHCRAFT", "pd:B35"],
+    ["V35B", "BEECH", "pd:B35"],
+    ["35", "BEECH", "pd:B35"],
+    ["33", "BEECH", "pd:B35"],
+    ["35-A33", "BEECH", "pd:B35"],
+    ["A-37", "CESSNA", "pd:A37"], // A-37 = C-37 Airmaster airframe
+    ["C-37", "CESSNA", "pd:A37"],
+    ["A37A", "CESSNA", "pd:A37"],
+    ["D55", "BEECHCRAFT", "pd:D55"], // Baron 55/58 (58P, 95-B55 codes)
+    ["58", "BEECH", "pd:D55"],
+    ["58P", "BEECH", "pd:D55"],
+    ["152", "CESSNA", "piston"], // 152 ≠ 150 — its own code
     // gap fills curated 2026-11-06 (pd: from Commons, rect-cropped)
     ["737-600", "BOEING", "pd:737C"], // 737 Classic silhouette (same family as the 600)
     ["737-66N", "BOEING", "pd:737C"],
@@ -227,18 +252,17 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["BD-100-1A10", "BOMBARDIER INC", "pw:GLEX"],
     ["BD-700-1A10", "BOMBARDIER INC", "narrowbody"],
     ["BD-700-2A12", "BOMBARDIER INC", "narrowbody"],
-    // Bonanza/Baron (2026-11-09): A36 art exists; classic 33/35 and Baron
-    // 55/58 are family until their art is curated (OmittedModels)
+    // Bonanza/Baron: A36 art exists; classic 33/35 (E33 art) and Baron 55/58
+    // (D55 art) curated 2026-11-11
     ["A36", "BEECHCRAFT", "pw:BE36"],
     ["A36", "RAYTHEON AIRCRAFT COMPANY", "pw:BE36"], // 445 ac registered under the parent co
     ["A36A", "NORTH AMERICAN", "piston"], // vintage NA-36 Navy 36 — not a Bonanza
-    ["V35A", "BEECH", "piston"],
-    ["S35", "BEECH", "piston"],
-    ["P35", "BEECH", "piston"],
-    ["35-B33", "BEECH", "piston"],
-    ["F33A", "BEECH", "piston"],
-    ["95-B55", "BEECH", "piston"],
-    ["58P", "BEECH", "piston"],
+    ["V35A", "BEECH", "pd:B35"],
+    ["S35", "BEECH", "pd:B35"],
+    ["P35", "BEECH", "pd:B35"],
+    ["35-B33", "BEECH", "pd:B35"],
+    ["F33A", "BEECH", "pd:B35"],
+    ["95-B55", "BEECH", "pd:D55"],
     ["B350", "BEECH", "pw:B350"], // King Air 350 — must not fall to the Bonanza 35 rule
     // no-art controls (family layer must stay put)
     ["CL-600-2B16", "BOMBARDIER INC", "bizjet"], // Challenger 600 — no art (OmittedModels)
