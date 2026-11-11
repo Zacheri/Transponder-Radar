@@ -50,6 +50,7 @@ const DESIGNATOR_ALIASES: Record<string, string[]> = {
   F18: ["F18S"], // art is the F-18S variant
   AH64: ["H64"], // art file is H64 (civil defensive rule)
   E3: ["E3CF", "E3TF"], // art files are the engine-variant pair
+  E6: ["B703"], // E-6 = 707-300 airframe art (shared with the civil 707 rule)
 };
 
 /**

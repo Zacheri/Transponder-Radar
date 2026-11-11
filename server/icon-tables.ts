@@ -38,9 +38,8 @@ export interface CivilRule {
 // MI24, B52, KC2, C141, V22, P1, P8, E8, SB39, B1, F5E, T38, TOR/TORNADO,
 // HAWK, LYNX). The 2026-11-06 gap curation wired the remaining tokens to
 // existing or curated art (KCTC→RC-135, CH53→pd:CH53, C21/C40→737-700,
-// VC25→747-8, EP3→P-3, TACAMO→pd:E6, REAPER/MQ9→pd:MQ9). Uncovered
-// designators: B2, F14, F117, E4 (and E3 — referenced by the prefix token
-// below, art still to curate). AWACS and GRIFIN stay family-only: no rotodome
+// VC25→747-8, EP3→P-3, TACAMO→707 (E-6 airframe), REAPER/MQ9→pd:MQ9). Uncovered
+// designators: B2, F14, F117, E4. AWACS and GRIFIN stay family-only: no rotodome
 // plan view exists for the E-3, and the RQ-4 art is a different airframe than
 // the MQ-4C Triton (both tracked in OmittedModels.md).
 
@@ -90,7 +89,7 @@ export const MILITARY_RULES: MilitaryRule[] = [
   // ── isr (word tokens) ──────────────────────────────────────────────────
   { re: /\bRC135\w*\b/, anchor: "word", pack: "rk:R135", family: "isr" },
   { re: /\bEP3\w*\b/, anchor: "word", pack: "rk:P3", family: "isr" }, // EP-3E = P-3C airframe
-  { re: /\bTACAMO\w*\b/, anchor: "word", pack: "pd:E6", family: "isr" }, // TACAMO = E-6 callsign
+  { re: /\bTACAMO\w*\b/, anchor: "word", pack: "rk:B703", family: "isr" }, // TACAMO = E-6 callsign (707-300 airframe; no free rotodome drawing)
   { re: /\bAWACS\w*\b/, anchor: "word", family: "isr" }, // E-3 — no rotodome art (OmittedModels)
   { re: /\bGRIFIN\w*\b/, anchor: "word", family: "isr" }, // MQ-4C Triton — RQ-4 art is a different airframe (OmittedModels)
   { re: /\bREAPER\w*\b/, anchor: "word", pack: "pd:MQ9", family: "isr" },
@@ -142,8 +141,9 @@ export const MILITARY_RULES: MilitaryRule[] = [
 // where pw lacks it. Most-specific rules precede the pre-pack catch rules
 // (marked "catch") that they refine; a rule whose pack type the pack lacks
 // stays family-only. Curated 2026-11-06: 737-600 (pd:737C), MD-8x/9x
-// (pd:MD8), ATR-72-2xx (pd:ATR72), King Air 200/300 (pd:B200), C-295
-// (rk:C295). Standing no-art gap list (tracked in OmittedModels.md): 737 MAX
+// (pd:MD8), ATR-72 (rk:AT75 — the 72-2xx pd scan was unusable), King Air
+// 200/300 (pd:B200), C-295 (rk:C295). Standing no-art gap list (tracked in
+// OmittedModels.md): 737 MAX
 // 7, Challenger 600/604/605 (CL600-2B16), true DC-9 series, ATR-42, L-410,
 // King Air 360 (no B360 code in the registry).
 
@@ -338,7 +338,7 @@ export const CIVIL_RULES: CivilRule[] = [
   // ── turboprop ──────────────────────────────────────────────────────────
   { re: /^ATR425/, pack: "rk:AT45", family: "turboprop" },
   { re: /^ATR725/, pack: "rk:AT75", family: "turboprop" }, // 72-500: no FAA codes yet
-  { re: /^ATR72/, pack: "pd:ATR72", family: "turboprop" }, // 72-2xx — mfr varies (ATR, AEROSPATIALE…), no constraint
+  { re: /^ATR72/, pack: "rk:AT75", family: "turboprop" }, // 72-2xx/6xx — same 72 airframe family as the -500 art; mfr varies (ATR, AEROSPATIALE…), no constraint
   { mfr: ["AIRBUS"], re: /^C295/, pack: "rk:C295", family: "turboprop" },
   { re: /^DHC82/, pack: "pw:DH8B", family: "turboprop" },
   { re: /^DHC83/, pack: "rk:DH8C", family: "turboprop" },

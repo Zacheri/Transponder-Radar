@@ -126,10 +126,11 @@ describe("coveredDesignators (catalog gap list is resolver-based, both tables)",
     // pd: name in it is downloadable/verifiable, so if a rule points at one
     // the designator is covered.
     const pdNames = new Set(loadIconSources().pd.map((e) => e.name));
-    // E3: covered by VENDORED rk art (engine variants E3CF/E3TF in the pinned
-    // RexKramer pack), not the pd manifest — the name is pinned in pins.json
-    // and was visually verified (707 top view + rotodome).
-    const cov = coveredDesignators(new Set([...pdNames, "rk:E3TF"]));
+    // E3/E6: covered by VENDORED rk art (E3CF/E3TF engine variants and the
+    // B703 707-300 planform in the pinned RexKramer pack), not the pd
+    // manifest — the names are pinned in pins.json and visually verified
+    // (707 top view + rotodome; 707 top view).
+    const cov = coveredDesignators(new Set([...pdNames, "rk:E3TF", "rk:B703"]));
     for (const d of ["CH47", "CH53", "MQ9", "E6", "C5", "KC10", "C141", "E3"]) {
       expect(cov.has(d), `expected ${d} covered`).toBe(true);
     }

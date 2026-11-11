@@ -68,7 +68,7 @@ describe("resolver pack emission", () => {
 
 describe("military table curation wiring (gap curation 2026-11-06)", () => {
   const pack = new Set([
-    "pd:CH53", "pd:MQ9", "pd:E6", "rk:B737", "rk:B748", "rk:P3", "rk:R135",
+    "pd:CH53", "pd:MQ9", "rk:B703", "rk:B737", "rk:B748", "rk:P3", "rk:R135",
     "rk:B1 fast", "rk:F5", "rk:T38", "rk:LYNX", "rk:HAWK", "rk:TOR fast",
   ]);
 
@@ -78,7 +78,7 @@ describe("military table curation wiring (gap curation 2026-11-06)", () => {
     ["CH53E", "pd:CH53"],
     ["REAPER", "pd:MQ9"],
     ["MQ9", "pd:MQ9"],
-    ["TACAMO", "pd:E6"],
+    ["TACAMO", "rk:B703"], // E-6 = 707-300 airframe (707 top view; the rotodome is not drawable at icon size)
     ["KCTC", "rk:R135"], // USN KC-135 variant — RC-135 art (same C-135 airframe)
     ["C21", "rk:B737"], // C-21A = 737-700 derivative
     ["C40", "rk:B737"], // C-40 = 737-based
@@ -210,8 +210,10 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     // gap fills curated 2026-11-06 (pd: from Commons, rect-cropped)
     ["737-600", "BOEING", "pd:737C"], // 737 Classic silhouette (same family as the 600)
     ["737-66N", "BOEING", "pd:737C"],
-    ["ATR-72-212", "AEROSPATIALE", "pd:ATR72"],
-    ["ATR-72-201", "AEROSPATIALE", "pd:ATR72"],
+    // ATR-72-200/212 → the ATR-72-500 airframe art (same fuselage family;
+    // the pd:ATR72 scan was unusable — gray line art on a dark background)
+    ["ATR-72-212", "AEROSPATIALE", "rk:AT75"],
+    ["ATR-72-201", "AEROSPATIALE", "rk:AT75"],
     ["MD-88", "MCDONNELL DOUGLAS", "pd:MD8"],
     ["DC-9-82(MD-82)", "MCDONNELL DOUGLAS", "pd:MD8"], // real registry code form
     ["MD-90-30", "BOEING", "pd:MD8"],

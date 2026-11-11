@@ -17,7 +17,7 @@ describe("iconpack-sources manifest", () => {
   });
 
   it("pd entries well-formed and unique", () => {
-    expect(s.pd.length).toBe(11);
+    expect(s.pd.length).toBe(9);
     expect(new Set(s.pd.map((e) => e.name)).size).toBe(s.pd.length);
     for (const e of s.pd) {
       expect(e.name).toMatch(/^pd:[A-Z0-9]+$/);
@@ -36,6 +36,21 @@ describe("iconpack-sources manifest", () => {
         e.crop.h > 0;
       expect(ratioOk || cropOk).toBe(true);
       expect(ratioOk && cropOk).toBe(false);
+    }
+  });
+
+  it("nose-down sheets are flipped: pd:MQ9 and pd:MD8 carry rot 180 with mirrored crops", () => {
+    const mq9 = s.pd.find((e) => e.name === "pd:MQ9");
+    expect(mq9?.rot).toBe(180);
+    expect(mq9?.crop).toEqual({ x: 0.01, y: 0.13, w: 0.66, h: 0.7 });
+    const md8 = s.pd.find((e) => e.name === "pd:MD8");
+    expect(md8?.rot).toBe(180);
+    expect(md8?.crop).toEqual({ x: 0.01, y: 0.38, w: 0.43, h: 0.62 });
+  });
+
+  it("no pd entry may point at the two re-sourced names (replaced by vendored art)", () => {
+    for (const name of ["pd:E6", "pd:ATR72"]) {
+      expect(s.pd.find((e) => e.name === name)).toBeUndefined();
     }
   });
 
