@@ -181,6 +181,49 @@
       "url": "https://upload.wikimedia.org/wikipedia/commons/1/11/Beechcraft_D55_Baron_3-view_line_drawing.png"
     },
     {
+      "name": "pd:PA24",
+      "file": "pd/pa24.png",
+      "title": "Piper PA-24-180 Comanche",
+      "license": "Public domain",
+      "attribution": "Technical Productions, Piper Aircraft Co",
+      "sha256": "fd8de8b7c95c8d8e6d8bfb12780901cc345d7ff18d191c34b3d43d9b8406cffe",
+      "crop": { "x": 0, "y": 0.015, "w": 1, "h": 0.435 },
+      "rot": 180,
+      "url": "https://upload.wikimedia.org/wikipedia/commons/5/59/Piper_PA-24-180_Comanche_3-view_line_drawing.png"
+    },
+    {
+      "name": "pd:C177",
+      "file": "pd/c177.png",
+      "title": "Cessna 177 Cardinal",
+      "license": "Public domain",
+      "attribution": "Cessna Aircraft Company",
+      "sha256": "b1d071748994d225cf966efbbf10c63266e5038221357fa053ac32d1a46c54c8",
+      "crop": { "x": 0, "y": 0.52, "w": 1, "h": 0.15 },
+      "url": "https://upload.wikimedia.org/wikipedia/commons/2/20/Cessna_177_Cardinal_3-view_line_drawing.png"
+    },
+    {
+      "name": "pd:C310",
+      "file": "pd/c310.png",
+      "title": "Cessna L-27A (C-310 airframe)",
+      "license": "Public domain",
+      "attribution": "U.S. Military",
+      "sha256": "2f8443f3787d2d856f7ddf57abf295c067c03bcf9fafdb3595f52d857462e64b",
+      "crop": { "x": 0, "y": 0.49, "w": 1, "h": 0.47 },
+      "rot": 180,
+      "url": "https://upload.wikimedia.org/wikipedia/commons/2/23/Cessna_L-27A_3-view_line_drawing.png"
+    },
+    {
+      "name": "pd:GIV",
+      "file": "pd/giv.png",
+      "title": "Gulfstream IV-SP",
+      "license": "Public domain",
+      "attribution": "U.S. Military",
+      "sha256": "bf9fbd31140b820fbac09c8f79ea8f652653430748e2c5abc52e6bcf0127d6f1",
+      "crop": { "x": 0, "y": 0, "w": 1, "h": 0.26 },
+      "rot": 180,
+      "url": "https://upload.wikimedia.org/wikipedia/commons/3/34/Gulfstream_IV-SP_3-view_line_drawing.png"
+    },
+    {
       "name": "pd:MD8",
       "file": "pd/md8.png",
       "url": "https://upload.wikimedia.org/wikipedia/commons/1/1d/McDonnell_Douglas_MD-82_v1.0.png",

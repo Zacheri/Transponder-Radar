@@ -146,7 +146,7 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["GVI (G650)", "GULFSTREAM AEROSPACE", "rk:GLF6"],
     // Global Express family (2026-11-09): roman-numeral and parenthetical
     // codes resolve the generic Global silhouette; G280 codes carry IAI mfr
-    ["G-IV", "GULFSTREAM AEROSPACE", "pw:GLEX"],
+    ["G-IV", "GULFSTREAM AEROSPACE", "pd:GIV"], // was pw:GLEX — the Global art, wrong airframe (G-IV = Gulfstream IV)
     ["G-V", "GULFSTREAM AEROSPACE", "pw:GLEX"],
     ["GV-SP(G550)", "GULFSTREAM AEROSPACE CORP", "pw:GLEX"],
     ["GVII(G500)", "GULFSTREAM AEROSPACE CORP", "pw:GLEX"],
@@ -218,6 +218,20 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["M20C", "MOONEY", "pd:M20"],
     ["M20", "MOONEY AIRCRAFT CORP.", "pd:M20"],
     ["M-20G", "MOONEY INTERNATIONAL CORP", "pd:M20"],
+    // light-GA fleet curation, block 2 (2026-11-11)
+    ["PA-24-180", "PIPER", "pd:PA24"], // Comanche top view nose-down → rot 180
+    ["PA-24-260", "PIPER", "pd:PA24"],
+    ["177", "CESSNA", "pd:C177"],
+    ["177R", "CESSNA", "pd:C177"],
+    ["177RG", "CESSNA", "pd:C177"],
+    ["310", "CESSNA", "pd:C310"], // L-27A (C-310 military) art, nose-down → rot 180
+    ["310L", "CESSNA", "pd:C310"],
+    ["310Q", "CESSNA", "pd:C310"],
+    ["L27A", "CESSNA", "pd:C310"],
+    ["G-IV", "GULFSTREAM", "pd:GIV"], // G-IV/IV-SP (52'8" span, verified on-sheet)
+    ["G-IV SP", "GULFSTREAM", "pd:GIV"],
+    ["G-IV (G400)", "GULFSTREAM", "pd:GIV"],
+    ["G550", "GULFSTREAM", "bizjet"], // no dedicated art (thin-line SVG only — OmittedModels)
     // E33 art serves the classic 33/35 V-tail family (same airframe)
     ["E33", "BEECH", "pd:B35"],
     ["G35", "BEECHCRAFT", "pd:B35"],

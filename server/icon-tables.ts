@@ -192,6 +192,7 @@ export const CIVIL_RULES: CivilRule[] = [
   // ── bizjet ─────────────────────────────────────────────────────────────
   // GVI = G-VI (Global Express, G650-line); (?!I) keeps GVII (G500/G600)
   // from prefix-matching the GVI rule
+  { mfr: ["GULFSTREAM"], re: /^GIV/, pack: "pd:GIV", family: "bizjet" }, // G-IV/IV-SP (verified 52'8" span)
   { mfr: ["GULFSTREAM"], re: /^GVI(?!I)|^G650/, pack: "rk:GLF6", family: "bizjet" },
   // G280 codes carry IAI LTD mfr (Israel Aerospace, builder)
   { mfr: ["GULFSTREAM", "IAI"], re: /^G(150|280|550|650)/, family: "bizjet" },
@@ -377,6 +378,8 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}206/, pack: "pw:C206", family: "piston" },
   { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}210(?!\d)/, pack: "pw:C210", family: "piston" }, // 2105 = registry 205 mislabel, not a 210
   { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}150/, pack: "pd:C150", family: "piston" },
+  { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}177/, pack: "pd:C177", family: "piston" },
+  { mfr: ["CESSNA", "TEXTRON"], re: /^(L27|310)/, pack: "pd:C310", family: "piston" }, // L-27A = C-310 art
   { mfr: ["CESSNA", "TEXTRON"], re: /^(A37|C37)/, pack: "pd:A37", family: "piston" }, // A-37 = C-37 Airmaster airframe
   { mfr: ["CESSNA"], re: /^40[12]/, pack: "pw:C402", family: "piston" },
   { mfr: ["CESSNA"], re: /^441/, pack: "pw:C441", family: "piston" },
@@ -392,6 +395,7 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["BEECH", "BEECHCRAFT"], re: /^[A-Z]?33(?!\d)/, pack: "pd:B35", family: "piston" },
   { mfr: ["BEECH", "BEECHCRAFT"], re: /^(95B|D)?5(5|8)/, pack: "pd:D55", family: "piston" }, // D55 = bare 55 code
   { mfr: ["PIPER"], re: /^PA28/, pack: "pd:PA28", family: "piston" }, // 18.5k ac — was a dead ^P28 bizjet rule
+  { mfr: ["PIPER"], re: /^PA24/, pack: "pd:PA24", family: "piston" }, // Comanche
   { mfr: ["PIPER"], re: /^PA31/, pack: "pw:PA31", family: "piston" },
   { re: /^PA32/, pack: "pw:P32T", family: "piston" },
   { re: /^PA44/, pack: "pw:PA44", family: "piston" },
