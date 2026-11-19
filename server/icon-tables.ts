@@ -212,6 +212,7 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["CESSNA", "TEXTRON"], re: /^525/, pack: "rk:C25B", family: "bizjet" },
   { mfr: ["CESSNA", "TEXTRON"], re: /^5[56]\d/, pack: "pw:C560", family: "bizjet" },
   { mfr: ["CESSNA", "TEXTRON"], re: /^750/, pack: "rk:C750", family: "bizjet" },
+  { mfr: ["CESSNA", "TEXTRON"], re: /^(501|510|526|650|680)(?!\d)/, family: "bizjet" }, // Citation I/SP, Mustang, CJ type code, Excel, Sovereign
   { mfr: ["CESSNA"], re: /^C[56]\d\d/, family: "bizjet" }, // C500…C680 (C-prefixed names)
   { re: /^CJ\d/, family: "bizjet" }, // CJ1/CJ2/CJ3 Starlet (person MFRs exist)
   // Bombardier CL-600/BD-700 — regional narrowbody jets (family narrowbody per
@@ -235,6 +236,9 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["DASSAULT"], re: /^(FALCON|F50|F500|F5XR|F7X|F70|F10|MD31[123])/, family: "bizjet" },
   { mfr: ["LEARJET", "LEAR JET"], re: /^35/, pack: "rk:LJ35", family: "bizjet" }, // 35/35A codes
   { mfr: ["LEARJET", "TEXTRON"], re: /^(L420|LJ\d|L100|L200|L3\d{3})/, family: "bizjet" },
+  // Learjet numeric codes (23/24/25/28/31/36/40/45/55/60/70/75/142, bare +
+  // letter suffixes; (?!\d) keeps 601/604-style Bombardier strings out)
+  { mfr: ["LEARJET", "LEAR JET", "BOMBARDIER"], re: /^(23|24|25|28|31|36|40|45|55|60|70|75|85|142|C21|LR25)(?!\d)/, family: "bizjet" },
   { mfr: ["PIPER"], re: /^P(28|35)([A-Z]|$)/, family: "bizjet" },
   { mfr: ["HAWKER", "BRITISH AEROSPACE"], re: /^(HAWKERHUNT|HUNTER)/, pack: "rk:HUNT", family: "bizjet" },
   {
@@ -318,6 +322,7 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["EMBRAER"], re: /^ERJ190|^ERG190|^EMB190|^E19\d|^190\d/, pack: "pw:E190", family: "narrowbody" },
   { mfr: ["EMBRAER"], re: /^ERJ1[234]|^EMB1[234]/, pack: "rk:E35L", family: "narrowbody" },
   { mfr: ["EMBRAER"], re: /^EMB820/, pack: "pw:PA31", family: "piston" }, // EMB-820 = PA-31 Navajo
+  { mfr: ["EMBRAER"], re: /^EMB-?50[05]/, family: "bizjet" }, // Phenom 100/300 — light jets, not E-Jets
   { re: /^RJ85/, pack: "rk:RJ85", family: "narrowbody" }, // Fokker 50
   { mfr: ["FOKKER"], re: /^F\.?28/, pack: "pw:F28", family: "narrowbody" },
   { mfr: ["SAAB"], re: /^SF340/, pack: "pw:SF34", family: "narrowbody" }, // SF340A/B codes

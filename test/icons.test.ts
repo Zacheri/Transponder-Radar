@@ -284,6 +284,27 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["CL-600-2B16", "BOMBARDIER INC", "bizjet"], // Challenger 600 — no art (OmittedModels)
     ["DC-9-30", "MCDONNELL DOUGLAS", "narrowbody"], // true DC-9 series — no top-view art (OmittedModels)
     ["B206", "BELL", "heli"], // custom B-prefixed name
+    // wrong-family routing fixes (2026-11-19 fleet sweep)
+    ["45", "LEARJET INC", "bizjet"], // Learjet 23/24/25/28/31/36/40/45/55/60/70/75/142 bare codes
+    ["60 XR", "LEARJET INC", "bizjet"],
+    ["55", "GATES LEARJET CORP", "bizjet"],
+    ["31A", "LEARJET INC", "bizjet"],
+    ["25D", "GATES LEAR JET", "bizjet"],
+    ["24F-A", "GATES LEAR JET", "bizjet"],
+    ["40", "BOMBARDIER AEROSPACE", "bizjet"], // Learjet 40 under parent-co mfr string
+    ["C-21A", "LEARJET INC", "bizjet"], // civil-registered ex-military jets
+    ["35A", "LEARJET INC", "rk:LJ35"], // art rule precedes the bare-code catch
+    ["45", "PIPER", "piston"], // mfr guard: Piper 45 is not a jet
+    ["501", "CESSNA", "bizjet"], // Citation I/SP
+    ["510", "CESSNA AIRCRAFT CO", "bizjet"], // Mustang
+    ["526", "CESSNA", "bizjet"], // CJ family type code
+    ["650", "CESSNA", "bizjet"], // Citation Excel
+    ["680", "CESSNA AIRCRAFT INC", "bizjet"], // Citation Sovereign
+    ["680A", "TEXTRON AVIATION INC", "bizjet"],
+    ["65", "CESSNA", "piston"], // ^650 must not swallow bare 65
+    ["EMB-500", "EMBRAER EXECUTIVE AIRCRAFT INC", "bizjet"], // Phenom 100
+    ["EMB-505", "EMBRAER S A", "bizjet"], // Phenom 300 (was on the E-Jet catch)
+    ["EMB-145", "EMBRAER", "rk:E35L"], // E-Jet art precedence
   ];
 
   const pack = new Set(rows.map(([, , e]) => (e.includes(":") ? e : "")).filter(Boolean));
