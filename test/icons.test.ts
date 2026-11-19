@@ -248,6 +248,11 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["58", "BEECH", "pd:D55"],
     ["58P", "BEECH", "pd:D55"],
     ["152", "CESSNA", "piston"], // 152 ≠ 150 — its own code
+    ["A75N1", "BOEING", "rk:ST75"], // Kaydet/PT-17/N2S = Stearman 75 airframes (mfr "BOEING", 1k ac)
+    ["A75N1(PT17)", "BOEING", "rk:ST75"],
+    ["N2S-3", "BOEING", "rk:ST75"],
+    ["PT-17", "BOEING", "rk:ST75"],
+    ["757-231", "BOEING", "pw:B752"], // (?!\d) guard: the 757 must NOT catch ^75
     // gap fills curated 2026-11-06 (pd: from Commons, rect-cropped)
     ["737-600", "BOEING", "pd:737C"], // 737 Classic silhouette (same family as the 600)
     ["737-66N", "BOEING", "pd:737C"],

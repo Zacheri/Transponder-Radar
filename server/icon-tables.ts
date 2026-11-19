@@ -410,7 +410,7 @@ export const CIVIL_RULES: CivilRule[] = [
   { re: /^SR22/, pack: "pw:SR22", family: "piston" },
   { mfr: ["SCHLEICHER"], re: /^ASK21/, pack: "pw:ASK21", family: "piston" },
   { mfr: ["SCHEIBE"], re: /^SF25/, pack: "rk:SF25", family: "piston" },
-  { mfr: ["STEARMAN"], re: /^75/, pack: "rk:ST75", family: "piston" },
+  { mfr: ["STEARMAN", "BOEING"], re: /^(75(?!\d)|A75|N2S|PT17)/, pack: "rk:ST75", family: "piston" }, // incl. Kaydet/PT-17/N2S mfr "BOEING" (1k ac); (?!\d) keeps the 757 out
   { re: /^SONEX/, pack: "pw:SONX", family: "piston" },
   { re: /^(VANS)?RV9/, pack: "pw:RV9", family: "piston" },
   { mfr: ["EXTRA"], re: /^EA300/, pack: "rk:E300", family: "piston" },
