@@ -109,6 +109,21 @@ describe("iconpack-sources manifest", () => {
     expect(() => loadIconSources(p)).toThrowError(/exactly one/);
   });
 
+  it("pd entry th: integer in (0,255) only", () => {
+    for (const th of [1, 128, 254]) {
+      const p = tempSources((s) => {
+        s.pd[0].th = th;
+      });
+      expect(loadIconSources(p).pd[0].th).toBe(th);
+    }
+    for (const bad of [0, 255, 12.5, "128"]) {
+      const p = tempSources((s) => {
+        (s.pd[0] as unknown as Record<string, unknown>).th = bad;
+      });
+      expect(() => loadIconSources(p), String(bad)).toThrowError(/th/);
+    }
+  });
+
   it("pd entry rot: only 90/180/270 accepted", () => {
     for (const rot of [90, 180, 270] as const) {
       const p = tempSources((s) => {

@@ -32,6 +32,7 @@ interface ListEntry {
   style: "filled" | "line" | "gapfill";
   crop?: CropRect; // gapfill only: the region of the file that is the top view
   rot?: GapfillRot; // gapfill only: clockwise rotation applied after the crop
+  th?: number; // gapfill only: binarize threshold override (default 128)
 }
 
 export interface PackIconLoader {
@@ -143,13 +144,15 @@ export function createPackIconLoader(
    * top-view crop rectangle (fractions of the file; no crop = the whole
    * image) into the fixed canvas, then paper→silhouette — the scans are
    * white paper + dark ink (OPAQUE; two of the originals are even JPEGs,
-   * one a GIF), so alpha = lum < 128 ? 255 : 0 (ink kept, paper gone). The
+   * one a GIF), so alpha = lum < th ? 255 : 0 (ink kept, paper gone; th
+   * defaults to 128, raised per-entry for dithered/gray scans). The
    * color-key registration tints the mask (every alpha pixel → hex).
    */
   async function rasterizeGapfill(
     url: string,
     crop: CropRect | undefined,
     rot: GapfillRot | undefined,
+    th: number | undefined,
   ): Promise<ImageData | null> {
     const r = await doFetch(url);
     if (!r.ok) throw new Error(`GET ${url}: HTTP ${r.status}`);
@@ -175,9 +178,10 @@ export function createPackIconLoader(
       );
       if (!data) return null;
       const px = data.data;
+      const cut = th ?? 128;
       for (let i = 0; i + 3 < px.length; i += 4) {
         const lum = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
-        px[i + 3] = lum < 128 ? 255 : 0;
+        px[i + 3] = lum < cut ? 255 : 0;
       }
       return data;
     } finally {
@@ -256,7 +260,7 @@ export function createPackIconLoader(
   async function fetchPrecolor(name: string, e: ListEntry): Promise<ImageData> {
     let data: ImageData | null;
     if (e.style === "gapfill") {
-      data = await rasterizeGapfill(iconUrl(name), e.crop, e.rot);
+      data = await rasterizeGapfill(iconUrl(name), e.crop, e.rot, e.th);
     } else {
       const r = await doFetch(iconUrl(name));
       if (!r.ok) throw new Error(`GET ${name}: HTTP ${r.status}`);

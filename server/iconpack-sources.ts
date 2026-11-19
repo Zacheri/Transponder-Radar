@@ -23,6 +23,9 @@ export interface PdSourceEntry {
   // view is not nose-up; crop coordinates stay in file space).
   rot?: 90 | 180 | 270;
   style?: "gapfill" | "filled"; // default "gapfill"; "filled" for near-white SVG silhouettes (recolorPixels path)
+  // Binarize threshold override for gapfill scans (default 128). Dithered or
+  // gray scans need a higher cut so the averaged-down artwork survives.
+  th?: number;
 }
 
 export interface IconSources {
@@ -77,6 +80,12 @@ function pdEntryShape(v: unknown, i: number): void {
   }
   if (e.rot !== undefined && e.rot !== 90 && e.rot !== 180 && e.rot !== 270) {
     throw new Error(`iconpack-sources: pd[${i}].rot must be 90, 180, or 270`);
+  }
+  if (e.th !== undefined) {
+    const t = e.th as number;
+    if (!Number.isInteger(t) || t <= 0 || t >= 255) {
+      throw new Error(`iconpack-sources: pd[${i}].th must be an integer in (0, 255)`);
+    }
   }
   if (e.style !== undefined && e.style !== "gapfill" && e.style !== "filled") {
     throw new Error(`iconpack-sources: pd[${i}].style must be "gapfill" or "filled"`);

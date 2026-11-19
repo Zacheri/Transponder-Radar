@@ -495,6 +495,7 @@ describe("icon pack routes (fixture pack)", () => {
         license: "Public Domain (US Government work)",
         attribution: "Test Author",
         cropTopRatio: 0.5,
+        th: 200,
       },
       {
         name: "pd:WUZ",
@@ -602,15 +603,17 @@ describe("icon pack routes (fixture pack)", () => {
     const res = await server.app.inject({ url: "/icons/list" });
     expect(res.statusCode).toBe(200);
     const { entries } = res.json() as {
-      entries: { name: string; style: string; crop?: { x: number; y: number; w: number; h: number }; color: string }[];
+      entries: { name: string; style: string; crop?: { x: number; y: number; w: number; h: number }; th?: number; color: string }[];
     };
     expect(entries.map((e) => e.name).sort()).toEqual(["pd:QUX", "pd:WUZ", "pw:FOO", "rk:BAZ"]);
     for (const e of entries) expect([PACK_COLORS.military, PACK_COLORS.civil]).toContain(e.color);
     const qux = entries.find((e) => e.name === "pd:QUX")!;
     expect(qux.style).toBe("gapfill");
     expect(qux.crop).toEqual({ x: 0, y: 0, w: 1, h: 0.5 }); // cropTopRatio normalized
+    expect(qux.th).toBe(200);
     const wuz = entries.find((e) => e.name === "pd:WUZ")!;
     expect(wuz.crop).toEqual({ x: 0.5, y: 0, w: 0.5, h: 0.6 });
+    expect(wuz.th).toBeUndefined();
     const foo = entries.find((e) => e.name === "pw:FOO")!;
     expect(foo.style).toBe("filled");
     expect(foo.crop).toBeUndefined();

@@ -305,6 +305,7 @@ export async function buildApp(deps: ServerDeps = {}) {
         style: e.style,
         crop: e.crop,
         rot: e.rot,
+        th: e.th,
         color: packColor(e.name, e.source),
       })),
   }));

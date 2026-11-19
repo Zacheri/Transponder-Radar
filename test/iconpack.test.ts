@@ -48,6 +48,7 @@ const FIXTURE_SOURCES: IconSources = {
       attribution: "Test Author",
       crop: { x: 0, y: 0, w: 0.5, h: 0.5 },
       rot: 180,
+      th: 200,
     },
   ],
   gapTargets: [],
@@ -129,6 +130,9 @@ describe("IconPack", () => {
     // rot passes through; entries without one are undefined
     expect(pack.entry("pd:ROT")?.rot).toBe(180);
     expect(pack.entry("pd:QUX")?.rot).toBeUndefined();
+    // th (binarize threshold) passes through; entries without one are undefined
+    expect(pack.entry("pd:ROT")?.th).toBe(200);
+    expect(pack.entry("pd:QUX")?.th).toBeUndefined();
     expect(pack.fileBytes("rk:BAZ")?.contentType).toBe("image/svg+xml");
     expect(pack.fileBytes("nope")).toBeNull();
   });
