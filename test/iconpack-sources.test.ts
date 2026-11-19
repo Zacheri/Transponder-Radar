@@ -17,7 +17,7 @@ describe("iconpack-sources manifest", () => {
   });
 
   it("pd entries well-formed and unique", () => {
-    expect(s.pd.length).toBe(19);
+    expect(s.pd.length).toBe(15);
     expect(new Set(s.pd.map((e) => e.name)).size).toBe(s.pd.length);
     for (const e of s.pd) {
       expect(e.name).toMatch(/^pd:[A-Z0-9]+$/);
@@ -39,13 +39,23 @@ describe("iconpack-sources manifest", () => {
     }
   });
 
-  it("nose-down sheets are flipped: pd:MQ9 and pd:MD8 carry rot 180 with mirrored crops", () => {
-    const mq9 = s.pd.find((e) => e.name === "pd:MQ9");
-    expect(mq9?.rot).toBe(180);
-    expect(mq9?.crop).toEqual({ x: 0.01, y: 0.13, w: 0.66, h: 0.7 });
-    const md8 = s.pd.find((e) => e.name === "pd:MD8");
-    expect(md8?.rot).toBe(180);
-    expect(md8?.crop).toEqual({ x: 0.01, y: 0.38, w: 0.43, h: 0.62 });
+  it("rotated sheets carry the audited rot + crop (2026-11-18 fix wave)", () => {
+    const expected: Record<string, [number, { x: number; y: number; w: number; h: number }]> = {
+      "pd:C150": [180, { x: 0, y: 0.35, w: 1, h: 0.35 }],
+      "pd:A37": [180, { x: 0.01, y: 0.16, w: 0.5, h: 0.64 }],
+      "pd:D55": [180, { x: 0, y: 0.04, w: 1, h: 0.33 }],
+      "pd:PA24": [180, { x: 0, y: 0.025, w: 1, h: 0.43 }],
+      "pd:C310": [180, { x: 0, y: 0.52, w: 1, h: 0.45 }],
+      "pd:GIV": [90, { x: 0, y: 0.2, w: 0.86, h: 0.42 }],
+      "pd:MD8": [180, { x: 0.625, y: 0.015, w: 0.375, h: 0.5 }],
+    };
+    for (const [name, [rot, crop]] of Object.entries(expected)) {
+      const e = s.pd.find((x) => x.name === name);
+      expect(e?.rot, `${name} rot`).toBe(rot);
+      expect(e?.crop, `${name} crop`).toEqual(crop);
+    }
+    const rotated = s.pd.filter((e) => e.rot !== undefined).map((e) => e.name).sort();
+    expect(rotated).toEqual(Object.keys(expected).sort());
   });
 
   it("no pd entry may point at the two re-sourced names (replaced by vendored art)", () => {

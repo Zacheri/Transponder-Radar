@@ -53,6 +53,7 @@ describe("resolver pack emission", () => {
     expect(resolveAirIcon({ kind: "military", callsign: "UH60A", faaModel: null, faaMfr: null, pack })).toBe("rk:H60");
     // E-3 Sentry: the vendored rk pack carries the art (TF33 engine variant)
     expect(resolveAirIcon({ kind: "military", callsign: "E3", faaModel: null, faaMfr: null, pack })).toBe("rk:E3TF");
+    expect(resolveAirIcon({ kind: "military", callsign: "AWACS", faaModel: null, faaMfr: null, pack })).toBe("rk:E3TF");
     expect(resolveAirIcon({ kind: "military", callsign: "AH64", faaModel: null, faaMfr: null, pack })).toBe("rk:H64");
   });
 
@@ -68,16 +69,17 @@ describe("resolver pack emission", () => {
 
 describe("military table curation wiring (gap curation 2026-11-06)", () => {
   const pack = new Set([
-    "pd:CH53", "pd:MQ9", "rk:B703", "rk:B737", "rk:B748", "rk:P3", "rk:R135",
+    "rk:B703", "rk:B737", "rk:B748", "rk:P3", "rk:R135",
     "rk:B1 fast", "rk:F5", "rk:T38", "rk:LYNX", "rk:HAWK", "rk:TOR fast",
   ]);
 
   const rows: Array<[callsign: string, expected: string]> = [
     // re-wired existing tokens
-    ["CH53", "pd:CH53"],
-    ["CH53E", "pd:CH53"],
-    ["REAPER", "pd:MQ9"],
-    ["MQ9", "pd:MQ9"],
+    // 2026-11-18 audit: CH53/MQ9 vetoes stay locked on family (no usable art)
+    ["CH53", "milheli"],
+    ["CH53E", "milheli"],
+    ["REAPER", "isr"],
+    ["MQ9", "isr"],
     ["TACAMO", "rk:B703"], // E-6 = 707-300 airframe (707 top view; the rotodome is not drawable at icon size)
     ["KCTC", "rk:R135"], // USN KC-135 variant — RC-135 art (same C-135 airframe)
     ["C21", "rk:B737"], // C-21A = 737-700 derivative
@@ -221,9 +223,9 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     // light-GA fleet curation, block 2 (2026-11-11)
     ["PA-24-180", "PIPER", "pd:PA24"], // Comanche top view nose-down → rot 180
     ["PA-24-260", "PIPER", "pd:PA24"],
-    ["177", "CESSNA", "pd:C177"],
-    ["177R", "CESSNA", "pd:C177"],
-    ["177RG", "CESSNA", "pd:C177"],
+    ["177", "CESSNA", "piston"], // 2026-11-18 veto: banner text inside the only top view
+    ["177R", "CESSNA", "piston"],
+    ["177RG", "CESSNA", "piston"],
     ["310", "CESSNA", "pd:C310"], // L-27A (C-310 military) art, nose-down → rot 180
     ["310L", "CESSNA", "pd:C310"],
     ["310Q", "CESSNA", "pd:C310"],

@@ -33,16 +33,6 @@
       "cropTopRatio": 1
     },
     {
-      "name": "pd:C141",
-      "file": "pd/c141.png",
-      "url": "https://upload.wikimedia.org/wikipedia/commons/d/dc/Lockheed_C-141A_Starlifter_3-view_line_drawing.png",
-      "sha256": "873cf02cfa1cd9b4851e7a324d929e1470f5fb8383272453bc60bc8352201418",
-      "title": "Lockheed C-141 Starlifter",
-      "license": "Public Domain (scan of US Air Force work — PD-scan of PD-USGov-Military)",
-      "attribution": "U.S. Air Force",
-      "cropTopRatio": 0.54
-    },
-    {
       "name": "pd:CH47",
       "file": "pd/ch47.png",
       "url": "https://upload.wikimedia.org/wikipedia/commons/0/07/Boeing_Vertol_CH-47_Chinook_3-view_line_drawing.png",
@@ -58,51 +48,19 @@
       }
     },
     {
-      "name": "pd:MQ9",
-      "file": "pd/mq9.png",
-      "url": "https://upload.wikimedia.org/wikipedia/commons/d/d8/MQ-9_Reaper_dimensioned_sketch.png",
-      "sha256": "bcd51e5ebc16c87a413eb483fffdd1b0ec6be93f88898267a44e426c5f5f0943",
-      "title": "General Atomics MQ-9 Reaper",
-      "license": "Public Domain",
-      "attribution": "Tomáš Hruška",
-      "crop": {
-        "x": 0.01,
-        "y": 0.13,
-        "w": 0.66,
-        "h": 0.7
-      },
-      "rot": 180
-    },
-    {
-      "name": "pd:CH53",
-      "file": "pd/ch53.svg",
-      "url": "https://upload.wikimedia.org/wikipedia/commons/1/15/Sikorsky_CH-53E_Super_Stallion_Drawing.svg",
-      "sha256": "e27339b3e0342b863b49a225213e62f5b0189160c133eac6f49602e265d2be51",
-      "title": "Sikorsky CH-53E Super Stallion",
-      "license": "CC BY 3.0",
-      "attribution": "Jetijones",
-      "crop": {
-        "x": 0,
-        "y": 0,
-        "w": 0.53,
-        "h": 0.99
-      }
-    },
-    {
       "name": "pd:PA28",
       "file": "pd/pa28.png",
-      "title": "Piper PA-28 Archer II (PA-28-181)",
+      "title": "Piper PA-28-150 Cherokee C (Cherokee line shares the 36'-8\" planform; serves all PA-28 codes)",
       "license": "Public domain",
       "attribution": "Publications Department, Piper Aircraft Corporation",
-      "sha256": "920f080442035b015739e0001a2f8a9cc212d5490210d64500bbbc3d1728e897",
+      "sha256": "047b0ac31c288881beff0e13491d158f26e244b197f39795cb0f06bf5222e735",
       "crop": {
         "x": 0,
-        "y": 0,
+        "y": 0.02,
         "w": 1,
-        "h": 0.175
+        "h": 0.44
       },
-      "rot": 180,
-      "url": "https://upload.wikimedia.org/wikipedia/commons/d/d8/Piper_PA-28-181_Cherokee_Archer_II_3-view_line_drawing.png"
+      "url": "https://upload.wikimedia.org/wikipedia/commons/7/79/Piper_PA-28-150_Cherokee_C_3-view_line_drawing.png"
     },
     {
       "name": "pd:C150",
@@ -113,10 +71,11 @@
       "sha256": "b2cdc3e30ce98f1a84c75da3d5d2f9688ee96632645c2b756b81c990247eee05",
       "crop": {
         "x": 0,
-        "y": 0.83,
+        "y": 0.35,
         "w": 1,
-        "h": 0.16
+        "h": 0.35
       },
+      "rot": 180,
       "url": "https://upload.wikimedia.org/wikipedia/commons/b/bf/Cessna_150F_3-view_line_drawing.png"
     },
     {
@@ -142,10 +101,10 @@
       "attribution": "Beech Aircraft Corporation",
       "sha256": "617ff8557c7633f1405fae42336745edaa96a158d253ce2ea5278922f32eb4d1",
       "crop": {
-        "x": 0,
-        "y": 0.78,
-        "w": 1,
-        "h": 0.21
+        "x": 0.02,
+        "y": 0.44,
+        "w": 0.96,
+        "h": 0.51
       },
       "url": "https://upload.wikimedia.org/wikipedia/commons/6/63/Beechcraft_E33_Bonanza_3-view_line_drawing.png"
     },
@@ -157,11 +116,12 @@
       "attribution": "Public domain (author unknown)",
       "sha256": "685b90965a10d75add68cdb86535d95b62c11abb2de126b72234fad1f16fa77e",
       "crop": {
-        "x": 0.05,
-        "y": 0.03,
-        "w": 0.42,
-        "h": 0.94
+        "x": 0.01,
+        "y": 0.16,
+        "w": 0.5,
+        "h": 0.64
       },
+      "rot": 180,
       "url": "https://upload.wikimedia.org/wikipedia/commons/1/1d/Cessna_A-37_Dragonfly_3-view_line_drawing.png"
     },
     {
@@ -172,10 +132,10 @@
       "attribution": "Beech Aircraft Corporation",
       "sha256": "f2464d5e5d883c90d0684453b4f355f39b1805161e13bf41d255c4cb806b9e4a",
       "crop": {
-        "x": 0.02,
-        "y": 0,
-        "w": 0.96,
-        "h": 0.47
+        "x": 0,
+        "y": 0.04,
+        "w": 1,
+        "h": 0.33
       },
       "rot": 180,
       "url": "https://upload.wikimedia.org/wikipedia/commons/1/11/Beechcraft_D55_Baron_3-view_line_drawing.png"
@@ -187,19 +147,9 @@
       "license": "Public domain",
       "attribution": "Technical Productions, Piper Aircraft Co",
       "sha256": "fd8de8b7c95c8d8e6d8bfb12780901cc345d7ff18d191c34b3d43d9b8406cffe",
-      "crop": { "x": 0, "y": 0.015, "w": 1, "h": 0.435 },
+      "crop": { "x": 0, "y": 0.025, "w": 1, "h": 0.43 },
       "rot": 180,
       "url": "https://upload.wikimedia.org/wikipedia/commons/5/59/Piper_PA-24-180_Comanche_3-view_line_drawing.png"
-    },
-    {
-      "name": "pd:C177",
-      "file": "pd/c177.png",
-      "title": "Cessna 177 Cardinal",
-      "license": "Public domain",
-      "attribution": "Cessna Aircraft Company",
-      "sha256": "b1d071748994d225cf966efbbf10c63266e5038221357fa053ac32d1a46c54c8",
-      "crop": { "x": 0, "y": 0.52, "w": 1, "h": 0.15 },
-      "url": "https://upload.wikimedia.org/wikipedia/commons/2/20/Cessna_177_Cardinal_3-view_line_drawing.png"
     },
     {
       "name": "pd:C310",
@@ -208,7 +158,7 @@
       "license": "Public domain",
       "attribution": "U.S. Military",
       "sha256": "2f8443f3787d2d856f7ddf57abf295c067c03bcf9fafdb3595f52d857462e64b",
-      "crop": { "x": 0, "y": 0.49, "w": 1, "h": 0.47 },
+      "crop": { "x": 0, "y": 0.52, "w": 1, "h": 0.45 },
       "rot": 180,
       "url": "https://upload.wikimedia.org/wikipedia/commons/2/23/Cessna_L-27A_3-view_line_drawing.png"
     },
@@ -219,8 +169,8 @@
       "license": "Public domain",
       "attribution": "U.S. Military",
       "sha256": "bf9fbd31140b820fbac09c8f79ea8f652653430748e2c5abc52e6bcf0127d6f1",
-      "crop": { "x": 0, "y": 0, "w": 1, "h": 0.26 },
-      "rot": 180,
+      "crop": { "x": 0, "y": 0.2, "w": 0.86, "h": 0.42 },
+      "rot": 90,
       "url": "https://upload.wikimedia.org/wikipedia/commons/3/34/Gulfstream_IV-SP_3-view_line_drawing.png"
     },
     {
@@ -232,10 +182,10 @@
       "license": "CC BY-SA 3.0",
       "attribution": "Julien.scavini",
       "crop": {
-        "x": 0.01,
-        "y": 0.38,
-        "w": 0.43,
-        "h": 0.62
+        "x": 0.625,
+        "y": 0.015,
+        "w": 0.375,
+        "h": 0.5
       },
       "rot": 180
     },

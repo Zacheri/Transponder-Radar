@@ -37,11 +37,12 @@ export interface CivilRule {
 // entries were added where the token table had none (K35E, S61, UH1, NH90,
 // MI24, B52, KC2, C141, V22, P1, P8, E8, SB39, B1, F5E, T38, TOR/TORNADO,
 // HAWK, LYNX). The 2026-11-06 gap curation wired the remaining tokens to
-// existing or curated art (KCTC→RC-135, CH53→pd:CH53, C21/C40→737-700,
-// VC25→747-8, EP3→P-3, TACAMO→707 (E-6 airframe), REAPER/MQ9→pd:MQ9). Uncovered
-// designators: B2, F14, F117, E4. AWACS and GRIFIN stay family-only: no rotodome
-// plan view exists for the E-3, and the RQ-4 art is a different airframe than
-// the MQ-4C Triton (both tracked in OmittedModels.md).
+// existing art (KCTC→RC-135, C21/C40→737-700, VC25→747-8, EP3→P-3,
+// TACAMO→707 (E-6 airframe)). The 2026-11-18 crop audit vetoed the curated
+// CH53/MQ9/C141 entries (no clean or usable art at icon size) — those tokens
+// fall back to family, tracked in OmittedModels.md. Uncovered designators:
+// B2, F14, F117, E4. GRIFIN stays family-only: the RQ-4 art is a different
+// airframe than the MQ-4C Triton (OmittedModels.md).
 
 export const MILITARY_RULES: MilitaryRule[] = [
   // ── tanker_air ─────────────────────────────────────────────────────────
@@ -52,7 +53,7 @@ export const MILITARY_RULES: MilitaryRule[] = [
   { re: /\bK35E\w*\b/, anchor: "word", pack: "rk:K35E", family: "tanker_air" }, // gapTarget K35E (KC-135E); KC135\w* already covers "KC135E" callsigns
   // ── milheli ────────────────────────────────────────────────────────────
   { re: /\bCH47\w*\b/, anchor: "word", pack: "pd:CH47", family: "milheli" },
-  { re: /\bCH53\w*\b/, anchor: "word", pack: "pd:CH53", family: "milheli" },
+  { re: /\bCH53\w*\b/, anchor: "word", family: "milheli" }, // vetoed: line art too thin at icon size (OmittedModels)
   { re: /\bUH60\w*\b/, anchor: "word", pack: "rk:H60", family: "milheli" },
   { re: /\bUH6\w*\b/, anchor: "word", pack: "rk:H60", family: "milheli" },
   { re: /\bMH60\w*\b/, anchor: "word", pack: "rk:H60", family: "milheli" },
@@ -82,7 +83,7 @@ export const MILITARY_RULES: MilitaryRule[] = [
   { re: /\bVC25\w*\b/, anchor: "word", pack: "rk:B748", family: "transport" }, // VC-25A = 747-8F airframe
   { re: /\bC40\w*\b/, anchor: "word", pack: "rk:B737", family: "transport" }, // C-40 = 737-based
   { re: /\bKC2\w*\b/, anchor: "word", pack: "rk:KC2", family: "transport" }, // Kawasaki C-2
-  { re: /\bC141\w*\b/, anchor: "word", pack: "pd:C141", family: "transport" },
+  { re: /\bC141\w*\b/, anchor: "word", family: "transport" }, // vetoed: sheet top view is drawn diagonal (OmittedModels)
   // The pack has no bare rk:V22 — only "V22 fast"/"V22 slow" rotor variants;
   // "fast" (in-flight depiction) fits the live map.
   { re: /\bV22\w*\b/, anchor: "word", pack: "rk:V22 fast", family: "transport" },
@@ -90,10 +91,10 @@ export const MILITARY_RULES: MilitaryRule[] = [
   { re: /\bRC135\w*\b/, anchor: "word", pack: "rk:R135", family: "isr" },
   { re: /\bEP3\w*\b/, anchor: "word", pack: "rk:P3", family: "isr" }, // EP-3E = P-3C airframe
   { re: /\bTACAMO\w*\b/, anchor: "word", pack: "rk:B703", family: "isr" }, // TACAMO = E-6 callsign (707-300 airframe; no free rotodome drawing)
-  { re: /\bAWACS\w*\b/, anchor: "word", family: "isr" }, // E-3 — no rotodome art (OmittedModels)
+  { re: /\bAWACS\w*\b/, anchor: "word", pack: "rk:E3TF", family: "isr" }, // E-3 — same art as the E3 token
   { re: /\bGRIFIN\w*\b/, anchor: "word", family: "isr" }, // MQ-4C Triton — RQ-4 art is a different airframe (OmittedModels)
-  { re: /\bREAPER\w*\b/, anchor: "word", pack: "pd:MQ9", family: "isr" },
-  { re: /\bMQ9\w*\b/, anchor: "word", pack: "pd:MQ9", family: "isr" },
+  { re: /\bREAPER\w*\b/, anchor: "word", family: "isr" }, // vetoed: no clean top-view crop (OmittedModels)
+  { re: /\bMQ9\w*\b/, anchor: "word", family: "isr" }, // vetoed: no clean top-view crop (OmittedModels)
   { re: /\bRQ4\w*\b/, anchor: "word", pack: "rk:Q4", family: "isr" }, // gapTarget Q4 (Global Hawk)
   { re: /\bP1\b/, anchor: "word", pack: "rk:P1", family: "isr" }, // strict: P1\w* would swallow P180 (Piaggio P-180 — different aircraft, own art)
   { re: /\bP8\w*\b/, anchor: "word", pack: "rk:P8", family: "isr" },
@@ -378,7 +379,7 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}206/, pack: "pw:C206", family: "piston" },
   { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}210(?!\d)/, pack: "pw:C210", family: "piston" }, // 2105 = registry 205 mislabel, not a 210
   { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}150/, pack: "pd:C150", family: "piston" },
-  { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}177/, pack: "pd:C177", family: "piston" },
+  { mfr: ["CESSNA", "TEXTRON"], re: /^[A-Z]{0,2}177/, family: "piston" }, // vetoed: banner text inside top view (OmittedModels)
   { mfr: ["CESSNA", "TEXTRON"], re: /^(L27|310)/, pack: "pd:C310", family: "piston" }, // L-27A = C-310 art
   { mfr: ["CESSNA", "TEXTRON"], re: /^(A37|C37)/, pack: "pd:A37", family: "piston" }, // A-37 = C-37 Airmaster airframe
   { mfr: ["CESSNA"], re: /^40[12]/, pack: "pw:C402", family: "piston" },

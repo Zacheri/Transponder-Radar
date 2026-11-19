@@ -131,10 +131,11 @@ describe("coveredDesignators (catalog gap list is resolver-based, both tables)",
     // manifest — the names are pinned in pins.json and visually verified
     // (707 top view + rotodome; 707 top view).
     const cov = coveredDesignators(new Set([...pdNames, "rk:E3TF", "rk:B703"]));
-    for (const d of ["CH47", "CH53", "MQ9", "E6", "C5", "KC10", "C141", "E3"]) {
+    for (const d of ["CH47", "E6", "C5", "KC10", "E3"]) {
       expect(cov.has(d), `expected ${d} covered`).toBe(true);
     }
-    for (const d of ["B2", "F14", "F117", "E4"]) {
+    // 2026-11-18 audit vetoes: no usable art at icon size → family fallback
+    for (const d of ["B2", "F14", "F117", "E4", "CH53", "MQ9", "C141"]) {
       expect(cov.has(d), `expected ${d} uncovered (standing gap)`).toBe(false);
     }
   });

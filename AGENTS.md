@@ -157,25 +157,31 @@ registered by `src/map/pack-icons.ts`. Family/sea SVGs are browser-verified
 only (no canvas in unit tests) — tune paths in
 `src/assets/icons/` and re-run the gate; names are the contract.
 
-Gap status (through the 2026-11-11 light-GA wave): three curation waves —
-11-06 wired 9 military tokens + 6 new tokens + 8 `pd:` entries; 11-09
-fixed the `E3`/BD-700 wrong-art bugs + Cessna/Bonanza/Bell/Global breadth
-rules; 11-11 curated 10 more `pd:` entries from the Commons 3-view series
-(PA-28, C150, Mooney M20, Bonanza 33/35, Baron 55/58, A-37, PA-24, C177,
-C-310/L-27A, G-IV — the last fixing a G-IV→Global-art wrong-airframe bug)
-and re-sourced four shipped entries (TACAMO→`rk:B703`, ATR-72→`rk:AT75`,
-MQ-9/MD-8 flipped `rot:180`). Several entries use `rot: 90|180|270` (sheet
-top views drawn nose-down) — rotation is applied after the crop.
-`pw:CT4`/`pw:HAWK` vetoed (unidentifiable at pack size). Standing gaps —
-military `B2 F14 F117 E4` (photos only) and the civil entries in
-`ML_Docs/Radar/OmittedModels.md`, incl. the large fleets that Commons
-cannot serve: **Piper J-3 (3.8k — every Commons SVG clips its own top
-view)**, **PA-18 (3.7k — overlapping view regions, no clean rectangle)**,
-C170 (in-view text), C421/C411/C414, AA-5, C337, PA-34, plus Challenger
-300/350, 737 MAX 7, L-410, Hawker 400/800, DC-9, G280/G550 dedicated art
-— one entry per omitted variant (code, rule, reason, search log, date) so
-a future agent can re-source (archive.org PD manuals are the noted next
-step for J-3/PA-18). Anything else renders the shape-family fallback.
+Gap status (through the 2026-11-18 crop audit): four waves — 11-06 wired
+9 military tokens + 6 new tokens + 8 `pd:` entries; 11-09 fixed the
+`E3`/BD-700 wrong-art bugs + Cessna/Bonanza/Bell/Global breadth rules;
+11-11 curated 10 more `pd:` entries from the Commons 3-view series and
+re-sourced TACAMO→`rk:B703`/ATR-72→`rk:AT75`; 11-18 audited every `pd:`
+crop at icon size and fixed 9 bad ones (PA-28 swapped to the PA-28-150
+sheet — top view was the wrong band; C150/A37/D55/PA24/C310/MD8 wrong band
+or upside-down; G-IV needed `rot: 90`), vetoed 4
+(`pd:C177`/`pd:MQ9`/`pd:C141`/`pd:CH53` — see `OmittedModels.md` 30–33),
+and wired the AWACS token to `rk:E3TF`. Several entries use
+`rot: 90|180|270` (sheet top views drawn nose-down or sideways) —
+rotation is applied after the crop. `pw:CT4`/`pw:HAWK` vetoed
+(unidentifiable at pack size). Standing gaps — military `B2 F14 F117 E4`
+(photos only) and the entries in `ML_Docs/Radar/OmittedModels.md`, incl.
+the large fleets Commons cannot serve: **Piper J-3 (3.8k — every Commons
+SVG clips its own top view)**, **PA-18 (3.7k — overlapping view regions)**,
+C177/C170 (banner text inside the top view), C421/C411/C414, AA-5, C337,
+PA-34, plus Challenger 300/350, 737 MAX 7, L-410, Hawker 400/800, DC-9,
+G280/G550 dedicated art — one entry per omitted variant (code, rule,
+reason, search log, date) so a future agent can re-source (archive.org PD
+manuals for J-3/PA-18; the AFSOC I32-1084 PD figure for MQ-9, needs a
+browser UA). Anything else renders the shape-family fallback. **Crop
+verification bar: eyeball every crop at final size for region, orientation
+and in-view text before shipping — 12 of 16 shipped `pd:` crops were wrong
+in 2026-11-18.**
 
 ### Icon pack (`server/iconpack.ts`, `data/icons/`)
 
@@ -204,8 +210,12 @@ in `data/icons/ATTRIBUTION.md`, generated at setup).
 unresolvable).
 
 Setup is automatic at first server start (verified pins + complete files →
-rebuild the index from disk, no network); `npm run icons:setup` is a
-deliberate one‑shot pre‑warm on good Wi‑Fi; `npm run icons:repin`
+rebuild the index from disk, no network). Editing the manifest's `pd` list
+invalidates `pins.json` (it pins every pd sha + the entry count), so the
+next start takes the full-download path — if that hits Commons 429s,
+sha-verify the files on disk against the manifest and rewrite `pins.json`'s
+`pd` map locally; `init` then rebuilds with no network.
+`npm run icons:setup` is a deliberate one-shot pre-warm on good Wi-Fi; `npm run icons:repin`
 (scripts/repin-icons.ts) re-pins pw/rk to `main` and re-downloads (prints
 the name-set diff). **Offline‑first (spec R10): no third‑party network
 access at runtime** — the browser only talks to the local server, which
