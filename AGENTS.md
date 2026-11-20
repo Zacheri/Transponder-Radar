@@ -157,31 +157,35 @@ registered by `src/map/pack-icons.ts`. Family/sea SVGs are browser-verified
 only (no canvas in unit tests) — tune paths in
 `src/assets/icons/` and re-run the gate; names are the contract.
 
-Gap status (through the 2026-11-18 crop audit): four waves — 11-06 wired
-9 military tokens + 6 new tokens + 8 `pd:` entries; 11-09 fixed the
-`E3`/BD-700 wrong-art bugs + Cessna/Bonanza/Bell/Global breadth rules;
-11-11 curated 10 more `pd:` entries from the Commons 3-view series and
-re-sourced TACAMO→`rk:B703`/ATR-72→`rk:AT75`; 11-18 audited every `pd:`
-crop at icon size and fixed 9 bad ones (PA-28 swapped to the PA-28-150
-sheet — top view was the wrong band; C150/A37/D55/PA24/C310/MD8 wrong band
-or upside-down; G-IV needed `rot: 90`), vetoed 4
-(`pd:C177`/`pd:MQ9`/`pd:C141`/`pd:CH53` — see `OmittedModels.md` 30–33),
-and wired the AWACS token to `rk:E3TF`. Several entries use
-`rot: 90|180|270` (sheet top views drawn nose-down or sideways) —
-rotation is applied after the crop. `pw:CT4`/`pw:HAWK` vetoed
-(unidentifiable at pack size). Standing gaps — military `B2 F14 F117 E4`
-(photos only) and the entries in `ML_Docs/Radar/OmittedModels.md`, incl.
-the large fleets Commons cannot serve: **Piper J-3 (3.8k — every Commons
-SVG clips its own top view)**, **PA-18 (3.7k — overlapping view regions)**,
-C177/C170 (banner text inside the top view), C421/C411/C414, AA-5, C337,
-PA-34, plus Challenger 300/350, 737 MAX 7, L-410, Hawker 400/800, DC-9,
-G280/G550 dedicated art — one entry per omitted variant (code, rule,
-reason, search log, date) so a future agent can re-source (archive.org PD
-manuals for J-3/PA-18; the AFSOC I32-1084 PD figure for MQ-9, needs a
-browser UA). Anything else renders the shape-family fallback. **Crop
-verification bar: eyeball every crop at final size for region, orientation
-and in-view text before shipping — 12 of 16 shipped `pd:` crops were wrong
-in 2026-11-18.**
+Gap status (through the 2026-11-19 registry-sweep wave): five waves —
+11-06 wired 9 military tokens + 6 new tokens + 8 `pd:` entries; 11-09
+fixed the `E3`/BD-700 wrong-art bugs + Cessna/Bonanza/Bell/Global breadth
+rules; 11-11 curated 10 more `pd:` entries from the Commons 3-view series
+and re-sourced TACAMO→`rk:B703`/ATR-72→`rk:AT75`; 11-18 audited every
+`pd:` crop at icon size, fixed 9 bad ones and vetoed 4
+(`pd:C177`/`pd:MQ9`/`pd:C141`/`pd:CH53` — `OmittedModels.md` 30–33), and
+wired the AWACS token to `rk:E3TF`; 11-19 (registry sweep + vision-gated
+curation via subagent) added Kaydet/PT-17→`rk:ST75` (1k ac, table-only),
+Learjet-bare/Phenom/Citation family routing fixes, and three **derived**
+`pd:` entries — `pd:PA22` (2.9k), `pd:PA30` (0.9k), `pd:MUSK` (1.2k) —
+each pre-binarized/dilated/rot-baked from a Commons 3-view sheet
+(`style:"filled"`, scripts + provenance in the wave2c papertrail).
+Several entries use `rot: 90|180|270` (sheet top views drawn nose-down
+or sideways) — rotation is applied after the crop. `pw:CT4`/`pw:HAWK`
+vetoed (unidentifiable at pack size). Standing gaps — military
+`B2 F14 F117 E4` (photos only) and the entries in
+`ML_Docs/Radar/OmittedModels.md`, incl. the large fleets Commons
+cannot serve: **Piper J-3 (3.8k — every Commons SVG clips its own top
+view)**, **PA-18 (3.7k — overlapping view regions)**, Aeronca 7AC Chief
+(2.3k — vignetted gray-fill scan, no threshold window), **Stinson 108
+(1.4k — sheet has no plan view)**, C177/C170 (banner text inside the top
+view), C421/C411/C414, AA-5, C337, PA-34, plus Challenger 300/350,
+737 MAX 7, L-410, Hawker 400/800, DC-9, G280/G550 dedicated art — one
+entry per omitted variant (code, rule, reason, search log, date) so a
+future agent can re-source. Anything else renders the shape-family
+fallback. **Crop verification bar: eyeball every crop at final size for
+region, orientation and in-view text before shipping — 12 of 16 shipped
+`pd:` crops were wrong in 2026-11-18.**
 
 ### Icon pack (`server/iconpack.ts`, `data/icons/`)
 
@@ -232,6 +236,13 @@ pd entries may carry `style: "filled"` (near-white SVG silhouettes like
 can be JPEG bytes (Commons .jpg sources — c5/kc10), GIF (`pd:B200`), or
 SVG (`pd:CH53`, `pd:737C`) under any extension — the extension is part of
 the sha pin; never "fix" the filename, it would invalidate verification.
+**Derived entries** (`pd:PA22`/`pd:PA30`/`pd:MUSK`) ship authoring-time
+silhouettes (sheet cropped, binarized at a measured threshold, dilated,
+rotation-baked, white-out on alpha, `style: "filled"`) — their `url`
+points at the source sheet but the sha matches the DERIVED file, so a
+full `data/icons/` wipe fails re-download verification for those three
+and degrades to family fallback; re-author with the wave2c scripts
+(`silgen.js` pattern) instead.
 Recolor limit: `recolorPixels`
 (`shared/pack-transforms.ts`) recolors only near‑white pixels (r, g, b all
 ≥ 200) — non‑white painted details keep their color.
