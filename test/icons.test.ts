@@ -248,6 +248,19 @@ describe("civil resolver pack emission (Task 6 curation lock)", () => {
     ["58", "BEECH", "pd:D55"],
     ["58P", "BEECH", "pd:D55"],
     ["152", "CESSNA", "piston"], // 152 ≠ 150 — its own code
+    // wave 3 (2026-11-19): big light-GA fleets from the registry sweep
+    ["PA-22", "PIPER", "pd:PA22"], // Colt/Pacer family (military L-14/L-18/L-20 codes too)
+    ["PA-22-150", "PIPER", "pd:PA22"],
+    ["PA22S-135", "PIPER", "pd:PA22"],
+    ["PA-30", "PIPER", "pd:PA30"], // Twin Comanche
+    ["PA-30B-160", "PIPER", "pd:PA30"],
+    ["C23", "BEECH", "pd:MUSK"], // Musketeer/Sierra Maine family (A24R art)
+    ["23", "BEECH", "pd:MUSK"],
+    ["19", "BEECH", "pd:MUSK"],
+    ["A23-24", "BEECH", "pd:MUSK"],
+    ["A24R", "BEECHCRAFT", "pd:MUSK"],
+    ["1900C", "BEECH", "turboprop"], // (?!\d) guard: 1900 airliner, not a Musketeer 19
+    ["1901", "BEECH", "piston"], // unknown code: the (?!\d) guard must NOT drag it onto Musketeer art
     ["A75N1", "BOEING", "rk:ST75"], // Kaydet/PT-17/N2S = Stearman 75 airframes (mfr "BOEING", 1k ac)
     ["A75N1(PT17)", "BOEING", "rk:ST75"],
     ["N2S-3", "BOEING", "rk:ST75"],

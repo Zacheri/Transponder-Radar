@@ -147,7 +147,12 @@
       "license": "Public domain",
       "attribution": "Technical Productions, Piper Aircraft Co",
       "sha256": "fd8de8b7c95c8d8e6d8bfb12780901cc345d7ff18d191c34b3d43d9b8406cffe",
-      "crop": { "x": 0, "y": 0.025, "w": 1, "h": 0.43 },
+      "crop": {
+        "x": 0,
+        "y": 0.025,
+        "w": 1,
+        "h": 0.43
+      },
       "rot": 180,
       "url": "https://upload.wikimedia.org/wikipedia/commons/5/59/Piper_PA-24-180_Comanche_3-view_line_drawing.png"
     },
@@ -158,7 +163,12 @@
       "license": "Public domain",
       "attribution": "U.S. Military",
       "sha256": "2f8443f3787d2d856f7ddf57abf295c067c03bcf9fafdb3595f52d857462e64b",
-      "crop": { "x": 0, "y": 0.52, "w": 1, "h": 0.45 },
+      "crop": {
+        "x": 0,
+        "y": 0.52,
+        "w": 1,
+        "h": 0.45
+      },
       "rot": 180,
       "url": "https://upload.wikimedia.org/wikipedia/commons/2/23/Cessna_L-27A_3-view_line_drawing.png"
     },
@@ -169,7 +179,12 @@
       "license": "Public domain",
       "attribution": "U.S. Military",
       "sha256": "bf9fbd31140b820fbac09c8f79ea8f652653430748e2c5abc52e6bcf0127d6f1",
-      "crop": { "x": 0, "y": 0.2, "w": 0.86, "h": 0.42 },
+      "crop": {
+        "x": 0,
+        "y": 0.2,
+        "w": 0.86,
+        "h": 0.42
+      },
       "rot": 90,
       "url": "https://upload.wikimedia.org/wikipedia/commons/3/34/Gulfstream_IV-SP_3-view_line_drawing.png"
     },
@@ -212,6 +227,54 @@
       "title": "Boeing 737 Classic (737-300 silhouette; used for the 737-600)",
       "license": "CC BY-SA 4.0",
       "attribution": "Peter James Lowden",
+      "style": "filled",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1
+      }
+    },
+    {
+      "name": "pd:PA22",
+      "file": "pd/pa22.png",
+      "url": "https://commons.wikimedia.org/wiki/File:Piper_PA-22-108_Colt_3-view_line_drawing.png",
+      "sha256": "79c318e4a30e5f5d83b1ce70ecf3fda10de942877ec7c4fb753b3e4e59509616",
+      "title": "Piper PA-22 Colt (derived plan-view silhouette)",
+      "license": "Public domain",
+      "attribution": "Piper Aircraft Corporation, via Wikimedia Commons",
+      "style": "filled",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1
+      }
+    },
+    {
+      "name": "pd:PA30",
+      "file": "pd/pa30.png",
+      "url": "https://commons.wikimedia.org/wiki/File:Piper_PA-30_Twin_Comanche_B_3-view_line_drawing.png",
+      "sha256": "2715232082bf63643da4d1314c90ef97bfaec3f3307a42405837ad998ff66e81",
+      "title": "Piper PA-30 Twin Comanche (derived plan-view silhouette)",
+      "license": "Public domain",
+      "attribution": "Piper Aircraft Corporation, via Wikimedia Commons",
+      "style": "filled",
+      "crop": {
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1
+      }
+    },
+    {
+      "name": "pd:MUSK",
+      "file": "pd/musk.png",
+      "url": "https://commons.wikimedia.org/wiki/File:Beechcraft_A24R_Musketeer_Super_R_3-view_line_drawing.png",
+      "sha256": "2baedc8f4d371201a8a6cd07e20bb5e4225cd745dfea6a70cf7e542013ba03b9",
+      "title": "Beechcraft Musketeer (derived plan-view silhouette, A24R art)",
+      "license": "Public domain",
+      "attribution": "Beech Aircraft Corporation, via Wikimedia Commons",
       "style": "filled",
       "crop": {
         "x": 0,

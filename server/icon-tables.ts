@@ -400,8 +400,11 @@ export const CIVIL_RULES: CivilRule[] = [
   { mfr: ["BEECH", "BEECHCRAFT"], re: /^[A-Z]?35(?!\d)/, pack: "pd:B35", family: "piston" },
   { mfr: ["BEECH", "BEECHCRAFT"], re: /^[A-Z]?33(?!\d)/, pack: "pd:B35", family: "piston" },
   { mfr: ["BEECH", "BEECHCRAFT"], re: /^(95B|D)?5(5|8)/, pack: "pd:D55", family: "piston" }, // D55 = bare 55 code
+  { mfr: ["BEECH", "BEECHCRAFT"], re: /^(19(?!\d)|23(?!\d)|C23|A23|A24R)/, pack: "pd:MUSK", family: "piston" }, // Musketeer/Sierra Maine (A24R art; (?!\d) keeps the 1900 out)
   { mfr: ["PIPER"], re: /^PA28/, pack: "pd:PA28", family: "piston" }, // 18.5k ac — was a dead ^P28 bizjet rule
   { mfr: ["PIPER"], re: /^PA24/, pack: "pd:PA24", family: "piston" }, // Comanche
+  { mfr: ["PIPER"], re: /^PA22/, pack: "pd:PA22", family: "piston" }, // Colt/Pacer (2.9k ac)
+  { mfr: ["PIPER"], re: /^PA30/, pack: "pd:PA30", family: "piston" }, // Twin Comanche
   { mfr: ["PIPER"], re: /^PA31/, pack: "pw:PA31", family: "piston" },
   { re: /^PA32/, pack: "pw:P32T", family: "piston" },
   { re: /^PA44/, pack: "pw:PA44", family: "piston" },

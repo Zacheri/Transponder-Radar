@@ -17,7 +17,7 @@ describe("iconpack-sources manifest", () => {
   });
 
   it("pd entries well-formed and unique", () => {
-    expect(s.pd.length).toBe(15);
+    expect(s.pd.length).toBe(18);
     expect(new Set(s.pd.map((e) => e.name)).size).toBe(s.pd.length);
     for (const e of s.pd) {
       expect(e.name).toMatch(/^pd:[A-Z0-9]+$/);
