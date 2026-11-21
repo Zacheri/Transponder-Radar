@@ -302,6 +302,85 @@ describe("HistoryRecorder", () => {
       expect(st.snapshotMs).toBe(60000);
     });
   });
+
+  describe("compact", () => {
+    // NOW and OLD are exact COMPACT_STEP_MS multiples, so OLD's bucket ended
+    // 2 h before the 48 h horizon at NOW: every OLD snapshot is compactable.
+    const NOW = 1_700_000_100_000;
+    const H = 3_600_000;
+    const S = 60_000;
+    const OLD = NOW - 50 * H;
+
+    // Five snapshots inside one dead bucket, clock advanced to NOW.
+    const seedOld = async (extra: Partial<HistoryRecorderOpts> = {}) => {
+      const h = rec(1_000_000, extra);
+      await h.init();
+      for (let k = 0; k < 5; k++) {
+        t = OLD + k * S;
+        await h.recordNow(() => [craft(`s${k}`)]);
+      }
+      t = NOW;
+      return h;
+    };
+
+    it("deletes files, index entries and cache of old snapshots; seek returns the survivor", async () => {
+      const cache = new SnapshotCache({ maxBytes: 1_000_000 });
+      const h = await seedOld({ cache });
+      expect(h.range().snapshots).toBe(5);
+
+      expect(await h.compact()).toBe(4);
+
+      expect(h.range()).toEqual({ from: OLD, to: OLD, snapshots: 1 });
+      expect(await readdir(dir)).toEqual([`${OLD}.json.gz`]);
+      expect(cache.get(OLD)).not.toBeUndefined();
+      expect(cache.get(OLD + 2 * S)).toBeUndefined();
+      expect(await h.seek(OLD + 2 * S)).toEqual({ time: OLD, craft: [craft("s0")] });
+    });
+
+    it("is idempotent", async () => {
+      const h = await seedOld();
+      expect(await h.compact()).toBe(4);
+      expect(await h.compact()).toBe(0);
+    });
+
+    it("keeps pinned snapshots and shrinks usedBytes", async () => {
+      const pins = new PinStore({ file: join(dir, "pins.json") });
+      await pins.init();
+      const h = await seedOld({ pins });
+      // Minimum-span pin over the first two snapshots: the bucket holds pins,
+      // so every unpinned ts of it is deleted.
+      expect(pins.add(OLD, OLD + S, null)).not.toBeNull();
+      const before = h.usedBytes();
+
+      expect(await h.compact()).toBe(3);
+
+      expect(h.entries().map((e) => e.ts)).toEqual([OLD, OLD + S]);
+      expect((await readdir(dir)).filter((f) => f.endsWith(".json.gz")).sort()).toEqual([
+        `${OLD}.json.gz`,
+        `${OLD + S}.json.gz`,
+      ]);
+      expect(h.usedBytes()).toBeLessThan(before);
+      expect(h.usedBytes()).toBe(h.entries().reduce((s, e) => s + e.size, 0));
+    });
+
+    it("window() after a manual unlink of an indexed ts completes and skips it", async () => {
+      const lines: string[] = [];
+      const h = rec(1_000_000, { log: (m) => lines.push(m) });
+      await h.init();
+      t = NOW - 3 * H;
+      await h.recordNow(() => [craft("w0")]);
+      t = NOW - 2 * H;
+      await h.recordNow(() => [craft("w1")]);
+      t = NOW - H;
+      await h.recordNow(() => [craft("w2")]);
+      await rm(join(dir, `${NOW - 2 * H}.json.gz`));
+
+      const items = await h.window(NOW - 4 * H, NOW, 1, 1_000_000);
+
+      expect(items.map((i) => i.ts)).toEqual([NOW - 3 * H, NOW - H]);
+      expect(lines.some((l) => l.includes(`skipping missing snapshot ${NOW - 2 * H}`))).toBe(true);
+    });
+  });
 });
 
 describe("planCompaction", () => {

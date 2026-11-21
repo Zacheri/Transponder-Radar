@@ -412,12 +412,20 @@ export async function buildApp(deps: ServerDeps = {}) {
 
   hub.start();
   recorder?.start(() => store.all());
+  // Compaction pass: once at boot (init succeeded), then hourly; errors logged only.
+  const runCompact = () =>
+    recorder
+      ?.compact()
+      .catch((e) => log(`history: compact failed: ${e instanceof Error ? e.message : String(e)}`));
+  if (recorder) runCompact();
+  const compactTimer = recorder ? setInterval(runCompact, 3_600_000) : null;
   opensky.start();
   if (deps.ais || config.AISSTREAM_API_KEY) ais.start();
   else log("ais: AISSTREAM_API_KEY not set — vessel feed disabled");
 
   const stop = async () => {
     clearInterval(sweeper);
+    if (compactTimer) clearInterval(compactTimer);
     hub.stop();
     recorder?.stop();
     faa?.stop();

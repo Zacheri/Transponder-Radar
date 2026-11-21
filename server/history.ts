@@ -180,6 +180,30 @@ export class HistoryRecorder {
     }
   }
 
+  /**
+   * Delete snapshots older than the full-resolution horizon down to one per
+   * COMPACT_STEP_MS bucket (see planCompaction). Returns the deleted count.
+   */
+  async compact(): Promise<number> {
+    const del = planCompaction(
+      this.index,
+      this.now(),
+      (ts) => this.opts.pins?.contains(ts) ?? false,
+    );
+    for (const ts of del) {
+      // Same idempotent delete mechanism as evict().
+      this.index = this.index.filter((m) => m.ts !== ts);
+      this.opts.cache?.drop(ts);
+      await unlink(join(this.opts.dir, `${ts}.json.gz`)).catch(() => {});
+    }
+    if (del.length > 0) {
+      this.opts.log?.(
+        `history: compacted ${del.length} snapshots older than ${FULL_RES_AGE_MS / 3_600_000} h`,
+      );
+    }
+    return del.length;
+  }
+
   range(): HistoryRange {
     const n = this.index.length;
     return { from: n ? this.index[0].ts : null, to: n ? this.index[n - 1].ts : null, snapshots: n };
