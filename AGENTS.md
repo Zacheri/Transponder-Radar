@@ -299,10 +299,15 @@ Recolor limit: `recolorPixels`
   1 h). Fixtures in `test/fixtures/` are recorded real responses — tests run
   offline; never re-record casually.
 - Coverage: US-registered aircraft only (v1 ruling).
-- Offline‑first (spec R10): the bulk DB follows the same local‑cache
-  pattern as the icon pack — download once, serve from disk, refresh on a
-  cadence (`FAA_REFRESH_MS`, daily default; `604800000` = weekly for
-  spotty connections), keep serving the stale index on failure.
+- FAA bulk registry cadence: download only if ≥24 h since the last *successful*
+  one (gate = extracted-files mtime, written by the loader), checked at startup
+  + every `FAA_REFRESH_MS` (default 4 h; failures retry per check, never reset
+  the clock). Every successful download keeps a daily zip copy
+  (`data/faa/dailies/`, deleted only once today is ≥7 days past the most recent
+  Friday they precede, 16-file cap) and the first download of each
+  Friday-anchored week is snapshotted to `data/faa/fridays/` (52 kept).
+  Offline-first (spec R10): same local-cache pattern as the icon pack —
+  download once, serve from disk, keep serving the stale index on failure.
 
 ## Architecture at a glance
 
@@ -354,15 +359,17 @@ Recolor limit: `recolorPixels`
   slider — and ignores non-finite values; a
   new service adds one `feedRate` handler entry in `index.ts` + a slider via
   the `createFeedRate` factory),
-  `{type:"timeline.seek",time}`, `{type:"timeline.live"}`,
-  `{type:"aircraft.info",id}`;
+  `{type:"timeline.seek",time,seq?}`, `{type:"timeline.live"}`,
+  `{type:"aircraft.info",id}` (the optional `seq` is echoed on the reply so the
+  client can drop replies from superseded seeks; legacy seq-less replies are
+  always applied);
   server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`
   (craft objects carry an optional `icon` — air shape family / sea kind /
   absent in pre-icon snapshots),
   `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled,lastError,lastMessageAt,flushMs}},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},serverTime}`
   (icons.state: ready|downloading|failed|absent),
-  `{type:"timeline.state",time,craft}` (`time:null` = return to live / seek
+  `{type:"timeline.state",time,craft,seq?}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
   `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`).
-- `test/` — 26 files, 398 tests. Node-environment Vitest; browser-only code
+- `test/` — 37 files, 698 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

@@ -32,3 +32,6 @@ coverage/
 
 # runtime data (FAA registry cache, history snapshots) — never commit
 /data/
+
+# working docs (papertrails, research) — never commit
+/ML_Docs/
