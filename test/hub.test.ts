@@ -379,3 +379,38 @@ describe("parseClientMessage", () => {
     expect(parseClientMessage(JSON.stringify({ type: "timeline.window", seq: 7, from: 100, stride: 1, maxBytes: 1 << 20 }))).toBeNull();
   });
 });
+
+describe("parseClientMessage (flight context)", () => {
+  it("accepts well-formed flight.track / flight.context frames", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "flight.track", id: "abc" }))).toEqual({ type: "flight.track", id: "abc" });
+    expect(parseClientMessage(JSON.stringify({ type: "flight.track", id: "abc", seq: 4, auto: false }))).toEqual({
+      type: "flight.track",
+      id: "abc",
+      seq: 4,
+      auto: false,
+    });
+    expect(parseClientMessage(JSON.stringify({ type: "flight.track", id: "abc", auto: true }))).toEqual({
+      type: "flight.track",
+      id: "abc",
+      auto: true,
+    });
+    expect(parseClientMessage(JSON.stringify({ type: "flight.context", id: "abc", seq: 0 }))).toEqual({
+      type: "flight.context",
+      id: "abc",
+      seq: 0,
+    });
+  });
+
+  it("rejects missing/empty id and bad seq/auto", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "flight.track" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "flight.track", id: "" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "flight.track", id: "abc", seq: "7" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "flight.track", id: "abc", seq: NaN }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "flight.track", id: "abc", seq: 1.5 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "flight.track", id: "abc", seq: -1 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "flight.track", id: "abc", auto: "yes" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "flight.context" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "flight.context", id: 5 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "flight.context", id: "abc", seq: -1 }))).toBeNull();
+  });
+});

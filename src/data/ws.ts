@@ -54,6 +54,42 @@ export interface WindowChunk {
   reachedTo: number | null;
 }
 
+// Mirrors of server/tracks.ts TrackPoint/TrackReply and server/routes.ts
+// AirportRef/FlightRoute — redeclared (client never imports server code);
+// keep in sync by hand.
+export interface TrackPoint {
+  t: number;
+  lat: number;
+  lon: number;
+  alt: number | null;
+  onGround: boolean;
+}
+
+export interface TrackReply {
+  path: TrackPoint[];
+  fetchedAt: number;
+  source: "both" | "history" | "opensky" | "none";
+  budget: { autoLeft: number; hard: boolean };
+}
+
+export interface AirportRef {
+  code: string;
+  icao: string | null;
+  iata: string | null;
+  name: string | null;
+  city: string | null;
+  country: string | null;
+  lat: number | null;
+  lon: number | null;
+}
+
+export interface FlightRoute {
+  airline: string | null;
+  dep: AirportRef | null;
+  arr: AirportRef | null;
+  source: "adsbdb" | "opensky";
+}
+
 export interface StatusMessage {
   type: "status";
   feeds: FeedStatus;
@@ -73,7 +109,9 @@ export type RadarMessage =
   | { type: "timeline.state"; time: number | null; craft: Craft[]; seq?: number }
   | { type: "aircraft.info"; id: string; info: AircraftInfo | null }
   | { type: "pins"; pins: Pin[] }
-  | { type: "timeline.window.chunk" } & WindowChunk;
+  | { type: "timeline.window.chunk" } & WindowChunk
+  | { type: "flight.track"; id: string; seq?: number } & TrackReply
+  | { type: "flight.context"; id: string; seq?: number; route: FlightRoute | null };
 
 export function parseRadarMessage(raw: string): RadarMessage | null {
   try {
@@ -101,6 +139,27 @@ export function parseRadarMessage(raw: string): RadarMessage | null {
     ) {
       return msg;
     }
+    if (
+      msg.type === "flight.track" &&
+      typeof msg.id === "string" &&
+      msg.id.length > 0 &&
+      Array.isArray(msg.path) &&
+      typeof msg.fetchedAt === "number" &&
+      (msg.source === "both" || msg.source === "history" || msg.source === "opensky" || msg.source === "none") &&
+      msg.budget != null &&
+      typeof msg.budget.autoLeft === "number" &&
+      typeof msg.budget.hard === "boolean"
+    ) {
+      return msg;
+    }
+    if (
+      msg.type === "flight.context" &&
+      typeof msg.id === "string" &&
+      msg.id.length > 0 &&
+      (msg.route === null || (msg.route && typeof msg.route.source === "string"))
+    ) {
+      return msg;
+    }
     return null;
   } catch {
     return null;
@@ -116,6 +175,10 @@ export interface RadarSocketHandlers {
   onAircraftInfo?: (id: string, info: AircraftInfo | null) => void;
   onPins?: (pins: Pin[]) => void;
   onWindowChunk?: (chunk: WindowChunk) => void;
+  // seq is echoed from the request (0 when omitted) so callers can drop
+  // replies from superseded selections, same as onTimelineState.
+  onFlightTrack?: (id: string, reply: TrackReply, seq?: number) => void;
+  onFlightContext?: (id: string, route: FlightRoute | null, seq?: number) => void;
 }
 
 export class RadarSocket {
@@ -166,6 +229,17 @@ export class RadarSocket {
     this.send({ type: "timeline.window", seq, from, to, stride, maxBytes });
   }
 
+  // Flight context pair (spec §E): seq is the client-side staleness key,
+  // bumped on every selection change AND every refresh wave; auto=false
+  // marks a manual refresh (exempt from the server's daily auto budget).
+  sendFlightTrack(id: string, seq: number, auto: boolean): void {
+    this.send({ type: "flight.track", id, seq, auto });
+  }
+
+  sendFlightContext(id: string, seq: number): void {
+    this.send({ type: "flight.context", id, seq });
+  }
+
   connect(): void {
     this.closed = false;
     this.open();
@@ -199,6 +273,9 @@ export class RadarSocket {
       else if (msg.type === "aircraft.info") this.handlers.onAircraftInfo?.(msg.id, msg.info);
       else if (msg.type === "pins") this.handlers.onPins?.(msg.pins);
       else if (msg.type === "timeline.window.chunk") this.handlers.onWindowChunk?.(msg);
+      else if (msg.type === "flight.track")
+        this.handlers.onFlightTrack?.(msg.id, { path: msg.path, fetchedAt: msg.fetchedAt, source: msg.source, budget: msg.budget }, msg.seq);
+      else if (msg.type === "flight.context") this.handlers.onFlightContext?.(msg.id, msg.route, msg.seq);
       else this.handlers.onTimelineState?.(msg.time, msg.craft, msg.seq);
     };
     ws.onclose = () => {

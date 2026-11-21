@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
@@ -25,6 +25,9 @@ import {
 } from "../shared/limits.js";
 import { FaaLoader, type FaaProvider, type FaaRecord } from "./faa.js";
 import { FaaLookup } from "./faa-lookup.js";
+import { createAirports } from "./airports.js";
+import { createRoutes, type FlightRoute } from "./routes.js";
+import { AUTO_DAILY_CAP, createTracks } from "./tracks.js";
 import { resolveAirIcon } from "./icons.js";
 import { IconPack } from "./iconpack.js";
 import { loadIconSources } from "./iconpack-sources.js";
@@ -45,6 +48,9 @@ export interface ServerDeps {
   // Defaults point at the live data/ dir; tests pass tmp paths (hermetic).
   settingsFile?: string;
   pinFile?: string;
+  // Test seam for the airports/routes/tracks services' downloads (they
+  // otherwise reach GitHub/adsbdb/OpenSky); default is the global fetch.
+  fetchImpl?: typeof fetch;
   log?: (msg: string) => void;
 }
 
@@ -150,6 +156,36 @@ export async function buildApp(deps: ServerDeps = {}) {
     ? new FaaLookup(faa, { cacheFile: join(faaDir, "enrichment.json"), log })
     : null;
   if (faaLookup) await faaLookup.init();
+  // Flight-context services live beside settings.json so tests that pass a
+  // tmp settingsFile never touch the live data/ dir.
+  const dataBase = dirname(settingsFile);
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const airports = createAirports({ dir: join(dataBase, "airports"), fetchImpl, log });
+  void airports.init().catch((e) => log(`airports: init failed — code-only airport refs (${e instanceof Error ? e.message : String(e)})`));
+  // Shared token provider for the routes fallback (/flights/all) and the
+  // track fetch (/tracks/all); routes and tracks hit different credit buckets.
+  const openskyToken =
+    config.OPENSKY_CLIENT_ID && config.OPENSKY_CLIENT_SECRET
+      ? createTokenProvider({
+          clientId: config.OPENSKY_CLIENT_ID,
+          clientSecret: config.OPENSKY_CLIENT_SECRET,
+          fetchImpl,
+        })
+      : undefined;
+  const routes = createRoutes({
+    airports,
+    cacheFile: join(dataBase, "routes", "cache.json"),
+    tokenProvider: openskyToken,
+    fetchImpl,
+    log,
+  });
+  const tracks = createTracks({
+    recorder,
+    ledgerFile: join(dataBase, "tracks", "ledger.json"),
+    tokenProvider: openskyToken,
+    fetchImpl,
+    log,
+  });
   const hub =
     deps.hub ??
     new Hub({
@@ -297,6 +333,44 @@ export async function buildApp(deps: ServerDeps = {}) {
           })();
           break;
         }
+        case "flight.context": {
+          const craft = store.get(msg.id);
+          const seq = msg.seq ?? 0;
+          void (async () => {
+            // Absent/sea ids echo empty before the ladder runs (no lookups
+            // for ids we do not know); the callsign always comes from the
+            // store, never from the client frame.
+            let route: FlightRoute | null = null;
+            if (craft && craft.domain !== "sea") {
+              route = await routes.get({ id: msg.id, callsign: craft.callsign });
+            }
+            reply({ type: "flight.context", id: msg.id, seq, route });
+          })().catch((e) => log(`flight.context: ${msg.id} failed (${e instanceof Error ? e.message : String(e)})`));
+          break;
+        }
+        case "flight.track": {
+          const craft = store.get(msg.id);
+          const seq = msg.seq ?? 0;
+          void (async () => {
+            if (!craft || craft.domain === "sea") {
+              // Same empty echo the service gives for a never-fetched craft;
+              // the full budget is honest here — an unknown id costs nothing.
+              reply({
+                type: "flight.track",
+                id: msg.id,
+                seq,
+                path: [],
+                fetchedAt: 0,
+                source: "none",
+                budget: { autoLeft: AUTO_DAILY_CAP, hard: false },
+              });
+              return;
+            }
+            const res = await tracks.get(msg.id.toLowerCase(), msg.auto ?? true);
+            reply({ type: "flight.track", id: msg.id, seq, ...res });
+          })().catch((e) => log(`flight.track: ${msg.id} failed (${e instanceof Error ? e.message : String(e)})`));
+          break;
+        }
         default:
           break;
       }
@@ -430,6 +504,7 @@ export async function buildApp(deps: ServerDeps = {}) {
     recorder?.stop();
     faa?.stop();
     faaLookup?.stop();
+    routes.stop();
     opensky.stop();
     ais.stop();
     await app.close();

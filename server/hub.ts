@@ -36,6 +36,8 @@ export type ClientMessage =
   | { type: "settings.update"; patch: { storageCapGb?: number; ramCacheGb?: number } }
   | { type: "pin.add"; from: number; to: number }
   | { type: "pin.remove"; id: string }
+  | { type: "flight.track"; id: string; seq?: number; auto?: boolean }
+  | { type: "flight.context"; id: string; seq?: number }
   | { type: "timeline.window"; seq: number; from: number; to: number; stride: number; maxBytes: number };
 
 export function parseClientMessage(raw: string): ClientMessage | null {
@@ -67,6 +69,23 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       Number.isFinite(m.to)
     ) return m;
     if (m.type === "pin.remove" && typeof m.id === "string" && m.id.length > 0) return m;
+    // seq here is a strict optional key (unlike timeline.seek, whose garbage
+    // seq is silently dropped): a malformed seq/auto marks the whole frame bad.
+    if (
+      m.type === "flight.track" &&
+      typeof m.id === "string" &&
+      m.id.length > 0 &&
+      (m.seq === undefined || (Number.isInteger(m.seq) && m.seq >= 0)) &&
+      (m.auto === undefined || typeof m.auto === "boolean")
+    )
+      return m;
+    if (
+      m.type === "flight.context" &&
+      typeof m.id === "string" &&
+      m.id.length > 0 &&
+      (m.seq === undefined || (Number.isInteger(m.seq) && m.seq >= 0))
+    )
+      return m;
     if (
       m.type === "timeline.window" &&
       Number.isInteger(m.seq) &&

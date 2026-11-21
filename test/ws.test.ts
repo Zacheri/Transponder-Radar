@@ -272,6 +272,9 @@ describe("timeline.seek seq echo", () => {
     const ais = new AisClient({ url: "ws://127.0.0.1:1", apiKey: "test", store });
     const app = await buildApp({
       store, opensky, ais, recorder, faa: null, iconPack: null,
+      fetchImpl: async () => {
+        throw new Error("offline test");
+      },
       settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json"), log: () => {},
     });
     await app.app.listen({ port: 0, host: "127.0.0.1" });
@@ -307,5 +310,116 @@ describe("timeline.seek seq echo", () => {
     ws.close();
     await app.stop();
     await rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe("flight context client protocol mirror", () => {
+  it("parseRadarMessage accepts well-formed flight.track and flight.context server replies; rejects malformed", () => {
+    const track = {
+      type: "flight.track",
+      id: "ac4963",
+      seq: 3,
+      path: [{ t: 1000, lat: 1, lon: 2, alt: 300, onGround: false }],
+      fetchedAt: 999,
+      source: "both",
+      budget: { autoLeft: 10, hard: false },
+    };
+    expect(parseRadarMessage(JSON.stringify(track))?.type).toBe("flight.track");
+    expect(parseRadarMessage(JSON.stringify({ ...track, path: "nope" }))).toBeNull();
+    expect(parseRadarMessage(JSON.stringify({ ...track, fetchedAt: "x" }))).toBeNull();
+    expect(parseRadarMessage(JSON.stringify({ ...track, source: "bogus" }))).toBeNull();
+    expect(parseRadarMessage(JSON.stringify({ ...track, budget: undefined }))).toBeNull();
+    expect(parseRadarMessage(JSON.stringify({ ...track, id: 5 }))).toBeNull();
+
+    const ctx = { type: "flight.context", id: "ac4963", seq: 2, route: { airline: "BA", dep: null, arr: null, source: "adsbdb" } };
+    expect(parseRadarMessage(JSON.stringify(ctx))?.type).toBe("flight.context");
+    expect(parseRadarMessage(JSON.stringify({ ...ctx, route: null }))?.type).toBe("flight.context");
+    expect(parseRadarMessage(JSON.stringify({ ...ctx, route: 5 }))).toBeNull();
+    expect(parseRadarMessage(JSON.stringify({ ...ctx, id: "" }))).toBeNull();
+  });
+
+  it("sendFlightTrack / sendFlightContext emit byte-exact JSON", () => {
+    const frames: string[] = [];
+    class FakeWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      readyState = FakeWebSocket.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((ev: { data: unknown }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(public url: string) {}
+      send(data: string) {
+        frames.push(data);
+      }
+      close() {}
+    }
+    const original = globalThis.WebSocket;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    try {
+      const socket = new RadarSocket("ws://127.0.0.1:2001/ws", { onSnapshot: () => {}, onUpdate: () => {} });
+      socket.connect();
+      socket.sendFlightTrack("ac4963", 4, false);
+      expect(frames[0]).toBe('{"type":"flight.track","id":"ac4963","seq":4,"auto":false}');
+      socket.sendFlightTrack("ac4963", 5, true);
+      expect(frames[1]).toBe('{"type":"flight.track","id":"ac4963","seq":5,"auto":true}');
+      socket.sendFlightContext("ac4963", 6);
+      expect(frames[2]).toBe('{"type":"flight.context","id":"ac4963","seq":6}');
+      socket.close();
+    } finally {
+      globalThis.WebSocket = original;
+    }
+  });
+
+  it("onFlightTrack / onFlightContext handlers fire with parsed payloads", () => {
+    let trackArgs: [string, unknown, number | undefined] | null = null;
+    let ctxArgs: [string, unknown, number | undefined] | null = null;
+    const frames: string[] = [];
+    class FakeWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      readyState = FakeWebSocket.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((ev: { data: unknown }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(public url: string) {}
+      send(data: string) {
+        frames.push(data);
+      }
+      close() {}
+    }
+    const original = globalThis.WebSocket;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    try {
+      const socket = new RadarSocket("ws://127.0.0.1:2001/ws", {
+        onSnapshot: () => {},
+        onUpdate: () => {},
+        onFlightTrack: (id, reply, seq) => (trackArgs = [id, reply, seq]),
+        onFlightContext: (id, route, seq) => (ctxArgs = [id, route, seq]),
+      });
+      socket.connect();
+      const ws = (socket as any).ws;
+      ws.onmessage!({
+        data: JSON.stringify({
+          type: "flight.track", id: "x", seq: 1, path: [{ t: 1, lat: 1, lon: 2, alt: null, onGround: false }],
+          fetchedAt: 2, source: "history", budget: { autoLeft: 3, hard: false },
+        }),
+      });
+      ws.onmessage!({ data: JSON.stringify({ type: "flight.context", id: "x", seq: 2, route: null }) });
+      expect(trackArgs![0]).toBe("x");
+      expect((trackArgs![1] as any).path).toHaveLength(1);
+      expect(trackArgs![2]).toBe(1);
+      expect(ctxArgs![0]).toBe("x");
+      expect(ctxArgs![1]).toBeNull();
+      expect(ctxArgs![2]).toBe(2);
+      socket.close();
+    } finally {
+      globalThis.WebSocket = original;
+    }
   });
 });

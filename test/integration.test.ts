@@ -27,6 +27,12 @@ const PLANE: (string | number | boolean | null)[] = [
   -73.7, 40.6, 10000, false, 250, 90, 10, null, 10050, "1200", false, 2,
 ];
 
+// Test-seam fetch for the airports/routes/tracks services: never hits the
+// network; the services degrade deterministically (none/history/null sources).
+const offline: typeof fetch = async () => {
+  throw new Error("offline test");
+};
+
 const fakeFaa: FaaProvider = {
   lookup: (hex: string) =>
     hex === "ac4963"
@@ -130,7 +136,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
       }),
     });
 
-    server = await buildApp({ store, hub, opensky, ais, recorder: null, faa: fakeFaa, iconPack: null, settingsFile: join(appTmp, "settings.json"), pinFile: join(appTmp, "pins.json") });
+    server = await buildApp({ store, hub, opensky, ais, recorder: null, faa: fakeFaa, iconPack: null, fetchImpl: offline, settingsFile: join(appTmp, "settings.json"), pinFile: join(appTmp, "pins.json") });
     await server.app.listen({ port: 0, host: "127.0.0.1" });
     port = (server.app.server.address() as { port: number }).port;
   });
@@ -238,7 +244,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
     const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
     // Hermetic: settings + pins files share the tmp history dir (the
     // recorder's init() ignores non-snapshot files; the dir is removed below).
-    const app2 = await buildApp({ store, hub, opensky, ais, recorder, faa: fakeFaa, iconPack: null, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
+    const app2 = await buildApp({ store, hub, opensky, ais, recorder, faa: fakeFaa, iconPack: null, fetchImpl: offline, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
     await app2.app.listen({ port: 0, host: "127.0.0.1" });
     const port2 = (app2.app.server.address() as { port: number }).port;
 
@@ -303,7 +309,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
       store,
     });
     const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
-    const app2 = await buildApp({ store, opensky, ais, recorder, faa: fakeFaa, iconPack: null, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
+    const app2 = await buildApp({ store, opensky, ais, recorder, faa: fakeFaa, iconPack: null, fetchImpl: offline, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
     await app2.app.listen({ port: 0, host: "127.0.0.1" });
     const port2 = (app2.app.server.address() as { port: number }).port;
 
@@ -345,7 +351,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
       store,
     });
     const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
-    const app2 = await buildApp({ store, opensky, ais, recorder: null, faa: fakeFaa, iconPack: null, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
+    const app2 = await buildApp({ store, opensky, ais, recorder: null, faa: fakeFaa, iconPack: null, fetchImpl: offline, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
     await app2.app.listen({ port: 0, host: "127.0.0.1" });
     const port2 = (app2.app.server.address() as { port: number }).port;
 
@@ -418,7 +424,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
       store,
     });
     const ais = new AisClient({ url: `ws://127.0.0.1:${wport}`, apiKey: "test", store });
-    const app2 = await buildApp({ store, opensky, ais, recorder, faa: fakeFaa, iconPack: null, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
+    const app2 = await buildApp({ store, opensky, ais, recorder, faa: fakeFaa, iconPack: null, fetchImpl: offline, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json") });
     await app2.app.listen({ port: 0, host: "127.0.0.1" });
     const port2 = (app2.app.server.address() as { port: number }).port;
 
@@ -587,7 +593,7 @@ describe("icon pack routes (fixture pack)", () => {
       start: () => {},
       stop: () => {},
     } as unknown as AisClient;
-    server = await buildApp({ store, hub, opensky: noPoller, ais: noAis, recorder: null, faa: null, iconPack: fixturePack, settingsFile: join(appTmp, "settings.json"), pinFile: join(appTmp, "pins.json") });
+    server = await buildApp({ store, hub, opensky: noPoller, ais: noAis, recorder: null, faa: null, iconPack: fixturePack, fetchImpl: offline, settingsFile: join(appTmp, "settings.json"), pinFile: join(appTmp, "pins.json") });
     await server.app.listen({ port: 0, host: "127.0.0.1" });
     port = (server.app.server.address() as { port: number }).port;
   });
@@ -765,7 +771,7 @@ describe("pack-ready icon re-resolution", () => {
     } as unknown as AisClient;
     server = await buildApp({
       store, hub, opensky: noPoller, ais: noAis, recorder: null, faa: null, iconPack: pack,
-      settingsFile: join(appTmp, "settings.json"), pinFile: join(appTmp, "pins.json"),
+      fetchImpl: offline, settingsFile: join(appTmp, "settings.json"), pinFile: join(appTmp, "pins.json"),
     });
     await server.app.listen({ port: 0, host: "127.0.0.1" });
     port = (server.app.server.address() as { port: number }).port;
@@ -808,6 +814,149 @@ describe("pack-ready icon re-resolution", () => {
     expect(after.every((f) => !(f.upsert ?? []).some((c: any) => c.id === "m2"))).toBe(true);
     expect(after.every((f) => !(f.upsert ?? []).some((c: any) => c.id === "999"))).toBe(true);
     expect(upd.every((f) => !(f.upsert ?? []).some((c: any) => c.id === "999" && c.icon !== "cargo"))).toBe(true);
+    ws.close();
+  });
+});
+
+describe("flight context frames (flight.track / flight.context)", () => {
+  let dir: string;
+  let server: Awaited<ReturnType<typeof buildApp>>;
+  let port: number;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "radar-fc-it-"));
+    let t = Date.now();
+    const histCraft = (id: string): Craft => ({
+      id, domain: "air", kind: "commercial", lat: 40.5, lon: -74, speed: null, heading: null, updatedAt: 0, stale: false,
+    });
+    const recorder = new HistoryRecorder({
+      dir, snapshotMs: 60000, maxBytes: 10_000_000, now: () => (t += 60_000),
+    });
+    await recorder.recordNow(() => [histCraft("h1")]);
+    await recorder.recordNow(() => [histCraft("h1")]);
+
+    const store = new CraftStore();
+    // h1: air, no callsign (route ladder short-circuits before any fetch);
+    // h2: air with callsign (offline ladder degrades to a negative, route null);
+    // 999: sea (domain guard must short-circuit both handlers).
+    const seed = Date.now();
+    store.upsert(
+      [
+        { ...histCraft("h1"), updatedAt: seed },
+        { ...histCraft("h2"), callsign: "DAL539", updatedAt: seed },
+        { ...histCraft("999"), domain: "sea", kind: "cargo", updatedAt: seed },
+      ],
+      seed,
+    );
+
+    const noPoller = {
+      feedStatus: { lastOkAt: null, lastError: null, pollMs: 120000 },
+      setPollInterval: () => {},
+      start: () => {},
+      stop: () => {},
+    } as unknown as OpenSkyPoller;
+    const noAis = {
+      isConnected: false,
+      feedStatus: { lastError: null, lastMessageAt: null },
+      start: () => {},
+      stop: () => {},
+    } as unknown as AisClient;
+    server = await buildApp({
+      store, opensky: noPoller, ais: noAis, recorder, faa: null, iconPack: null,
+      fetchImpl: offline, settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json"), log: () => {},
+    });
+    await server.app.listen({ port: 0, host: "127.0.0.1" });
+    port = (server.app.server.address() as { port: number }).port;
+  });
+
+  afterAll(async () => {
+    await server.stop();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  async function connect(): Promise<{ ws: WebSocket; frames: any[] }> {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const frames: any[] = [];
+    ws.on("message", (d) => frames.push(JSON.parse(d.toString())));
+    let opened = false;
+    ws.on("open", () => {
+      opened = true;
+    });
+    await waitFor(() => opened, 3000);
+    return { ws, frames };
+  }
+
+  it("flight.track for an unknown id echoes an empty none-path with the request's seq", async () => {
+    const { ws, frames } = await connect();
+    ws.send(JSON.stringify({ type: "flight.track", id: "deadbe", seq: 7 }));
+    await waitFor(() => frames.some((f) => f.type === "flight.track" && f.id === "deadbe"), 3000);
+    const fr = frames.find((f) => f.type === "flight.track" && f.id === "deadbe")!;
+    expect(fr).toMatchObject({ seq: 7, path: [], fetchedAt: 0, source: "none", budget: { autoLeft: expect.any(Number), hard: false } });
+
+    // seq omitted mirrors timeline.seek's legacy echo: 0.
+    ws.send(JSON.stringify({ type: "flight.track", id: "deadbe2" }));
+    await waitFor(() => frames.some((f) => f.type === "flight.track" && f.id === "deadbe2"), 3000);
+    expect(frames.find((f) => f.type === "flight.track" && f.id === "deadbe2")!.seq).toBe(0);
+    ws.close();
+  });
+
+  it("flight.context for an unknown id echoes route null with the request's seq", async () => {
+    const { ws, frames } = await connect();
+    ws.send(JSON.stringify({ type: "flight.context", id: "deadbe", seq: 9 }));
+    await waitFor(() => frames.some((f) => f.type === "flight.context" && f.id === "deadbe"), 3000);
+    const fr = frames.find((f) => f.type === "flight.context" && f.id === "deadbe")!;
+    expect(fr).toMatchObject({ seq: 9, route: null });
+    ws.close();
+  });
+
+  it("sea ids short-circuit to the same empty echoes (no service call)", async () => {
+    const { ws, frames } = await connect();
+    ws.send(JSON.stringify({ type: "flight.track", id: "999", seq: 1 }));
+    ws.send(JSON.stringify({ type: "flight.context", id: "999", seq: 2 }));
+    await waitFor(() => frames.some((f) => f.type === "flight.track" && f.id === "999") && frames.some((f) => f.type === "flight.context" && f.id === "999"), 3000);
+    expect(frames.find((f) => f.type === "flight.track" && f.id === "999")).toMatchObject({ path: [], source: "none" });
+    expect(frames.find((f) => f.type === "flight.context" && f.id === "999")).toMatchObject({ route: null });
+    ws.close();
+  });
+
+  it("flight.track for a stored air craft replays its recorded history path", async () => {
+    const { ws, frames } = await connect();
+    ws.send(JSON.stringify({ type: "flight.track", id: "h1", seq: 3 }));
+    await waitFor(() => frames.some((f) => f.type === "flight.track" && f.id === "h1"), 3000);
+    const fr = frames.find((f) => f.type === "flight.track" && f.id === "h1")!;
+    expect(fr.seq).toBe(3);
+    // Offline OpenSky → history-only merge of the two seeded snapshots.
+    expect(fr.source).toBe("history");
+    expect(fr.path.map((p: any) => [p.lat, p.lon])).toEqual([[40.5, -74], [40.5, -74]]);
+    expect(fr.path[0].t).toBeLessThanOrEqual(fr.path[1].t);
+    expect(fr.fetchedAt).toBeGreaterThan(0);
+    expect(fr.budget).toEqual({ autoLeft: expect.any(Number), hard: false });
+    ws.close();
+  });
+
+  it("flight.context calls the ladder with the STORE's callsign and degrades to null offline", async () => {
+    const { ws, frames } = await connect();
+    ws.send(JSON.stringify({ type: "flight.context", id: "h1", seq: 4 })); // no callsign → null, no fetch
+    ws.send(JSON.stringify({ type: "flight.context", id: "h2", seq: 5 })); // callsign, offline ladder → null
+    await waitFor(() => frames.some((f) => f.type === "flight.context" && f.id === "h1") && frames.some((f) => f.type === "flight.context" && f.id === "h2"), 3000);
+    expect(frames.find((f) => f.type === "flight.context" && f.id === "h1")).toMatchObject({ seq: 4, route: null });
+    expect(frames.find((f) => f.type === "flight.context" && f.id === "h2")).toMatchObject({ seq: 5, route: null });
+    ws.close();
+  });
+
+  it("malformed frames are dropped silently (no crash, no reply)", async () => {
+    const { ws, frames } = await connect();
+    ws.send(JSON.stringify({ type: "flight.track" })); // no id
+    ws.send(JSON.stringify({ type: "flight.track", id: "h1", seq: "7" })); // string seq
+    ws.send(JSON.stringify({ type: "flight.context", id: 5 })); // non-string id
+    ws.send(JSON.stringify({ type: "flight.context", id: "h1", seq: -1 })); // negative seq
+    // Liveness marker: a well-formed request is answered, and it is the ONLY
+    // flight.* frame this socket received.
+    ws.send(JSON.stringify({ type: "flight.track", id: "deadbe", seq: 11 }));
+    await waitFor(() => frames.some((f) => f.type === "flight.track" && f.id === "deadbe"), 3000);
+    const fc = frames.filter((f) => f.type === "flight.track" || f.type === "flight.context");
+    expect(fc).toHaveLength(1);
+    expect(fc[0]).toMatchObject({ id: "deadbe", seq: 11 });
     ws.close();
   });
 });
