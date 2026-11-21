@@ -395,6 +395,9 @@ body {
 }
 .timeline-pin {
   opacity: 0.35;
+  /* Out-of-window pins collapse to 0 width at a track edge; keep a visible,
+     clickable sliver so they stay removable. */
+  min-width: 2px;
 }
 .timeline-pin-preview {
   opacity: 0.6;

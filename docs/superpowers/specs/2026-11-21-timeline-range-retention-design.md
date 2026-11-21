@@ -138,8 +138,9 @@ granularity is backlog.
 
 - Corrupt `localStorage` JSON → default preset, logged nowhere (user-visible
   effect is only the window).
-- Custom range entirely outside history → degenerate window; track disabled,
-  LIVE button remains usable.
+- Custom range entirely outside history → clamps to a degenerate zero-width
+  window: the track stays enabled but the scrubber cannot move, and the LIVE
+  button remains active.
 - Recorder storage error during compact → logged, retried next hour (plan is
   idempotent; deleted files are gone from the index already on success).
 - `view()` null (no history yet) → scrubber disabled exactly as today.

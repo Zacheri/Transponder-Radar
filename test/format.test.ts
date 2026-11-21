@@ -247,6 +247,13 @@ describe("computeViewWindow", () => {
       computeViewWindow(H0, H30D, { mode: "custom", from: H30D + 10 * DAY, to: H0 - 10 * DAY }),
     ).toEqual({ from: H0, to: H0 });
   });
+
+  it("single-instant history yields that instant for preset and custom", () => {
+    expect(computeViewWindow(H0, H0, { mode: "preset", ms: DAY })).toEqual({ from: H0, to: H0 });
+    expect(
+      computeViewWindow(H0, H0, { mode: "custom", from: H0 - DAY, to: H0 + DAY }),
+    ).toEqual({ from: H0, to: H0 });
+  });
 });
 
 describe("parseViewSel", () => {

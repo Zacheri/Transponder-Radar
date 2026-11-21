@@ -363,6 +363,30 @@ describe("HistoryRecorder", () => {
       expect(h.usedBytes()).toBe(h.entries().reduce((s, e) => s + e.size, 0));
     });
 
+    it("re-checks pins at delete phase: a ts unpinned at plan time is kept", async () => {
+      const x = OLD + 2 * S;
+      // Stub store modelling "a pin that appeared after planning": seeding
+      // (recordNow's evicts) sees no pins; during compact() the first call
+      // for x (planCompaction) says unpinned, the second (delete-phase guard)
+      // says pinned. Deterministic regardless of how often evict() consults.
+      let seeding = true;
+      let calls = 0;
+      const pins = {
+        contains: (ts: number) => (seeding || ts !== x ? false : ++calls > 1),
+      } as unknown as PinStore;
+      const lines: string[] = [];
+      const h = await seedOld({ pins, log: (m) => lines.push(m) });
+      seeding = false;
+
+      expect(await h.compact()).toBe(3);
+      expect(h.entries().map((e) => e.ts)).toEqual([OLD, x]);
+      expect((await readdir(dir)).filter((f) => f.endsWith(".json.gz")).sort()).toEqual([
+        `${OLD}.json.gz`,
+        `${x}.json.gz`,
+      ]);
+      expect(lines.some((l) => l.includes("compacted 3"))).toBe(true);
+    });
+
     it("window() after a manual unlink of an indexed ts completes and skips it", async () => {
       const lines: string[] = [];
       const h = rec(1_000_000, { log: (m) => lines.push(m) });

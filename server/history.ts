@@ -185,23 +185,27 @@ export class HistoryRecorder {
    * COMPACT_STEP_MS bucket (see planCompaction). Returns the deleted count.
    */
   async compact(): Promise<number> {
-    const del = planCompaction(
+    const plan = planCompaction(
       this.index,
       this.now(),
       (ts) => this.opts.pins?.contains(ts) ?? false,
     );
-    for (const ts of del) {
-      // Same idempotent delete mechanism as evict().
-      this.index = this.index.filter((m) => m.ts !== ts);
-      this.opts.cache?.drop(ts);
-      await unlink(join(this.opts.dir, `${ts}.json.gz`)).catch(() => {});
-    }
-    if (del.length > 0) {
+    // Re-check pins at the start of the delete phase, then drop the index
+    // entries and cache before any unlink: seek/window can never select a
+    // snapshot whose file is about to go.
+    const guarded = plan.filter((ts) => !(this.opts.pins?.contains(ts) ?? false));
+    if (guarded.length > 0) {
+      const delSet = new Set(guarded);
+      this.index = this.index.filter((m) => !delSet.has(m.ts));
+      for (const ts of guarded) this.opts.cache?.drop(ts);
+      for (const ts of guarded) {
+        await unlink(join(this.opts.dir, `${ts}.json.gz`)).catch(() => {});
+      }
       this.opts.log?.(
-        `history: compacted ${del.length} snapshots older than ${FULL_RES_AGE_MS / 3_600_000} h`,
+        `history: compacted ${guarded.length} snapshots older than ${FULL_RES_AGE_MS / 3_600_000} h`,
       );
     }
-    return del.length;
+    return guarded.length;
   }
 
   range(): HistoryRange {

@@ -319,6 +319,21 @@ describe("timeline view controls", () => {
     expect(sel.value).toBe(pickOption(sel, "14 d").value);
     expect(viewSelect).not.toHaveBeenCalled();
   });
+
+  it("setViewSel(custom) reveals the custom row and prefills the inputs in local time", () => {
+    const viewSelect = vi.fn();
+    const { api, presetSel, custom, fromInput, toInput } = setup({ viewSelect });
+    // 23:37/00:03 local straddle a UTC date boundary: UTC formatting
+    // (toISOString) would put different strings in the datetime-local inputs.
+    const from = new Date(2026, 10, 18, 23, 37).getTime();
+    const to = new Date(2026, 10, 19, 0, 3).getTime();
+    api.setViewSel({ mode: "custom", from, to });
+    expect(must(presetSel, "preset select").value).toBe("custom");
+    expect(must(custom, "custom row").style.display).toBe("flex");
+    expect(must(fromInput, "from input").value).toBe("2026-11-18T23:37");
+    expect(must(toInput, "to input").value).toBe("2026-11-19T00:03");
+    expect(viewSelect).not.toHaveBeenCalled();
+  });
 });
 
 describe("timeline out-of-window pins and cursor (review focus)", () => {

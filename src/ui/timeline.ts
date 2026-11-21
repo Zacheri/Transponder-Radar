@@ -28,6 +28,13 @@ export interface TimelineApi {
 const DEBOUNCE_MS = 150;
 const CUSTOM_VIEW_VALUE = "custom";
 
+// datetime-local value (YYYY-MM-DDTHH:mm) from local fields — never UTC.
+function toLocalInputValue(t: number): string {
+  const d = new Date(t);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 export function createTimeline(
   root: HTMLElement,
   opts: {
@@ -147,8 +154,14 @@ export function createTimeline(
 
     syncPresetSel = (sel) => {
       if (sel == null) presetSel.value = String(defaultIdx);
-      else if (sel.mode === "custom") presetSel.value = CUSTOM_VIEW_VALUE;
-      else {
+      else if (sel.mode === "custom") {
+        presetSel.value = CUSTOM_VIEW_VALUE;
+        // Mirroring a custom selection also reveals and prefills the inputs,
+        // so a restored (e.g. from localStorage) range is visible and editable.
+        customRow.style.display = "flex";
+        fromInput.value = toLocalInputValue(sel.from);
+        toInput.value = toLocalInputValue(sel.to);
+      } else {
         const i = VIEW_PRESETS.findIndex((p) => p.ms === sel.ms);
         presetSel.value = i >= 0 ? String(i) : CUSTOM_VIEW_VALUE;
       }

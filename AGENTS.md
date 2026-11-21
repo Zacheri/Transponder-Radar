@@ -383,5 +383,5 @@ Recolor limit: `recolorPixels`
   `{type:"timeline.state",time,craft,seq?}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
   `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`).
-- `test/` — 37 files, 698 tests. Node-environment Vitest; browser-only code
+- `test/` — 37 files, 739 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.
