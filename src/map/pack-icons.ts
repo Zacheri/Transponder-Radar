@@ -1,5 +1,6 @@
 import type maplibregl from "maplibre-gl";
 import { isPackIconName, parseColorKey } from "../../shared/craft.js";
+import { createRasterCache, type RasterCache } from "./raster-cache.js";
 import {
   hexToRgb,
   lineSvgToFill,
@@ -21,6 +22,11 @@ import {
 // silhouette + alpha); each color-key registration tints a copy:
 // gapfill → every alpha pixel to the hex; line/filled → recolorPixels
 // (near-white body → exact hex, painted detail kept).
+//
+// Pre-color rasters also persist in IndexedDB (raster-cache.ts, keyed by
+// the /icons/list version), so a reload skips fetch + decode for icons seen
+// before; memory still wins, and every cache failure degrades to today's
+// network path.
 //
 // Browser-only by design (DOM canvas / <img> decode / fetch) — verification
 // is the catalog page + the user's browser; no unit tests per repo
@@ -57,22 +63,28 @@ export function createPackIconLoader(
   const registered = new Set<string>(); // color keys registered on the map
   const inFlight = new Map<string, Promise<boolean>>(); // key → promise
   const failed = new Set<string>(); // base names
-  let listPromise: Promise<Map<string, ListEntry>> | null = null;
+  let listPromise: Promise<{ version: string; entries: Map<string, ListEntry> }> | null = null;
+  let raster: RasterCache | null = null;
   let styleReloadRegistered = false;
 
-  // GET /icons/list — one cached fetch per loader (style / color /
+  // GET /icons/list — one cached fetch per loader (version + style / color /
   // crop per name). A rejected promise is discarded so a transient failure
-  // (pack still downloading, server restarting) can be retried.
-  const list = (): Promise<Map<string, ListEntry>> => {
+  // (pack still downloading, server restarting) can be retried. A missing
+  // version (older server) reads as "" and disables the raster cache.
+  const list = (): Promise<{ version: string; entries: Map<string, ListEntry> }> => {
     if (listPromise === null) {
       listPromise = doFetch("/icons/list")
         .then((r) => {
           if (!r.ok) throw new Error(`/icons/list: HTTP ${r.status}`);
           return r.json() as Promise<{
+            version?: string;
             entries: { name: string; style: string; color: string; crop?: CropRect }[];
           }>;
         })
-        .then((body) => new Map(body.entries.map((e) => [e.name, e as ListEntry])))
+        .then((body) => ({
+          version: typeof body.version === "string" ? body.version : "",
+          entries: new Map(body.entries.map((e) => [e.name, e as ListEntry])),
+        }))
         .catch((e) => {
           listPromise = null;
           throw e;
@@ -230,11 +242,19 @@ export function createPackIconLoader(
     const p = (async () => {
       try {
         if (hex === null) throw new Error(`not a color key: ${key}`);
-        const e = (await list()).get(name);
+        const listing = await list();
+        const e = listing.entries.get(name);
         if (!e) throw new Error(`not in /icons/list: ${name}`);
         let pre = cached.get(name);
         if (pre === undefined) {
-          pre = await fetchPrecolor(name, e);
+          const rc = (raster ??= createRasterCache(SIZE, listing.version));
+          const hit = await rc.get(name);
+          if (hit !== null && hasOpaque(hit.data)) {
+            pre = hit;
+          } else {
+            pre = await fetchPrecolor(name, e);
+            void rc.set(name, pre);
+          }
           cached.set(name, pre);
         }
         styles.set(name, e.style);

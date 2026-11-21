@@ -652,6 +652,27 @@ describe("icon pack routes (fixture pack)", () => {
     ws.close();
   });
 
+  it("GET /icons/:name carries ETag + Cache-Control; If-None-Match returns 304", async () => {
+    const res = await server.app.inject({ url: "/icons/rk%3ABAZ" });
+    expect(res.statusCode).toBe(200);
+    const etag = String(res.headers["etag"]);
+    expect(etag).toMatch(/^"[0-9a-f]{64}"$/);
+    expect(res.headers["cache-control"]).toBe("public, max-age=86400");
+    const hit = await server.app.inject({ url: "/icons/rk%3ABAZ", headers: { "if-none-match": etag } });
+    expect(hit.statusCode).toBe(304);
+    expect(hit.body).toBe("");
+    expect(String(hit.headers["etag"])).toBe(etag);
+    const miss = await server.app.inject({ url: "/icons/rk%3ABAZ", headers: { "if-none-match": '"deadbeef"' } });
+    expect(miss.statusCode).toBe(200);
+  });
+
+  it("GET /icons/list carries a pack version string", async () => {
+    const res = await server.app.inject({ url: "/icons/list" });
+    expect(res.statusCode).toBe(200);
+    const st = fixturePack.status();
+    expect((res.json() as { version: string }).version).toBe(`${st.updatedAt}:${st.count}`);
+  });
+
   it("vetoed name 404s at the route and drops out of /icons/list", async () => {
     // Last test in the suite on purpose: it mutates the pack (exclude.json +
     // re-init) after the tests above have pinned the no-veto behavior.
@@ -669,5 +690,124 @@ describe("icon pack routes (fixture pack)", () => {
 
     const ok = await server.app.inject({ url: "/icons/pw%3AFOO" });
     expect(ok.statusCode).toBe(200); // non-vetoed names still resolve
+  });
+});
+
+describe("pack-ready icon re-resolution", () => {
+  // Aircraft stamped with family fallbacks while the pack was downloading
+  // must get pack art on the ready transition (update frames to clients);
+  // crafts whose resolution doesn't change, and sea craft, must not move.
+  const FIX_SOURCES: IconSources = {
+    pw: { repo: "plane-watch/pw-silhouettes", sha: "3d41c9a2f7e6b8d0a1c2b3d4e5f60718293a4b5c", license: "pw license", attribution: "pw attribution" },
+    rk: { repo: "RexKramer1/AircraftShapesSVG", sha: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", license: "rk license", attribution: "rk attribution" },
+    pd: [],
+    gapTargets: [],
+  };
+
+  let fix: string;
+  let dir: string;
+  let appTmp: string;
+  let pack: IconPack;
+  let store: CraftStore;
+  let server: Awaited<ReturnType<typeof buildApp>>;
+  let port: number;
+
+  beforeAll(async () => {
+    fix = mkdtempSync(join(tmpdir(), "radar-ready-fix-"));
+    dir = mkdtempSync(join(tmpdir(), "radar-ready-pack-"));
+    appTmp = mkdtempSync(join(tmpdir(), "radar-ready-app-"));
+    mkdirSync(join(fix, "plane-watch"), { recursive: true }); // empty pw set: rk-only fixture
+    mkdirSync(join(fix, "rk"), { recursive: true });
+    // The MILITARY_RULES AWACS token points at rk:E3TF when the pack has it.
+    writeFileSync(join(fix, "rk", "E3TF.svg"), '<svg><title>E-3F Title</title><g><path d="M0 0"/></g></svg>');
+
+    pack = new IconPack({
+      dir,
+      sources: FIX_SOURCES,
+      transport: {
+        async cloneRepo(repo: string, _sha: string, destDir: string) {
+          cpSync(join(fix, repo.includes("plane-watch") ? "plane-watch" : "rk"), destDir, { recursive: true });
+        },
+        async fetchFile() {
+          throw new Error("unexpected fetchFile (no pd sources)");
+        },
+      },
+    });
+    expect(pack.status().state).toBe("absent");
+
+    const seed = (o: Partial<Craft>): Craft => ({
+      id: "", domain: "air", kind: "military", lat: 1, lon: 2,
+      speed: null, heading: null, updatedAt: Date.now(), stale: false, ...o,
+    });
+    store = new CraftStore();
+    store.upsert(
+      [
+        seed({ id: "m1", callsign: "AWACS1", icon: "isr" }), // pack-ready flips this to rk:E3TF
+        seed({ id: "m2", callsign: "EAGLE1", icon: "fighter" }), // no table entry: stays fighter
+        seed({ id: "999", domain: "sea", kind: "cargo", icon: "cargo", shipName: "SHIP" }),
+      ],
+      Date.now(),
+    );
+
+    const hub = new Hub({ store, batchMs: 50, aisFlushMs: 50 });
+    // Stub feed clients: nothing may poll (hermetic); the store is seeded directly.
+    const noPoller = {
+      feedStatus: { lastOkAt: null, lastError: null, pollMs: 120000 },
+      setPollInterval: () => {},
+      start: () => {},
+      stop: () => {},
+    } as unknown as OpenSkyPoller;
+    const noAis = {
+      isConnected: false,
+      feedStatus: { lastError: null, lastMessageAt: null },
+      start: () => {},
+      stop: () => {},
+    } as unknown as AisClient;
+    server = await buildApp({
+      store, hub, opensky: noPoller, ais: noAis, recorder: null, faa: null, iconPack: pack,
+      settingsFile: join(appTmp, "settings.json"), pinFile: join(appTmp, "pins.json"),
+    });
+    await server.app.listen({ port: 0, host: "127.0.0.1" });
+    port = (server.app.server.address() as { port: number }).port;
+  });
+
+  afterAll(async () => {
+    await server.stop();
+    rmSync(fix, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(appTmp, { recursive: true, force: true });
+  });
+
+  it("re-stamps stored aircraft with pack icons once the pack turns ready", async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const frames: any[] = [];
+    ws.on("message", (d) => frames.push(JSON.parse(d.toString())));
+    await waitFor(() => frames.some((f) => f.type === "snapshot"), 3000);
+    const snap = frames.find((f) => f.type === "snapshot")!;
+    expect(snap.craft.find((c: any) => c.id === "m1").icon).toBe("isr"); // pre-ready stamp
+
+    await pack.init(); // fake transport → ready synchronously; the hook re-resolves
+    expect(pack.status().state).toBe("ready");
+
+    await waitFor(
+      () =>
+        frames.some(
+          (f) => f.type === "update" && (f.upsert ?? []).some((c: any) => c.id === "m1" && c.icon === "rk:E3TF"),
+        ),
+      3000,
+    );
+    expect(store.get("m1")!.icon).toBe("rk:E3TF");
+    expect(store.get("m2")!.icon).toBe("fighter"); // unchanged → never re-upserted
+    const upd = frames.filter((f) => f.type === "update");
+    const flip = upd.findIndex((f) => (f.upsert ?? []).some((c: any) => c.id === "m1" && c.icon === "rk:E3TF"));
+    expect(flip).toBeGreaterThanOrEqual(0);
+    // The ready pass dirtied ONLY m1: no frame after the flip mentions the
+    // unchanged aircraft or the ship (their seed drain precedes or merges
+    // into the flip frame), and the ship never moved off its kind icon.
+    const after = upd.slice(flip + 1);
+    expect(after.every((f) => !(f.upsert ?? []).some((c: any) => c.id === "m2"))).toBe(true);
+    expect(after.every((f) => !(f.upsert ?? []).some((c: any) => c.id === "999"))).toBe(true);
+    expect(upd.every((f) => !(f.upsert ?? []).some((c: any) => c.id === "999" && c.icon !== "cargo"))).toBe(true);
+    ws.close();
   });
 });

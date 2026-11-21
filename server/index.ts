@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import Fastify from "fastify";
@@ -28,7 +29,7 @@ import { resolveAirIcon } from "./icons.js";
 import { IconPack } from "./iconpack.js";
 import { loadIconSources } from "./iconpack-sources.js";
 import { coveredDesignators, packColor, renderCatalog, type CatalogCell } from "./icons-catalog.js";
-import type { AirKind } from "../shared/craft.js";
+import type { AirKind, Craft } from "../shared/craft.js";
 
 export interface ServerDeps {
   store?: CraftStore;
@@ -66,6 +67,33 @@ export async function buildApp(deps: ServerDeps = {}) {
     deps.faa === undefined
       ? new FaaLoader({ dir: faaDir, refreshMs: config.FAA_REFRESH_MS, log })
       : deps.faa;
+  const resolveCraftIcon = (c: Craft): string => {
+    const rec = faa?.lookup(c.id) ?? null;
+    return resolveAirIcon({
+      kind: c.kind as AirKind, // air-only: the poller is air-only, the pass below filters
+      callsign: c.callsign,
+      faaModel: rec?.model ?? null,
+      faaMfr: rec?.mfr ?? null,
+      pack: iconPack?.names(),
+    });
+  };
+  // Aircraft polled while the pack was still downloading carry the family
+  // fallback; once it turns ready, re-run the same resolution over the store
+  // and upsert the changed ones so the hub's batching pushes update frames.
+  // Craft with no icon were never stamped by this resolver (e.g. no FAA
+  // provider) — leave them for the client's kind fallback.
+  iconPack?.onReady(() => {
+    const changed: Craft[] = [];
+    for (const c of store.all()) {
+      if (c.domain !== "air" || c.icon === undefined) continue;
+      const icon = resolveCraftIcon(c);
+      if (icon !== c.icon) changed.push({ ...c, icon });
+    }
+    if (changed.length > 0) {
+      store.upsert(changed, Date.now());
+      log(`iconpack: re-stamped ${changed.length} aircraft with pack icons`);
+    }
+  });
   const opensky =
     deps.opensky ??
     new OpenSkyPoller({
@@ -80,18 +108,7 @@ export async function buildApp(deps: ServerDeps = {}) {
               clientSecret: config.OPENSKY_CLIENT_SECRET,
             })
           : undefined,
-      resolveIcon: faa
-        ? (c) => {
-            const rec = faa.lookup(c.id);
-            return resolveAirIcon({
-              kind: c.kind as AirKind, // poller is air-only
-              callsign: c.callsign,
-              faaModel: rec?.model ?? null,
-              faaMfr: rec?.mfr ?? null,
-              pack: iconPack?.names(),
-            });
-          }
-        : undefined,
+      resolveIcon: faa ? resolveCraftIcon : undefined,
     });
   const ais = deps.ais ?? new AisClient({ apiKey: config.AISSTREAM_API_KEY, store, log });
   const settingsFile = deps.settingsFile ?? resolve(process.cwd(), "data/settings.json");
@@ -298,18 +315,24 @@ export async function buildApp(deps: ServerDeps = {}) {
   // Resolvable names only (index minus vetoed) — the client loader uses this
   // to decide what to fetch; a vetoed name would 404 on /icons/:name. The
   // catalog route keeps the full index (vetoed cells stay visible there).
-  app.get("/icons/list", async () => ({
-    entries: (iconPack?.entries() ?? [])
-      .filter((e) => iconPack && !iconPack.isVetoed(e.name))
-      .map((e) => ({
-        name: e.name,
-        style: e.style,
-        crop: e.crop,
-        rot: e.rot,
-        th: e.th,
-        color: packColor(e.name, e.source),
-      })),
-  }));
+  app.get("/icons/list", async () => {
+    const s = iconPack?.status();
+    return {
+      // Client raster-cache key: stable while the pack is unchanged, new on
+      // every (re)download/repin (updatedAt bumps) and on veto count shifts.
+      version: `${s?.updatedAt ?? 0}:${s?.count ?? 0}`,
+      entries: (iconPack?.entries() ?? [])
+        .filter((e) => iconPack && !iconPack.isVetoed(e.name))
+        .map((e) => ({
+          name: e.name,
+          style: e.style,
+          crop: e.crop,
+          rot: e.rot,
+          th: e.th,
+          color: packColor(e.name, e.source),
+        })),
+    };
+  });
 
   app.get("/icons/catalog", async (_req, reply) => {
     const pack = iconPack;
@@ -357,9 +380,22 @@ export async function buildApp(deps: ServerDeps = {}) {
     return reply.type("text/html").send(renderCatalog({ cells, staticIcons, gaps }));
   });
 
+  // Pack files are immutable while the process runs, so a per-name etag
+  // (sha256 of the served bytes) can be memoized forever.
+  const iconEtags = new Map<string, string>();
   app.get("/icons/:name", async (req, reply) => {
-    const f = iconPack?.fileBytes(String((req.params as { name: string }).name));
+    const name = String((req.params as { name: string }).name);
+    const f = iconPack?.fileBytes(name);
     if (!f) return reply.code(404).send({ error: "unknown icon" });
+    let etag = iconEtags.get(name);
+    if (etag === undefined) {
+      etag = `"${createHash("sha256").update(f.bytes).digest("hex")}"`;
+      iconEtags.set(name, etag);
+    }
+    reply.header("ETag", etag);
+    reply.header("Cache-Control", "public, max-age=86400");
+    const inm = req.headers["if-none-match"];
+    if (inm !== undefined && inm.split(",").some((t) => t.trim() === etag)) return reply.code(304).send();
     return reply.type(f.contentType).send(f.bytes);
   });
 

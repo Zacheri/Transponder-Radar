@@ -150,7 +150,11 @@ sea tanker kind — the registry test asserts no air/sea name collision.
 
 Server sets `Craft.icon` post-normalization (poller `resolveIcon` opt wired
 to `FaaProvider.lookup` + `iconPack?.names()` in `buildApp`); AIS sets no
-icon. Client:
+icon. `IconPack.onReady` fires once per process on the first non-ready→ready
+transition: buildApp re-resolves every air craft in the store and upserts the
+changed ones, so pack art replaces boot-time family fallbacks without waiting
+for the next poll. `GET /icons/:name` sends a content-sha `ETag`
+(`If-None-Match` → 304) + `Cache-Control: public, max-age=86400`. Client:
 `features.ts` property `icon: c.icon ?? (air ? KIND_FALLBACK_ICON[kind] :
 kind)`; `layers.ts` `"icon-image": ["get", "icon"]`; pack names are lazy-
 registered by `src/map/pack-icons.ts`. Family/sea SVGs are browser-verified
@@ -227,7 +231,9 @@ serves the pack over `GET /icons/*`; a failed download retries on each
 start and degrades to the 13 family icons. `GET /icons/catalog` is the
 eyeball surface (every icon at final color/size + title/source/license +
 the gap list); `GET /icons/list` is the machine surface the client loader
-reads — `{entries: [{name, style, crop?, color}]}` (`crop` only on gapfill
+reads — `{version, entries: [{name, style, crop?, color}]}` (`version`
+changes when the pack content changes — keys the browser's IndexedDB
+pre-color raster cache; `crop` only on gapfill
 entries, a `{x,y,w,h}` rectangle in fractions of the file — the manifest's
 legacy `cropTopRatio` normalizes to `{0,0,1,r}`; every sourced sheet's top
 view sits in an arbitrary quadrant, so top-band crops can't express them).

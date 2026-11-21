@@ -164,6 +164,8 @@ export class IconPack {
   private lastError: string | null = null;
   private index = new Map<string, PackIconEntry>();
   private vetoed = new Set<string>();
+  private readyFired = false;
+  private readyListeners: (() => void)[] = [];
   private now: () => number;
   private transport: IconPackTransport;
 
@@ -220,6 +222,30 @@ export class IconPack {
     this.state = "ready";
     this.updatedAt = this.now();
     this.opts.log?.(`iconpack: ready (${entries.length} entries)`);
+    if (!this.readyFired) {
+      this.readyFired = true;
+      for (const cb of this.readyListeners.splice(0)) {
+        try {
+          cb();
+        } catch (e) {
+          this.opts.log?.(`iconpack: ready hook failed: ${errMsg(e)}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Runs cb once when the pack first becomes ready (a failed init stays
+   * failed until the next process, but a later init that succeeds still
+   * fires). Callbacks registered after the first ready run immediately;
+   * each callback runs at most once.
+   */
+  onReady(cb: () => void): void {
+    if (this.readyFired) {
+      cb();
+      return;
+    }
+    this.readyListeners.push(cb);
   }
 
   status(): IconStatus {
