@@ -20,6 +20,8 @@ export interface HistoryStatus extends HistoryRange {
 
 export interface WindowItem { ts: number; gz: Buffer }
 
+const TRACK_MEMO_MS = 60_000;
+
 export interface HistoryRecorderOpts {
   dir: string;
   snapshotMs: number;
@@ -83,6 +85,10 @@ export class HistoryRecorder {
   private index: Meta[] = []; // ascending ts
   private now: () => number;
   private maxBytes: number; // live cap (setCap updates it)
+  private trackMemo = new Map<
+    string,
+    { at: number; points: { t: number; lat: number; lon: number; alt: number | null; onGround: boolean }[] }
+  >();
 
   constructor(private opts: HistoryRecorderOpts) {
     this.now = opts.now ?? Date.now;
@@ -240,6 +246,49 @@ export class HistoryRecorder {
     const craft = JSON.parse(jsonString) as Craft[];
     this.opts.cache?.set(pick.ts, craft, Buffer.byteLength(jsonString));
     return { time: pick.ts, craft };
+  }
+
+  /**
+   * Trail of one craft (exact store id) from the snapshots in
+   * [now − min(hours, 24 h), now], ascending: one point per snapshot holding
+   * the id, at the snapshot ts. Cache-first like seek but read-only — the
+   * scan never warms the cache (a 24 h sweep would flush live seeks);
+   * snapshots missing mid-scan are skipped. Memoized per id+hours for 60 s.
+   */
+  async trackFor(
+    icao24: string,
+    hours: number,
+  ): Promise<{ t: number; lat: number; lon: number; alt: number | null; onGround: boolean }[]> {
+    const nowTs = this.now();
+    const capped = Math.min(hours, 24);
+    const key = `${icao24}|${capped}`;
+    const memo = this.trackMemo.get(key);
+    if (memo && nowTs - memo.at < TRACK_MEMO_MS) return memo.points;
+
+    const points: { t: number; lat: number; lon: number; alt: number | null; onGround: boolean }[] = [];
+    for (let pos = lowerBound(this.index, nowTs - capped * 3_600_000); pos < this.index.length; pos++) {
+      const m = this.index[pos];
+      if (m.ts > nowTs) break;
+      const cached = this.opts.cache?.get(m.ts);
+      let crafts: Craft[];
+      if (cached) {
+        crafts = cached;
+      } else {
+        try {
+          crafts = JSON.parse(
+            gunzipSync(await readFile(join(this.opts.dir, `${m.ts}.json.gz`))).toString("utf8"),
+          ) as Craft[];
+        } catch {
+          continue; // deleted mid-scan (evict/compact): skip
+        }
+      }
+      const c = crafts.find((x) => x.id === icao24);
+      if (c) {
+        points.push({ t: m.ts, lat: c.lat, lon: c.lon, alt: c.altitude ?? null, onGround: c.onGround ?? false });
+      }
+    }
+    this.trackMemo.set(key, { at: nowTs, points });
+    return points;
   }
 
   /**

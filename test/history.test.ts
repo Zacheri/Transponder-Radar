@@ -407,6 +407,131 @@ describe("HistoryRecorder", () => {
   });
 });
 
+describe("HistoryRecorder.trackFor", () => {
+  const H = 3_600_000;
+  let dir: string;
+  let t = BASE;
+
+  beforeEach(async () => {
+    t = BASE;
+    dir = await mkdtemp(join(tmpdir(), "radar-track-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const rec = (extra: Partial<HistoryRecorderOpts> = {}) =>
+    new HistoryRecorder({ dir, snapshotMs: 60_000, maxBytes: 10_000_000, now: () => t, ...extra });
+
+  const plane = (id: string, over: Partial<Craft> = {}): Craft => ({
+    id,
+    domain: "air",
+    kind: "commercial",
+    lat: 10,
+    lon: 20,
+    speed: 10,
+    heading: 90,
+    updatedAt: 0,
+    stale: false,
+    ...over,
+  });
+
+  it("collects one point per snapshot, ascending, with alt/onGround mapped", async () => {
+    const h = rec();
+    await h.init();
+    t = BASE;
+    await h.recordNow(() => [plane("abc123", { lat: 1, lon: 2 }), plane("zz9999")]);
+    t = BASE + 60_000;
+    await h.recordNow(() => [plane("abc123", { lat: 3, lon: 4, altitude: null, onGround: true })]);
+    t = BASE + 120_000;
+    await h.recordNow(() => [plane("abc123", { lat: 5, lon: 6, altitude: 1500 })]);
+
+    expect(await h.trackFor("abc123", 24)).toEqual([
+      { t: BASE, lat: 1, lon: 2, alt: null, onGround: false },
+      { t: BASE + 60_000, lat: 3, lon: 4, alt: null, onGround: true },
+      { t: BASE + 120_000, lat: 5, lon: 6, alt: 1500, onGround: false },
+    ]);
+  });
+
+  it("returns [] for an absent craft", async () => {
+    const h = rec();
+    await h.init();
+    await h.recordNow(() => [plane("abc123")]);
+    expect(await h.trackFor("deadbe", 24)).toEqual([]);
+  });
+
+  it("caps the scan window at 24 h; smaller hours narrow it", async () => {
+    const h = rec();
+    await h.init();
+    t = BASE - 30 * H;
+    await h.recordNow(() => [plane("abc123", { lat: 1 })]);
+    t = BASE - 10 * 60_000;
+    await h.recordNow(() => [plane("abc123", { lat: 2 })]);
+    t = BASE;
+    await h.recordNow(() => [plane("abc123", { lat: 3 })]);
+
+    // The 30 h-old point never qualifies; 72 h behaves exactly like 24 h.
+    expect((await h.trackFor("abc123", 72)).map((p) => p.lat)).toEqual([2, 3]);
+    expect((await h.trackFor("abc123", 24)).map((p) => p.lat)).toEqual([2, 3]);
+    expect((await h.trackFor("abc123", 0.1)).map((p) => p.lat)).toEqual([3]);
+  });
+
+  it("memoizes per icao24 for 60 s, then re-scans", async () => {
+    const h = rec();
+    await h.init();
+    t = BASE;
+    await h.recordNow(() => [plane("abc123", { lat: 1 })]);
+    t = BASE + 60_000;
+    await h.recordNow(() => [plane("abc123", { lat: 2 })]);
+
+    expect((await h.trackFor("abc123", 24)).map((p) => p.lat)).toEqual([1, 2]);
+    await rm(join(dir, `${BASE + 60_000}.json.gz`));
+    expect((await h.trackFor("abc123", 24)).map((p) => p.lat)).toEqual([1, 2]); // memo: file gone, still served
+    t = BASE + 120_000; // exactly 60 s later: memo expired, missing snapshot skipped
+    expect((await h.trackFor("abc123", 24)).map((p) => p.lat)).toEqual([1]);
+  });
+
+  it("serves warm snapshots from the cache without touching disk", async () => {
+    const cache = new SnapshotCache({ maxBytes: 1_000_000 });
+    const h = rec({ cache });
+    await h.init();
+    await h.recordNow(() => [plane("abc123")]); // warms the cache
+    await rm(join(dir, `${BASE}.json.gz`)); // the only copy is in the cache now
+
+    expect(await h.trackFor("abc123", 24)).toEqual([
+      { t: BASE, lat: 10, lon: 20, alt: null, onGround: false },
+    ]);
+  });
+
+  it("reads cold snapshots from disk but never warms the cache", async () => {
+    const cache = new SnapshotCache({ maxBytes: 1_000_000 });
+    const h = rec({ cache });
+    await h.init();
+    await h.recordNow(() => [plane("abc123")]);
+    t = BASE + 60_000;
+    await h.recordNow(() => [plane("abc123")]);
+    cache.drop(BASE);
+    cache.drop(BASE + 60_000);
+
+    expect((await h.trackFor("abc123", 24)).length).toBe(2);
+    expect(cache.get(BASE)).toBeUndefined();
+    expect(cache.get(BASE + 60_000)).toBeUndefined();
+  });
+
+  it("skips snapshots missing mid-range without throwing", async () => {
+    const h = rec();
+    await h.init();
+    await h.recordNow(() => [plane("abc123", { lat: 1 })]);
+    t = BASE + 60_000;
+    await h.recordNow(() => [plane("abc123", { lat: 2 })]);
+    t = BASE + 120_000;
+    await h.recordNow(() => [plane("abc123", { lat: 3 })]);
+    await rm(join(dir, `${BASE + 60_000}.json.gz`));
+
+    expect((await h.trackFor("abc123", 24)).map((p) => p.lat)).toEqual([1, 3]);
+  });
+});
+
 describe("planCompaction", () => {
   // NOW is an exact multiple of COMPACT_STEP_MS, so buckets align with whole
   // hours of NOW: NOW - 49 h is a bucket start, NOW - 48 h is a bucket end.
