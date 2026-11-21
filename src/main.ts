@@ -13,7 +13,7 @@ import { createPlaybackEngine, type PlaybackApi } from "./data/playback.js";
 import { AIR_KINDS, SEA_KINDS, KIND_FALLBACK_ICON, colorKey } from "../shared/craft.js";
 import type { AirKind, Craft, CraftKind } from "../shared/craft.js";
 import { effectiveColor, loadIconColors, saveIconColors, setKindColor, type IconColorState } from "./data/icon-colors.js";
-import { RAM_CACHE_GB_DEFAULT } from "../shared/limits.js";
+import { RAM_CACHE_GB_DEFAULT, STORAGE_CAP_GB_DEFAULT } from "../shared/limits.js";
 import { createPanel } from "./ui/panel.js";
 import { createFilters } from "./ui/filters.js";
 import { createHud } from "./ui/hud.js";
@@ -47,8 +47,8 @@ let kindRegistrar: KindIconRegistrar | null = null;
 // Color-keyed names registered on the map by the last refresh(); playback
 // frames reuse it instead of touching the store.
 let lastRegistered: ReadonlySet<string> | undefined;
-// Per-category icon colors (phase 2 of the iconpack gap curation): user
-// overrides from localStorage over the kind defaults (KINDS[].color).
+// Per-category icon colors: user overrides from localStorage over the kind
+// defaults (KINDS[].color).
 let iconColorState: IconColorState = loadIconColors(localStorage);
 const iconColorFor = (kind: CraftKind): string => effectiveColor(kind, iconColorState);
 // Playback wiring, created in the map.load flow; null until then.
@@ -64,8 +64,12 @@ let metaStaleMs = 120000;
 let histFrom: number | null = null;
 let histTo: number | null = null;
 let lastSeekT: number | null = null;
+// Monotonic seek seq echoed on timeline.state replies: a reply whose seq is
+// below the last applied one comes from a superseded seek and is dropped.
+let seekSeq = 0;
+let appliedSeekSeq = 0;
 let lastStats: SettingsStats = {
-  storageCapGb: 10,
+  storageCapGb: STORAGE_CAP_GB_DEFAULT,
   ramCacheGb: RAM_CACHE_GB_DEFAULT,
   cacheUsedBytes: 0,
   usedBytes: 0,
@@ -196,10 +200,11 @@ const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
       eng.stop();
       setPlaybackMode(map, false);
     }
+    lastPlayFrame = null;
     lastSeekT = t;
     replay.enterReplay();
     hud.setReplay(t);
-    socket?.sendTimelineSeek(t);
+    socket?.sendTimelineSeek(t, ++seekSeq);
   },
   goLive: () => {
     const eng = engine;
@@ -207,6 +212,7 @@ const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
       eng.stop();
       setPlaybackMode(map, false);
     }
+    lastPlayFrame = null;
     replay.requestLive();
     socket?.sendTimelineLive();
   },
@@ -256,6 +262,7 @@ map.on("load", async () => {
         replay.exitReplay();
         hud.setReplay(null);
         timeline.setLive();
+        lastPlayFrame = null;
         const eng = engine;
         if (eng && eng.state !== "idle") {
           eng.stop();
@@ -265,9 +272,9 @@ map.on("load", async () => {
     },
     onStatus: (s) => {
       hud.setFeeds(s.feeds, s.serverTime);
-      hud.setIcons(s.icons ?? null); // ?? — pre-Task-7 frames carry no icons
+      hud.setIcons(s.icons ?? null); // ?? — legacy frames carry no icons
       pollRate.setMs(s.feeds.opensky.pollMs);
-      shipRate.setMs(s.feeds.ais.flushMs ?? 120000); // ?? — pre-Task-2 frames carry no flushMs
+      shipRate.setMs(s.feeds.ais.flushMs ?? 120000); // ?? — legacy frames carry no flushMs
       timeline.setRange(s.history.from, s.history.to);
       if (s.faa.state === "ready" && lastFaaState !== "ready") {
         const purged: string[] = [];
@@ -285,7 +292,7 @@ map.on("load", async () => {
       histFrom = s.history.from;
       histTo = s.history.to;
       lastStats = {
-        storageCapGb: s.settings?.storageCapGb ?? 10,
+        storageCapGb: s.settings?.storageCapGb ?? STORAGE_CAP_GB_DEFAULT,
         ramCacheGb: s.settings?.ramCacheGb ?? RAM_CACHE_GB_DEFAULT,
         cacheUsedBytes: s.settings?.cacheUsedBytes ?? 0,
         usedBytes: s.history.usedBytes ?? 0,
@@ -294,18 +301,25 @@ map.on("load", async () => {
       };
       settingsUi.setStats(lastStats);
     },
-    onTimelineState: (time, crafts) => {
+    onTimelineState: (time, crafts, seq) => {
       const eng = engine;
       if (time === null) {
+        // Seek failed: leave rewind and ask for a fresh live snapshot, as LIVE does.
         replay.exitReplay();
         hud.setReplay(null);
         timeline.setLive();
+        lastPlayFrame = null;
         if (eng && eng.state !== "idle") {
           eng.stop();
           setPlaybackMode(map, false);
         }
+        replay.requestLive();
+        socket?.sendTimelineLive();
         return;
       }
+      const s = seq ?? 0;
+      if (s < appliedSeekSeq) return;
+      appliedSeekSeq = s;
       lastSeekT = time;
       store.applySnapshot(crafts);
       hud.setReplay(time);

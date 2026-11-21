@@ -1,11 +1,8 @@
 import { GB } from "../../shared/limits.js";
 import type { Pin } from "../data/ws.js";
-import { formatBytes } from "./format.js";
+import { formatBytes, formatPinRange } from "./format.js";
 
 const COLLAPSED_KEY = "radar.settingsCollapsed";
-const enDash = "\u2013";
-const DATE_OPTS = { month: "short", day: "numeric" } as const;
-const HHMM = { hour12: false, hour: "2-digit", minute: "2-digit" } as const;
 
 export interface SettingsStats {
   storageCapGb: number;
@@ -18,10 +15,23 @@ export interface SettingsStats {
 
 export interface SettingsApi { setStats: (s: SettingsStats) => void; feedRates: HTMLElement }
 
-function formatPinRange(pin: Pin): string {
-  const start = `${new Date(pin.from).toLocaleDateString([], DATE_OPTS)} ${new Date(pin.from).toLocaleTimeString([], HHMM)}`;
-  const end = new Date(pin.to).toLocaleTimeString([], HHMM);
-  return `${start} ${enDash} ${end}`;
+function debouncedNumber(input: HTMLInputElement, apply: (n: number) => void): (sent: number) => void {
+  let timer: number | null = null;
+  let lastSent: number | null = null;
+  input.addEventListener("input", () => {
+    if (timer != null) clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      timer = null;
+      const v = Number(input.value);
+      if (input.value === "" || !Number.isFinite(v) || v === lastSent) return;
+      lastSent = v;
+      apply(v);
+    }, 500);
+  });
+  // Hook for values pushed in from outside; records them as sent so they aren't re-sent.
+  return (sent) => {
+    lastSent = sent;
+  };
 }
 
 export function createSettings(
@@ -134,31 +144,9 @@ export function createSettings(
     }
   });
 
-  let storageTimer: number | null = null;
-  let storageLastSent: number | null = null;
-  storageInput.addEventListener("input", () => {
-    if (storageTimer != null) clearTimeout(storageTimer);
-    storageTimer = window.setTimeout(() => {
-      storageTimer = null;
-      const v = Number(storageInput.value);
-      if (storageInput.value === "" || !Number.isFinite(v) || v === storageLastSent) return;
-      storageLastSent = v;
-      opts.update({ storageCapGb: v });
-    }, 500);
-  });
+  const markStorageSent = debouncedNumber(storageInput, (v) => opts.update({ storageCapGb: v }));
 
-  let cacheTimer: number | null = null;
-  let cacheLastSent: number | null = null;
-  cacheInput.addEventListener("input", () => {
-    if (cacheTimer != null) clearTimeout(cacheTimer);
-    cacheTimer = window.setTimeout(() => {
-      cacheTimer = null;
-      const v = Number(cacheInput.value);
-      if (!Number.isFinite(v) || v === cacheLastSent) return;
-      cacheLastSent = v;
-      opts.update({ ramCacheGb: v });
-    }, 500);
-  });
+  const markCacheSent = debouncedNumber(cacheInput, (v) => opts.update({ ramCacheGb: v }));
 
   let lastPinSig: string | null = null;
   function renderPins(list: Pin[]): void {
@@ -174,7 +162,7 @@ export function createSettings(
       const row = document.createElement("div");
       row.className = "settings-pin-row";
       const range = document.createElement("span");
-      range.textContent = formatPinRange(pin);
+      range.textContent = formatPinRange(pin.from, pin.to);
       const rm = document.createElement("button");
       rm.type = "button";
       rm.className = "settings-pin-remove";
@@ -189,11 +177,11 @@ export function createSettings(
   function setStats(s: SettingsStats): void {
     if (document.activeElement !== storageInput) {
       storageInput.value = String(s.storageCapGb);
-      storageLastSent = s.storageCapGb;
+      markStorageSent(s.storageCapGb);
     }
     if (document.activeElement !== cacheInput) {
       cacheInput.value = String(s.ramCacheGb);
-      cacheLastSent = s.ramCacheGb;
+      markCacheSent(s.ramCacheGb);
     }
     cacheVal.textContent = s.ramCacheGb === 0 ? "off" : `${s.ramCacheGb} GB`;
     storageLine.textContent = `using ${formatBytes(s.usedBytes)} (pinned ${formatBytes(s.pinnedBytes)})`;

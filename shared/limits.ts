@@ -6,6 +6,7 @@ export const GB = 1024 ** 3;
 // Storage cap (disk cache) in GB.
 export const STORAGE_CAP_GB_MIN = 0.5;
 export const STORAGE_CAP_GB_MAX = 1000;
+export const STORAGE_CAP_GB_DEFAULT = 10;
 
 // RAM cache for decoded snapshots in GB.
 export const RAM_CACHE_GB_MIN = 0;

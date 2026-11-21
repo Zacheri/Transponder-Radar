@@ -1,6 +1,6 @@
 // Pure client-side playback core: virtual clock, lerp/skip frame modes,
 // window buffer, render governor. No DOM, no Worker — the only global is
-// atob (browsers and Node 16+). Task 15 wires this into main.ts.
+// atob (browsers and Node 16+).
 
 import type { Craft } from "../../shared/craft.js";
 import {
@@ -84,6 +84,9 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
   let cursor = 0;
   let speed = SPEED_DEFAULT;
   let seq = 0;
+  // Decode epoch: start/stop bump it so decodes still in flight when the
+  // session ended never write into (re)used buffers.
+  let session = 0;
   let lastTick = 0;
   let lastRender = 0;
   let targetFps = 60;
@@ -91,6 +94,9 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
   let nextFrom: number | null = null;
   let inflightTo: number | null = null;
   const buffer = new Map<number, Craft[]>();
+  // ts's whose decode has been dispatched but not resolved: dedups duplicate
+  // chunk items before they reach the async decode.
+  const inflightTs = new Set<number>();
 
   const snapMs = () => opts.snapshotMs();
   const advancePerFrame = () => (speed * 1000) / targetFps;
@@ -192,6 +198,8 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
     lastRender = 0;
     lastTick = opts.now();
     seq++;
+    session++;
+    inflightTs.clear();
     inflightTo = null; // superseded request's chunk drops via the seq check
     // Seed the prefetch around the cursor (trim rear boundary behind,
     // historyTo ahead) — not at the start of history.
@@ -209,6 +217,8 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
     setState("idle");
     buffer.clear();
     seq++;
+    session++;
+    inflightTs.clear();
     inflightTo = null;
     nextFrom = null;
   }
@@ -228,8 +238,11 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
 
   function feed(chunk: WindowChunk): void {
     if (chunk.seq !== seq) return; // superseded: dropped entirely
+    const sess = session;
     for (const item of chunk.items) {
-      if (buffer.has(item.ts)) continue;
+      // Dedup before the async decode: same ts twice in one chunk (or across
+      // chunks) must not double-decode.
+      if (buffer.has(item.ts) || inflightTs.has(item.ts)) continue;
       let bytes: ArrayBuffer;
       try {
         bytes = b64ToBuf(item.b64);
@@ -237,13 +250,21 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
         opts.log?.(`playback: bad b64 for ts ${item.ts}`);
         continue;
       }
+      inflightTs.add(item.ts);
       void opts.decode(bytes).then(
         (crafts) => {
+          inflightTs.delete(item.ts);
+          if (sess !== session) return; // session ended mid-decode: discard
+          if (buffer.has(item.ts)) return; // landed by another path meanwhile
           buffer.set(item.ts, crafts);
           trim();
           maybePromote();
         },
-        (err) => opts.log?.(`playback: decode failed for ts ${item.ts}: ${String(err)}`)
+        (err) => {
+          inflightTs.delete(item.ts);
+          if (sess !== session) return;
+          opts.log?.(`playback: decode failed for ts ${item.ts}: ${String(err)}`);
+        }
       );
     }
     if (chunk.done) {
@@ -266,7 +287,10 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
         br = bracket();
         maybePromote();
       } else {
-        return; // stall: nothing buffered; the clock holds
+        // Stall: nothing buffered, the clock holds; flag it so the HUD does
+        // not show playback running on air (maybePromote resumes on data).
+        if (state === "playing") setState("buffering");
+        return;
       }
     }
     if (state === "playing") {
@@ -275,8 +299,12 @@ export function createPlaybackEngine(opts: PlaybackOpts): PlaybackApi {
       const to = opts.historyTo();
       // Stall, don't skip: never run past what the buffer can render (the
       // max never drags the cursor back while the seed is still loading).
+      const want = cursor + speed * dt;
       const cap = Math.max(maxBufferedTs(), cursor);
-      cursor = Math.min(cursor + speed * dt, cap, to ?? cursor);
+      cursor = Math.min(want, cap, to ?? cursor);
+      // Starved at the data frontier — the prefetch cannot keep pace and the
+      // cursor pinned; reaching historyTo instead pauses after the final frame.
+      if (want > cap && (to === null || cap < to)) setState("buffering");
     }
     if (nowMs - lastRender < 1000 / targetFps) return; // governor gate
     if (br === null) return;

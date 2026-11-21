@@ -9,7 +9,7 @@ import {
   type GapfillRot,
 } from "../../shared/pack-transforms.js";
 
-// Client-side loader for the vendored aircraft icon pack (Task 8). The
+// Client-side loader for the vendored aircraft icon pack. The
 // server serves raw pack files under /icons/*; this module fetches them on
 // demand (lazy — only names that actually appear on the map), rasterizes
 // each into a fixed 96×96 ImageData, and registers it with the map

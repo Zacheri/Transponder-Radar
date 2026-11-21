@@ -1,4 +1,4 @@
-// Pure display-math helpers for the timeline modernization (Tasks 13/14).
+// Pure display-math helpers for the timeline.
 // No DOM, no date libraries, no dependencies — Node-testable, browser-safe.
 // All timestamps are local (local-midnight aware for dayTicks).
 
@@ -47,6 +47,11 @@ export function formatBytes(n: number): string {
 export function formatRangeLabel(from: number, to: number): string {
   if (sameLocalDay(from, to)) return `${fmtHM(from)} ${enDash} ${fmtHM(to)}`;
   return `${fmtDate(from)} ${fmtHM(from)} ${enDash} ${fmtDate(to)} ${fmtHM(to)}`;
+}
+
+/** Pinned-range row: always dates the start; the end is time-only. */
+export function formatPinRange(from: number, to: number): string {
+  return `${fmtDate(from)} ${fmtHM(from)} ${enDash} ${fmtHM(to)}`;
 }
 
 export function formatSelectedTime(t: number): string {

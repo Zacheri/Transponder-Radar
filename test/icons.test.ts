@@ -121,7 +121,7 @@ describe("military table curation wiring (gap curation 2026-11-06)", () => {
   });
 });
 
-describe("civil resolver pack emission (Task 6 curation lock)", () => {
+describe("civil resolver pack emission (curation lock)", () => {
   // [model, mfr, expected] — real FAA ACFTREF model strings (normalizeModel
   // applies: uppercase, spaces/hyphens stripped). expected = the pack name
   // the curation pinned for that rule, or a family name for no-art controls.

@@ -110,7 +110,10 @@ export class OpenSkyPoller {
     }
     if (res.status === 429) {
       this.consecutiveErrors += 1;
-      const retryAfterRaw = res.headers.get("retry-after");
+      // OpenSky documents X-Rate-Limit-Retry-After-Seconds on 429s; prefer the
+      // standard header when both are present.
+      const retryAfterRaw =
+        res.headers.get("retry-after") ?? res.headers.get("x-rate-limit-retry-after-seconds");
       const nextDelayMs =
         retryAfterRaw !== null && Number.isFinite(Number(retryAfterRaw))
           ? Math.min(BACKOFF_CAP_MS, Math.max(this.opts.pollMs, Number(retryAfterRaw) * 1000))

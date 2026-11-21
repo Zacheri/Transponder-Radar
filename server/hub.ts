@@ -30,7 +30,7 @@ const TICK_MS = 250;
 
 export type ClientMessage =
   | { type: "feed.rate"; feed: FeedId; ms: number }
-  | { type: "timeline.seek"; time: number }
+  | { type: "timeline.seek"; time: number; seq?: number }
   | { type: "timeline.live" }
   | { type: "aircraft.info"; id: string }
   | { type: "settings.update"; patch: { storageCapGb?: number; ramCacheGb?: number } }
@@ -50,7 +50,12 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     ) {
       return { type: "feed.rate", feed: m.feed as FeedId, ms: m.ms };
     }
-    if (m.type === "timeline.seek" && typeof m.time === "number" && Number.isFinite(m.time)) return m;
+    if (m.type === "timeline.seek" && typeof m.time === "number" && Number.isFinite(m.time)) {
+      // Optional seq (stale-reply suppression); absent or non-numeric → no key.
+      return typeof m.seq === "number" && Number.isFinite(m.seq)
+        ? { type: "timeline.seek", time: m.time, seq: m.seq }
+        : { type: "timeline.seek", time: m.time };
+    }
     if (m.type === "timeline.live") return m;
     if (m.type === "aircraft.info" && typeof m.id === "string" && m.id.length > 0) return m;
     if (m.type === "settings.update" && typeof m.patch === "object" && m.patch !== null && !Array.isArray(m.patch)) return m;

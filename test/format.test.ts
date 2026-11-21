@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatBytes,
   formatRangeLabel,
+  formatPinRange,
   formatSelectedTime,
   formatReplayClock,
   dayTicks,
@@ -45,6 +46,26 @@ describe("formatRangeLabel", () => {
         new Date(2027, 0, 1, 1, 0).getTime(),
       ),
     ).toBe("Dec 31 23:00 – Jan 1 01:00");
+  });
+});
+
+describe("formatPinRange", () => {
+  it("dates the start and shows only the end time", () => {
+    expect(
+      formatPinRange(
+        new Date(2026, 9, 20, 9, 12).getTime(),
+        new Date(2026, 9, 20, 14, 40).getTime(),
+      ),
+    ).toBe("Oct 20 09:12 – 14:40");
+  });
+
+  it("still dates the start when the span crosses a day", () => {
+    expect(
+      formatPinRange(
+        new Date(2026, 9, 20, 23, 30).getTime(),
+        new Date(2026, 9, 21, 0, 15).getTime(),
+      ),
+    ).toBe("Oct 20 23:30 – 00:15");
   });
 });
 

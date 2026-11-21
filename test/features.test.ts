@@ -67,7 +67,7 @@ describe("icon property", () => {
   });
 });
 
-describe("icon property with iconRegistered (pack loader, Task 9)", () => {
+describe("icon property with iconRegistered (pack loader)", () => {
   it("pack icon registered → passes through", () => {
     const fc = buildFeatureCollection([air({ icon: "rk:C130" })], { iconRegistered: new Set(["rk:C130"]) });
     expect(fc.features[0].properties.icon).toBe("rk:C130");

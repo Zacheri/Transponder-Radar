@@ -1,5 +1,5 @@
 // Icon resolution tables for resolveAirIcon (server/icons.ts). Moved here
-// (Task 5, icon pack) from server/icons.ts so the vendored-pack curation can
+// from server/icons.ts so the vendored-pack curation can
 // live beside its consumer's resolution rule; both tables gain an optional
 // `pack` name per entry (pw:/rk:/pd: — see shared/craft.ts PACK_NAME_PREFIXES).
 //
@@ -9,14 +9,14 @@
 export interface MilitaryRule {
   re: RegExp; // tested against the uppercased callsign
   anchor: "word" | "prefix"; // word: \b on the leading edge (and trailing for base-only); prefix: leading \b only
-  pack?: string; // pack name emitted when present in the caller's pack set (Task 5 curates military; Task 6 adds civil)
+  pack?: string; // pack name emitted when present in the caller's pack set
   family: string; // MapLibre air-family image name (fallback)
 }
 
 export interface CivilRule {
   mfr?: string[]; // normalized (uppercased) MFR must contain at least one of these substrings
   re: RegExp; // tested against the normalized model (uppercase, no spaces/hyphens)
-  pack?: string; // pack name emitted when present in the caller's pack set (Task 6: data-driven curation vs ACFTREF)
+  pack?: string; // pack name emitted when present in the caller's pack set (data-driven curation vs ACFTREF)
   family: string;
 }
 
@@ -31,7 +31,7 @@ export interface CivilRule {
 // U-28) keep the leading boundary only — hence anchor "prefix". No table hit
 // → fighter fallback.
 //
-// Pack curation (Task 5) is designator-driven: every covered gapTargets
+// Pack curation is designator-driven: every covered gapTargets
 // designator (server/iconpack-sources.json, checked against
 // data/icons/index.json) gets its pack name on the matching token entry; new
 // entries were added where the token table had none (K35E, S61, UH1, NH90,
@@ -108,9 +108,9 @@ export const MILITARY_RULES: MilitaryRule[] = [
   { re: /\bU2/, anchor: "prefix", pack: "rk:U2", family: "isr" },
   // ── fighter ────────────────────────────────────────────────────────────
   { re: /\bF15\w*\b/, anchor: "word", pack: "rk:F15", family: "fighter" },
-  // pw:F16 (filled art) also exists; rk: used per the plan's curation value —
-  // keeps the military curation uniformly rk:/pd: (pw: preference applies to
-  // the civil table in Task 6, where rk lacks the type).
+  // pw:F16 (filled art) also exists; rk: keeps the military curation
+  // uniformly rk:/pd: (the pw: preference applies to civil rules, where rk
+  // lacks the type).
   { re: /\bF16\w*\b/, anchor: "word", pack: "rk:F16", family: "fighter" },
   // No bare rk:F18 in the pack — only F18H (F/A-18B legacy Hornet) and
   // F18S (F/A-18E Super Hornet); the Super Hornet is the current standard model.
@@ -135,7 +135,7 @@ export const MILITARY_RULES: MilitaryRule[] = [
 // FALCON/HAWKER are name-style models; military helis often carry the operator
 // as MFR (match by model only).
 //
-// Pack curation (Task 6) is data-driven vs data/faa/ACFTREF.txt: every rule
+// Pack curation is data-driven vs data/faa/ACFTREF.txt: every rule
 // below carrying a `pack` field was checked against real FAA MFR MDL CODE
 // strings (normalizeModel: uppercase, spaces/hyphens stripped, dots/parens
 // survive). pw: art is preferred where both pw: and rk: have the type; rk:

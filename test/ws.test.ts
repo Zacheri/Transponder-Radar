@@ -1,6 +1,17 @@
 import { describe, it, expect } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import WebSocketClient from "ws";
 import { parseRadarMessage, RadarSocket } from "../src/data/ws.js";
 import { parseClientMessage } from "../server/hub.js";
+import { buildApp } from "../server/index.js";
+import { CraftStore } from "../server/store.js";
+import { HistoryRecorder } from "../server/history.js";
+import { OpenSkyPoller } from "../server/opensky.js";
+import { AisClient } from "../server/ais.js";
+import type { Craft } from "../shared/craft.js";
+import { sleep, waitFor } from "./util.js";
 
 const feeds = {
   opensky: { lastOkAt: 1000, lastError: null, pollMs: 120000 },
@@ -215,5 +226,86 @@ describe("pins/settings/window.send helpers", () => {
     } finally {
       globalThis.WebSocket = original;
     }
+  });
+});
+
+describe("timeline.seek seq echo", () => {
+  it("parseClientMessage passes an optional numeric seq; absent or garbage → no seq", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "timeline.seek", time: 5, seq: 3 }))).toEqual({
+      type: "timeline.seek",
+      time: 5,
+      seq: 3,
+    });
+    expect(parseClientMessage(JSON.stringify({ type: "timeline.seek", time: 5 }))).toEqual({
+      type: "timeline.seek",
+      time: 5,
+    });
+    expect(parseClientMessage(JSON.stringify({ type: "timeline.seek", time: 5, seq: "x" }))).toEqual({
+      type: "timeline.seek",
+      time: 5,
+    });
+  });
+
+  it("overlapping seeks with different latencies reply in completion order, each carrying its own seq", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "radar-ws-seq-"));
+    // Seek latency by target ts: the older target (1000) resolves slower, so
+    // the replies race to the wire out of request order.
+    const delays: Record<number, number> = { 1000: 120, 2000: 0 };
+    class StaggeredRecorder extends HistoryRecorder {
+      async seek(time: number): Promise<{ time: number | null; craft: Craft[] }> {
+        const d = delays[time] ?? 0;
+        if (d > 0) await sleep(d);
+        return super.seek(time);
+      }
+    }
+    let t = 0;
+    const histCraft = (id: string): Craft => ({
+      id, domain: "air", kind: "commercial", lat: 1, lon: 2, speed: null, heading: null, updatedAt: 0, stale: false,
+    });
+    const recorder = new StaggeredRecorder({ dir, snapshotMs: 60000, maxBytes: 10_000_000, now: () => (t += 1000) });
+    await recorder.init();
+    await recorder.recordNow(() => [histCraft("h1")]); // ts 1000
+    await recorder.recordNow(() => [histCraft("h2")]); // ts 2000
+
+    const store = new CraftStore();
+    const opensky = new OpenSkyPoller({ url: "http://127.0.0.1:1/states/all", pollMs: 600000, graceMs: 30000, store });
+    const ais = new AisClient({ url: "ws://127.0.0.1:1", apiKey: "test", store });
+    const app = await buildApp({
+      store, opensky, ais, recorder, faa: null, iconPack: null,
+      settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json"), log: () => {},
+    });
+    await app.app.listen({ port: 0, host: "127.0.0.1" });
+    const port = (app.app.server.address() as { port: number }).port;
+
+    const ws = new WebSocketClient(`ws://127.0.0.1:${port}/ws`);
+    const states: any[] = [];
+    ws.on("message", (d) => {
+      const f = JSON.parse(d.toString());
+      if (f.type === "timeline.state") states.push(f);
+    });
+    let opened = false;
+    ws.on("open", () => {
+      opened = true;
+    });
+    await waitFor(() => opened, 3000);
+
+    ws.send(JSON.stringify({ type: "timeline.seek", time: 1000, seq: 1 }));
+    ws.send(JSON.stringify({ type: "timeline.seek", time: 2000, seq: 2 }));
+    await waitFor(() => states.length >= 2, 3000);
+    // The fast (newer) reply lands first — seq is what lets the client drop
+    // the stale one that arrives after it.
+    expect(states[0]).toMatchObject({ seq: 2, time: 2000 });
+    expect(states[0].craft.map((c: Craft) => c.id)).toEqual(["h2"]);
+    expect(states[1]).toMatchObject({ seq: 1, time: 1000 });
+    expect(states[1].craft.map((c: Craft) => c.id)).toEqual(["h1"]);
+
+    // Wire compat: a seek without seq is answered with seq 0.
+    ws.send(JSON.stringify({ type: "timeline.seek", time: 2000 }));
+    await waitFor(() => states.length >= 3, 3000);
+    expect(states[2]).toMatchObject({ seq: 0, time: 2000 });
+
+    ws.close();
+    await app.stop();
+    await rm(dir, { recursive: true, force: true });
   });
 });

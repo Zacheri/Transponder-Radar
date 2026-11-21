@@ -16,6 +16,9 @@ export interface PoolWorker {
   // Load failure (chunk 404, module-level throw): posts no onmessage, so
   // without this the slot would never die and its dispatches would hang.
   onerror?: ((ev: unknown) => void) | null;
+  // Present on real Workers; killSlot calls it so a dead worker does not
+  // linger as a zombie. Optional so fakes need not implement it.
+  terminate?: () => void;
 }
 
 interface Pending {
@@ -61,7 +64,9 @@ export function createDecodePool(
       }
     }
     slotPending[index].clear();
+    const w = workers[index];
     workers[index] = null; // slot dead; replace on next dispatch
+    w?.terminate?.();
   };
 
   const makeWorker = (index: number): PoolWorker => {

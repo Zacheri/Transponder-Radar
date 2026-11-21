@@ -251,6 +251,33 @@ describe("HistoryRecorder", () => {
       expect(cache.get(1000)).toEqual([craft("r1")]);
     });
 
+    it("snapshot is a copy: mutating the live craft after record does not change the served snapshot", async () => {
+      const cache = new SnapshotCache({ maxBytes: 1_000_000 });
+      const h = rec(1_000_000, { cache });
+      await h.init();
+      t = 1000;
+      const live = [craft("s1")];
+      await h.recordNow(() => live);
+      live[0].stale = true; // what the store sweeper does in place
+      live[0].speed = 999;
+      const seen = await h.seek(1000); // cache hit — the pre-fix aliasing path
+      expect(seen.craft[0].stale).toBe(false);
+      expect(seen.craft[0].speed).toBe(10);
+      // The on-disk snapshot was serialized from the same copy.
+      cache.drop(1000);
+      const fromDisk = await h.seek(1000);
+      expect(fromDisk.craft[0].stale).toBe(false);
+      expect(fromDisk.craft[0].speed).toBe(10);
+    });
+
+    it("status() reports pinnedBytes 0 when no pin store is configured", async () => {
+      const h = rec();
+      await h.init();
+      t = 1000;
+      await h.recordNow(() => [craft("s0")]);
+      expect(h.status().pinnedBytes).toBe(0);
+    });
+
     it("status(pins) reports range, usedBytes, pinnedBytes and snapshotMs", async () => {
       const pins = new PinStore({ file: join(dir, "pins.json") });
       await pins.init();
@@ -264,7 +291,7 @@ describe("HistoryRecorder", () => {
       // ends 1 ms before s1.
       expect(pins.add(BASE, BASE + 120_000 - 1, null)).not.toBeNull();
       const e = h.entries();
-      const st = h.status(pins);
+      const st = h.status();
       expect({ from: st.from, to: st.to, snapshots: st.snapshots }).toEqual({
         from: BASE,
         to: BASE + 120_000,

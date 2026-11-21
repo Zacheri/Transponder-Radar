@@ -154,7 +154,7 @@ export async function buildApp(deps: ServerDeps = {}) {
           },
         },
         history: recorder
-          ? recorder.status(pinStore)
+          ? recorder.status()
           : { from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: config.HISTORY_SNAPSHOT_MS },
         settings: {
           storageCapGb: settingsDoc.storageCapGb,
@@ -197,11 +197,12 @@ export async function buildApp(deps: ServerDeps = {}) {
         case "timeline.seek": {
           const r = recorder;
           if (!r) break;
+          const seq = msg.seq ?? 0;
           void r.seek(msg.time).then(
-            (res) => reply({ type: "timeline.state", time: res.time, craft: res.craft }),
+            (res) => reply({ type: "timeline.state", seq, time: res.time, craft: res.craft }),
             (e: unknown) => {
               log(`history: seek failed: ${e instanceof Error ? e.message : String(e)}`);
-              reply({ type: "timeline.state", time: null, craft: [] });
+              reply({ type: "timeline.state", seq, time: null, craft: [] });
             },
           );
           break;

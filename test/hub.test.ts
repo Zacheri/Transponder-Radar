@@ -87,7 +87,7 @@ describe("Hub", () => {
     hub.attach(sock);
     hub.start();
     store.upsert(air("a2"), 0);
-    // Ticks run on the fixed 250 ms hub interval (Task 2), so wait for the
+    // Ticks run on the fixed 250 ms hub interval, so wait for the
     // batched frame instead of a fixed sleep.
     await waitFor(() => updateFrames(sock.sent).some((m) => m.upsert.some((c) => c.id === "a2")));
     const updates = updateFrames(sock.sent);

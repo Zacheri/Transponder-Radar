@@ -94,7 +94,9 @@ export class HistoryRecorder {
 
   async recordNow(getCrafts: () => Craft[]): Promise<void> {
     const ts = this.now();
-    const crafts = getCrafts();
+    // Shallow copy: the store mutates live crafts in place (stale sweep); the
+    // cache and the serialized file must not alias them.
+    const crafts = getCrafts().map((c) => ({ ...c }));
     const jsonString = JSON.stringify(crafts);
     const buf = gzipSync(Buffer.from(jsonString));
     const final = join(this.opts.dir, `${ts}.json.gz`);
@@ -151,11 +153,11 @@ export class HistoryRecorder {
     return { from: n ? this.index[0].ts : null, to: n ? this.index[n - 1].ts : null, snapshots: n };
   }
 
-  status(pins: PinStore): HistoryStatus {
+  status(): HistoryStatus {
     return {
       ...this.range(),
       usedBytes: this.usedBytes(),
-      pinnedBytes: pins.pinnedBytes(this.entries()),
+      pinnedBytes: this.opts.pins ? this.opts.pins.pinnedBytes(this.entries()) : 0,
       snapshotMs: this.snapshotMs,
     };
   }

@@ -160,4 +160,15 @@ describe("PinStore", () => {
     s.add(BASE + 30_000, BASE + 90_000, null);
     expect(s.all()).toHaveLength(2);
   });
+
+  // 12. Same-millisecond adds get distinct ids (ids are opaque, order not promised).
+  it("assigns distinct ids to pins added in the same millisecond", () => {
+    const s = open(join(dir, "pins.json"));
+    const a = s.add(BASE, BASE + MIN_PIN_MS, null)!;
+    const b = s.add(BASE + 2 * MIN_PIN_MS, BASE + 3 * MIN_PIN_MS, null)!;
+    expect(a.id).not.toBe(b.id);
+    expect(s.all()).toHaveLength(2);
+    expect(s.remove(a.id)).toEqual(a);
+    expect(s.remove(b.id)).toEqual(b);
+  });
 });

@@ -250,8 +250,12 @@ export function createTimeline(
     const max = cur == null ? g.start : Math.max(g.start, cur);
     hidePreview();
     slider.value = String(g.preValue);
-    if (max - min >= MIN_PIN_MS) {
-      opts.markAdd?.(Math.round(min / 1000) * 1000, Math.round(max / 1000) * 1000);
+    // Guard on the rounded values actually sent — the server re-validates
+    // those, so checking the raw span can submit a sub-MIN_PIN_MS pin.
+    const lo = Math.round(min / 1000) * 1000;
+    const hi = Math.round(max / 1000) * 1000;
+    if (hi - lo >= MIN_PIN_MS) {
+      opts.markAdd?.(lo, hi);
     } else {
       const hit = currentPins.find((p) => p.from <= g.start && g.start <= p.to);
       if (hit != null) opts.markRemove?.(hit.id);
@@ -294,6 +298,9 @@ export function createTimeline(
 
   function setCursor(t: number): void {
     if (from == null || to == null) return;
+    // Cursors arrive only on rewind/playback frames; without this a status
+    // frame's setRange yanks the thumb back to live mid-playback.
+    rewound = true;
     slider.value = String(t);
     selLbl.textContent = formatSelectedTime(t);
   }

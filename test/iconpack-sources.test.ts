@@ -73,7 +73,7 @@ describe("iconpack-sources manifest", () => {
     for (const g of s.gapTargets) expect(g.designator).toMatch(/^[A-Z0-9]{2,6}$/);
   });
   // (full collision validation — family/sea/tanker_air — lives in IconPack
-  // index build, pinned in test/iconpack.test.ts Task 2.)
+  // index build, pinned in test/iconpack.test.ts.)
 
   // pdEntryShape is exercised through loadIconSources on a temp manifest so
   // the real committed file is never mutated by a synthetic case.

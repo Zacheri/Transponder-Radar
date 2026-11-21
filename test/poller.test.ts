@@ -111,6 +111,31 @@ describe("OpenSkyPoller", () => {
     expect((await poller.pollOnce()).nextDelayMs).toBe(4000); // 2nd: pollMs * 4
   });
 
+  it("429 with only X-Rate-Limit-Retry-After-Seconds backs off by that header", async () => {
+    const store = new CraftStore();
+    const poller = new OpenSkyPoller({
+      pollMs: 1000, graceMs: 30000, store,
+      fetchImpl: (async () =>
+        jsonResponse(null, 429, { "x-rate-limit-retry-after-seconds": "6" })) as typeof fetch,
+    });
+    const { upserted, nextDelayMs } = await poller.pollOnce();
+    expect(upserted).toBe(0);
+    expect(nextDelayMs).toBe(6000);
+  });
+
+  it("429: Retry-After wins over X-Rate-Limit-Retry-After-Seconds", async () => {
+    const store = new CraftStore();
+    const poller = new OpenSkyPoller({
+      pollMs: 1000, graceMs: 30000, store,
+      fetchImpl: (async () =>
+        jsonResponse(null, 429, {
+          "retry-after": "5",
+          "x-rate-limit-retry-after-seconds": "9",
+        })) as typeof fetch,
+    });
+    expect((await poller.pollOnce()).nextDelayMs).toBe(5000);
+  });
+
   it("caps backoff at BACKOFF_CAP_MS after enough consecutive errors", async () => {
     const store = new CraftStore();
     const poller = new OpenSkyPoller({

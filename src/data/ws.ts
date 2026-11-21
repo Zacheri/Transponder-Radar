@@ -70,7 +70,7 @@ export type RadarMessage =
   | { type: "snapshot"; craft: Craft[] }
   | { type: "update"; upsert: Craft[]; remove: string[] }
   | StatusMessage
-  | { type: "timeline.state"; time: number | null; craft: Craft[] }
+  | { type: "timeline.state"; time: number | null; craft: Craft[]; seq?: number }
   | { type: "aircraft.info"; id: string; info: AircraftInfo | null }
   | { type: "pins"; pins: Pin[] }
   | { type: "timeline.window.chunk" } & WindowChunk;
@@ -112,7 +112,7 @@ export interface RadarSocketHandlers {
   onUpdate: (upsert: Craft[], remove: string[]) => void;
   onConnection?: (status: "connecting" | "open" | "closed") => void;
   onStatus?: (s: StatusMessage) => void;
-  onTimelineState?: (time: number | null, craft: Craft[]) => void;
+  onTimelineState?: (time: number | null, craft: Craft[], seq?: number) => void;
   onAircraftInfo?: (id: string, info: AircraftInfo | null) => void;
   onPins?: (pins: Pin[]) => void;
   onWindowChunk?: (chunk: WindowChunk) => void;
@@ -136,8 +136,10 @@ export class RadarSocket {
     this.send({ type: "feed.rate", feed, ms });
   }
 
-  sendTimelineSeek(time: number): void {
-    this.send({ type: "timeline.seek", time });
+  // seq (monotonic from the caller) is echoed on the reply so stale replies
+  // from superseded seeks can be dropped; omitted = legacy reply, always applied.
+  sendTimelineSeek(time: number, seq?: number): void {
+    this.send({ type: "timeline.seek", time, seq });
   }
 
   sendTimelineLive(): void {
@@ -197,7 +199,7 @@ export class RadarSocket {
       else if (msg.type === "aircraft.info") this.handlers.onAircraftInfo?.(msg.id, msg.info);
       else if (msg.type === "pins") this.handlers.onPins?.(msg.pins);
       else if (msg.type === "timeline.window.chunk") this.handlers.onWindowChunk?.(msg);
-      else this.handlers.onTimelineState?.(msg.time, msg.craft);
+      else this.handlers.onTimelineState?.(msg.time, msg.craft, msg.seq);
     };
     ws.onclose = () => {
       this.handlers.onConnection?.("closed");

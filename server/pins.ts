@@ -6,7 +6,7 @@ import { MIN_PIN_MS } from "../shared/limits.js";
 export interface Pin { id: string; from: number; to: number }
 export interface PinStoreOpts { file: string; log?: (msg: string) => void }
 
-interface File { pins: Pin[] }
+interface PinFile { pins: Pin[] }
 
 const valid = (p: unknown): p is Pin =>
   typeof p === "object" &&
@@ -18,6 +18,7 @@ const valid = (p: unknown): p is Pin =>
 
 export class PinStore {
   private pins: Pin[] = [];
+  private idSeq = 0; // disambiguates pins added within the same millisecond
 
   constructor(private opts: PinStoreOpts) {}
 
@@ -72,7 +73,7 @@ export class PinStore {
       to = Math.max(bounds.from, Math.min(to, bounds.to));
     }
     if (to - from < MIN_PIN_MS) return null;
-    const pin = { id: "p" + Date.now(), from, to };
+    const pin = { id: `p${Date.now()}-${this.idSeq++}`, from, to };
     this.pins.push(pin);
     this.persist();
     return pin;
@@ -98,7 +99,7 @@ export class PinStore {
   }
 
   private persist(): void {
-    const data: File = { pins: this.pins };
+    const data: PinFile = { pins: this.pins };
     const target = this.opts.file;
     mkdirSync(dirname(target), { recursive: true });
     const tmp = `${target}.${Date.now()}.tmp`;

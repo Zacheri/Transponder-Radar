@@ -3,6 +3,7 @@ import {
   GB,
   STORAGE_CAP_GB_MIN,
   STORAGE_CAP_GB_MAX,
+  STORAGE_CAP_GB_DEFAULT,
   RAM_CACHE_GB_MIN,
   RAM_CACHE_GB_MAX,
   RAM_CACHE_GB_DEFAULT,
@@ -27,6 +28,7 @@ describe("timeline-modernization limits constants", () => {
     expect(GB).toBe(1024 ** 3);
     expect(STORAGE_CAP_GB_MIN).toBe(0.5);
     expect(STORAGE_CAP_GB_MAX).toBe(1000);
+    expect(STORAGE_CAP_GB_DEFAULT).toBe(10);
     expect(RAM_CACHE_GB_MIN).toBe(0);
     expect(RAM_CACHE_GB_MAX).toBe(16);
     expect(RAM_CACHE_GB_DEFAULT).toBe(1);
@@ -78,6 +80,7 @@ describe("clampStorageCapGb / clampRamCacheGb", () => {
     expect(clampStorageCapGb(0.0001)).toBe(0.5);
     expect(clampStorageCapGb(99_999)).toBe(1000);
     expect(clampStorageCapGb(NaN)).toBe(0.5);
+    expect(clampStorageCapGb(STORAGE_CAP_GB_DEFAULT)).toBe(STORAGE_CAP_GB_DEFAULT);
   });
 
   it("clamps ram cache to [0, 16]", () => {

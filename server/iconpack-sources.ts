@@ -2,8 +2,8 @@ import { fileURLToPath } from "node:url";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { CropRect } from "../shared/pack-transforms.js";
 
-// Pinned upstream sources for the vendored aircraft icon pack (Task 2's
-// IconPack downloads from these). pd[] = curated public-domain gap-fill
+// Pinned upstream sources for the vendored aircraft icon pack (IconPack
+// downloads from these). pd[] = curated public-domain gap-fill
 // files from Wikimedia Commons (sha256 of the exact bytes at url).
 
 export interface PdSourceEntry {

@@ -78,7 +78,7 @@ export function createHud(root: HTMLElement): {
   }
 
   function setIcons(i: IconStatus | null): void {
-    // null / absent → hidden (pack disabled or pre-Task-7 frame)
+    // null / absent → hidden (pack disabled or legacy frame)
     if (i === null || i.state === "absent") {
       iconsEl.textContent = "";
       iconsEl.classList.remove("warn");

@@ -259,8 +259,15 @@ describe("createPlaybackEngine", () => {
     await h.flush();
     expect(h.engine.cursor).toBe(to - PLAYBACK_TAIL_MS);
     h.engine.setSpeed(30);
-    h.engine.tick(h.advanceNow(1000 / 60));
+    // The harness answers one snapshot per request, so the buffer trails the
+    // cursor: the engine holds (buffering) at the anchor until data covers it,
+    // then plays.
+    for (let i = 0; i < 5; i++) {
+      h.engine.tick(h.advanceNow(1000 / 60));
+      await h.flush();
+    }
     expect(h.engine.state).toBe("playing");
+    expect(h.engine.cursor).toBeGreaterThan(to - PLAYBACK_TAIL_MS);
     expect(h.frames.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -442,7 +449,9 @@ describe("createPlaybackEngine", () => {
     h.engine.setSpeed(30);
     h.engine.tick(h.advanceNow(1000 / 60));
     expect(h.frames).toHaveLength(1);
-    expect(h.engine.state).toBe("playing");
+    // Starved: A is the only point and the prefetch goes unanswered, so the
+    // cursor pins at the frontier and playback honestly reports buffering.
+    expect(h.engine.state).toBe("buffering");
   });
 
   it("corrupt item: decode reject logs, no throw; the lost item is jumped over and playback continues", async () => {
@@ -508,5 +517,89 @@ describe("createPlaybackEngine", () => {
     expect(h.decodes.get(F)).toBe(2); // dropped -> re-decoded
     expect(h.decodes.get(P)).toBe(1); // kept (2 x snapshotMs behind-window)
     expect(h.decodes.get(M)).toBe(1); // kept (lookAhead floor 600_000, not 4000)
+  });
+
+  it("starving ticks hold the cursor and set buffering until data lands", async () => {
+    const A = 10_000_000;
+    const snaps: Snap[] = [];
+    for (let k = 0; k <= 20; k++) {
+      snaps.push({ ts: A + k * 60_000, crafts: [craft(`a${k}`, { updatedAt: A + k * 60_000 })] });
+    }
+    const rec: PlaybackWindowReq[] = [];
+    const h = makeEngine(snaps, { requestWindow: (req) => rec.push(req) });
+    h.engine.start(A + 600_000);
+    // Seed only up to the cursor (nothing ahead decoded) and leave the
+    // prefetch unanswered: the next tick is starving.
+    for (let ts = A + 480_000; ts <= A + 600_000; ts += 60_000) {
+      const last = ts === A + 600_000;
+      h.engine.feed({ seq: 2, items: [{ ts, b64: tsB64(ts) }], done: last, reachedTo: last ? ts : null });
+    }
+    await h.flush();
+    expect(h.engine.state).toBe("playing");
+    h.engine.setSpeed(300);
+    h.engine.tick(h.advanceNow(1000 / 60));
+    expect(h.engine.state).toBe("buffering");
+    const held = h.engine.cursor;
+    h.engine.tick(h.advanceNow(1000 / 60));
+    h.engine.tick(h.advanceNow(1000 / 60));
+    expect(h.engine.cursor).toBe(held); // stall, don't skip: the clock holds
+    expect(h.engine.state).toBe("buffering");
+    h.engine.feed({ seq: 4, items: [{ ts: A + 660_000, b64: tsB64(A + 660_000) }], done: true, reachedTo: A + 660_000 });
+    await h.flush(); // decode lands -> resume advancing
+    expect(h.engine.state).toBe("playing");
+    h.engine.tick(h.advanceNow(1000 / 60));
+    expect(h.engine.cursor).toBeGreaterThan(held);
+  });
+
+  it("stop() during an in-flight decode leaves the buffer empty", async () => {
+    const A = 10_000_000;
+    const B = A + 60_000;
+    const rec: PlaybackWindowReq[] = [];
+    let decodeCount = 0;
+    const deferred = { settle: () => {} };
+    const h = makeEngine(
+      [
+        { ts: A, crafts: [craft("a", { updatedAt: A })] },
+        { ts: B, crafts: [craft("b", { updatedAt: B })] },
+      ],
+      {
+        requestWindow: (req) => rec.push(req),
+        decode: () =>
+          new Promise<Craft[]>((resolve) => {
+            decodeCount++;
+            deferred.settle = () => resolve([]);
+          }),
+      }
+    );
+    h.engine.start(A); // seed request recorded, unanswered: seq 2
+    h.engine.feed({ seq: 2, items: [{ ts: A, b64: tsB64(A) }], done: true, reachedTo: A });
+    expect(decodeCount).toBe(1);
+    h.engine.stop(); // decode still in flight when the session ends
+    deferred.settle(); // stale resolve must never reach the buffer
+    await h.flush();
+    h.engine.start(A); // fresh session
+    h.engine.feed({ seq: rec.at(-1)!.seq, items: [{ ts: A, b64: tsB64(A) }], done: true, reachedTo: A });
+    // Buffer empty after the stale resolve: A had to be decoded again.
+    expect(decodeCount).toBe(2);
+  });
+
+  it("duplicate ts in one chunk dispatches a single decode", async () => {
+    const A = 10_000_000;
+    const rec: PlaybackWindowReq[] = [];
+    const h = makeEngine([{ ts: A, crafts: [craft("a", { updatedAt: A })] }], {
+      requestWindow: (req) => rec.push(req),
+    });
+    h.engine.start(A);
+    h.engine.feed({
+      seq: 2,
+      items: [
+        { ts: A, b64: tsB64(A) },
+        { ts: A, b64: tsB64(A) },
+      ],
+      done: true,
+      reachedTo: A,
+    });
+    await h.flush();
+    expect(h.decodes.get(A)).toBe(1);
   });
 });
