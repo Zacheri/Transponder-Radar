@@ -1,6 +1,8 @@
 // Pure display-math helpers for the timeline.
-// No DOM, no date libraries, no dependencies — Node-testable, browser-safe.
+// No DOM, no date libraries — Node-testable, browser-safe.
 // All timestamps are local (local-midnight aware for dayTicks).
+
+import { HISTORY_WINDOW_MS } from "../../shared/limits.js";
 
 const enDash = "\u2013";
 const DATE_OPTS = { month: "short", day: "numeric" } as const;
@@ -80,4 +82,60 @@ export function formatSpeed(s: number): string {
   // The step scale is framed in min/s (0.5 → 60); label it that way throughout.
   if (s < 86400) return `${trim1(s / 60)} min/s`;
   return `${trim1(s / 86400)} d/s`;
+}
+
+export type ViewSel =
+  | { mode: "preset"; ms: number | null }
+  | { mode: "custom"; from: number; to: number };
+
+export const VIEW_PRESETS: { label: string; ms: number | null }[] = [
+  { label: "24 h", ms: 86_400_000 },
+  { label: "3 d", ms: 259_200_000 },
+  { label: "7 d", ms: 604_800_000 },
+  { label: "14 d", ms: 1_209_600_000 }, // == HISTORY_WINDOW_MS
+  { label: "All", ms: null },
+];
+
+export const DEFAULT_VIEW_SEL: ViewSel = { mode: "preset", ms: HISTORY_WINDOW_MS };
+
+/**
+ * Intersects the selected view with available history; null only when there
+ * is no history. An empty (or inverted) custom intersection collapses to a
+ * zero-width window at the clamped `to` — downstream disables seek on it.
+ */
+export function computeViewWindow(
+  histFrom: number | null,
+  histTo: number | null,
+  sel: ViewSel,
+): { from: number; to: number } | null {
+  if (histFrom === null || histTo === null) return null;
+  if (sel.mode === "preset") {
+    const from = sel.ms === null ? histFrom : Math.max(histFrom, histTo - sel.ms);
+    return { from, to: histTo };
+  }
+  const clamp = (t: number) => Math.min(Math.max(t, histFrom), histTo);
+  const from = clamp(sel.from);
+  const to = clamp(sel.to);
+  return from > to ? { from: to, to } : { from, to };
+}
+
+/** Parses a persisted selection; anything malformed or out of domain → null. */
+export function parseViewSel(raw: string | null): ViewSel | null {
+  if (!raw) return null;
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  const pos = (x: unknown) => typeof x === "number" && Number.isFinite(x) && x > 0;
+  if (o.mode === "preset" && (o.ms === null || pos(o.ms))) {
+    return { mode: "preset", ms: o.ms === null ? null : (o.ms as number) };
+  }
+  if (o.mode === "custom" && pos(o.from) && pos(o.to)) {
+    return { mode: "custom", from: o.from as number, to: o.to as number };
+  }
+  return null;
 }
