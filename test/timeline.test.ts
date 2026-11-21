@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createTimeline, type TimelineApi } from "../src/ui/timeline.js";
-import { formatSelectedTime } from "../src/ui/format.js";
+import { formatSelectedTime, VIEW_PRESETS } from "../src/ui/format.js";
+import type { ViewSel } from "../src/ui/format.js";
 import { MIN_PIN_MS } from "../shared/limits.js";
 import type { Pin } from "../src/data/ws.js";
 
@@ -118,7 +119,13 @@ function must(el: FakeEl | undefined, what: string): FakeEl {
   return el;
 }
 
-function setup(opts: { markAdd?: (from: number, to: number) => void; markRemove?: (id: string) => void } = {}) {
+function setup(
+  opts: {
+    markAdd?: (from: number, to: number) => void;
+    markRemove?: (id: string) => void;
+    viewSelect?: (sel: ViewSel | null) => void;
+  } = {},
+) {
   winListeners.clear();
   const root = new FakeEl("div");
   const api: TimelineApi = createTimeline(root as unknown as HTMLElement, {
@@ -129,7 +136,18 @@ function setup(opts: { markAdd?: (from: number, to: number) => void; markRemove?
   const slider = must(find(root, (el) => el.attrs["aria-label"] === "Timeline scrubber"), "slider");
   const sel = must(find(root, (el) => el.className === "timeline-sel"), "selection label");
   const markBtn = find(root, (el) => el.className === "timeline-mark");
-  return { api, slider, sel, markBtn };
+  const view = find(root, (el) => el.className === "timeline-view");
+  const presetSel = find(root, (el) => el.className === "timeline-view-preset");
+  const custom = find(root, (el) => el.className === "timeline-view-custom");
+  const fromInput = find(root, (el) => el.className === "timeline-view-from");
+  const toInput = find(root, (el) => el.className === "timeline-view-to");
+  const applyBtn = find(root, (el) => el.className === "timeline-view-apply");
+  const resetBtn = find(root, (el) => el.className === "timeline-view-reset");
+  return { api, root, slider, sel, markBtn, view, presetSel, custom, fromInput, toInput, applyBtn, resetBtn };
+}
+
+function pickOption(sel: FakeEl, label: string): FakeEl {
+  return must(sel.children.find((o) => o.textContent === label), `option ${label}`);
 }
 
 // Range [0, 100000] with rect width 1000 maps clientX -> time = clientX * 100.
@@ -214,5 +232,125 @@ describe("timeline mark rounding (B9)", () => {
     drag(slider, 800, 800); // 80,000 ms, outside p1
     expect(markAdd).not.toHaveBeenCalled();
     expect(markRemove).not.toHaveBeenCalled();
+  });
+});
+
+describe("timeline view controls", () => {
+  it("renders the controls row only when viewSelect is wired, before the track", () => {
+    expect(setup().view).toBeUndefined();
+
+    const { root, view, presetSel } = setup({ viewSelect: vi.fn() });
+    const row = must(view, "view row");
+    const labels = must(presetSel, "preset select").children.map((o) => o.textContent);
+    expect(labels).toEqual([...VIEW_PRESETS.map((p) => p.label), "Custom…"]);
+    const el = must(root.children[0], "timeline element");
+    const track = must(find(el, (c) => c.className === "timeline-track"), "track");
+    expect(el.children.indexOf(row)).toBeLessThan(el.children.indexOf(track));
+  });
+
+  it("choosing a preset option fires viewSelect with the table value", () => {
+    const viewSelect = vi.fn();
+    const { presetSel } = setup({ viewSelect });
+    const sel = must(presetSel, "preset select");
+    for (const preset of VIEW_PRESETS) {
+      sel.value = pickOption(sel, preset.label).value;
+      sel.fire("change");
+      expect(viewSelect).toHaveBeenLastCalledWith({ mode: "preset", ms: preset.ms });
+    }
+    expect(viewSelect).toHaveBeenCalledTimes(VIEW_PRESETS.length);
+  });
+
+  it("Custom… reveals the inputs and apply fires the custom selection", () => {
+    const viewSelect = vi.fn();
+    const { presetSel, custom, fromInput, toInput, applyBtn } = setup({ viewSelect });
+    const row = must(custom, "custom row");
+    expect(row.style.display).toBe("none");
+
+    const sel = must(presetSel, "preset select");
+    sel.value = pickOption(sel, "Custom…").value;
+    expect(sel.value).toBe("custom");
+    sel.fire("change");
+    expect(viewSelect).not.toHaveBeenCalled();
+    expect(row.style.display).not.toBe("none");
+
+    must(fromInput, "from input").value = "2026-11-01T10:00";
+    must(toInput, "to input").value = "2026-11-02T10:00";
+    must(applyBtn, "apply button").fire("click");
+    expect(viewSelect).toHaveBeenCalledWith({
+      mode: "custom",
+      from: Date.parse("2026-11-01T10:00"),
+      to: Date.parse("2026-11-02T10:00"),
+    });
+  });
+
+  it("apply stays silent until both inputs parse to dates", () => {
+    const viewSelect = vi.fn();
+    const { fromInput, toInput, applyBtn } = setup({ viewSelect });
+    const apply = must(applyBtn, "apply button");
+    apply.fire("click");
+    must(fromInput, "from input").value = "2026-11-01T10:00";
+    apply.fire("click");
+    must(toInput, "to input").value = "not a date";
+    apply.fire("click");
+    expect(viewSelect).not.toHaveBeenCalled();
+  });
+
+  it("reset restores the 14 d preset and fires viewSelect(null)", () => {
+    const viewSelect = vi.fn();
+    const { presetSel, custom, resetBtn } = setup({ viewSelect });
+    const sel = must(presetSel, "preset select");
+    sel.value = pickOption(sel, "24 h").value;
+    sel.fire("change");
+    must(resetBtn, "reset button").fire("click");
+    expect(viewSelect).toHaveBeenLastCalledWith(null);
+    expect(sel.value).toBe(pickOption(sel, "14 d").value);
+    expect(must(custom, "custom row").style.display).toBe("none");
+  });
+});
+
+describe("timeline out-of-window pins and cursor (review focus)", () => {
+  it("clamps a fully out-of-window pin to the track edge and keeps it removable", () => {
+    const markRemove = vi.fn();
+    const { api, slider, markBtn, root } = setup({ markAdd: vi.fn(), markRemove });
+    api.setRange(FROM, TO);
+    api.setPins([{ id: "p1", from: 10_000, to: 70_000 }]);
+    expect(() => api.setRange(200_000, 300_000)).not.toThrow();
+
+    const pin = must(find(root, (el) => el.className === "timeline-pin"), "pin element");
+    const left = Number.parseFloat(pin.style.left);
+    const width = Number.parseFloat(pin.style.width);
+    expect(left).toBe(0); // clamped to the left edge
+    expect(width).toBeGreaterThanOrEqual(0);
+    expect(width).toBeLessThanOrEqual(100);
+
+    must(markBtn, "mark button").fire("click");
+    slider.rectWidth = 1000;
+    drag(slider, 0, 0); // click on the clamped edge position
+    expect(markRemove).toHaveBeenCalledWith("p1");
+  });
+
+  it("clips a straddling pin to its visible span and removes it on an in-view click", () => {
+    const markRemove = vi.fn();
+    const { api, slider, markBtn, root } = setup({ markAdd: vi.fn(), markRemove });
+    api.setRange(200_000, 300_000);
+    api.setPins([{ id: "p1", from: 50_000, to: 250_000 }]);
+
+    const pin = must(find(root, (el) => el.className === "timeline-pin"), "pin element");
+    expect(Number.parseFloat(pin.style.left)).toBe(0);
+    expect(Number.parseFloat(pin.style.width)).toBe(50); // visible span 200k–250k
+
+    must(markBtn, "mark button").fire("click");
+    slider.rectWidth = 1000;
+    drag(slider, 250, 250); // 225,000 ms, inside the visible span
+    expect(markRemove).toHaveBeenCalledWith("p1");
+  });
+
+  it("keeps the cursor label through a later window that excludes the cursor", () => {
+    const { api, sel } = setup();
+    api.setRange(FROM, TO);
+    api.setCursor(40_000);
+    expect(() => api.setRange(500_000, 600_000)).not.toThrow();
+    expect(sel.textContent).toBe(formatSelectedTime(40_000));
+    expect(sel.textContent).not.toBe("live");
   });
 });

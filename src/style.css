@@ -346,6 +346,7 @@ body {
   right: 12px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 6px 14px;
   background: var(--panel);
@@ -443,6 +444,38 @@ body {
 .timeline-play:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+.timeline-view {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.timeline-view-preset,
+.timeline-view-from,
+.timeline-view-to {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  color-scheme: dark;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.timeline-view-custom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.timeline-view-apply,
+.timeline-view-reset {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 2px 10px;
+  cursor: pointer;
 }
 .hud-replay {
   display: none;

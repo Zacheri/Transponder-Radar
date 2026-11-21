@@ -4,8 +4,11 @@ import {
   formatRangeLabel,
   formatSelectedTime,
   formatSpeed,
+  VIEW_PRESETS,
 } from "./format.js";
+import type { ViewSel } from "./format.js";
 import {
+  HISTORY_WINDOW_MS,
   MIN_PIN_MS,
   SPEED_DEFAULT,
   SPEED_SLIDER_MAX,
@@ -22,6 +25,7 @@ export interface TimelineApi {
 }
 
 const DEBOUNCE_MS = 150;
+const CUSTOM_VIEW_VALUE = "custom";
 
 export function createTimeline(
   root: HTMLElement,
@@ -33,6 +37,7 @@ export function createTimeline(
     markAdd?: (from: number, to: number) => void;
     markRemove?: (id: string) => void;
     playAvailable?: boolean;
+    viewSelect?: (sel: ViewSel | null) => void;
   },
 ): TimelineApi {
   const el = document.createElement("div");
@@ -75,6 +80,70 @@ export function createTimeline(
     el.append(rangeLbl, playBtn, speedWrap);
   } else {
     el.appendChild(rangeLbl);
+  }
+
+  // View-window controls: rendered only when wired. Placed before the track
+  // in DOM order so they can never overlap the scrubber.
+  if (opts.viewSelect != null) {
+    const view = document.createElement("div");
+    view.className = "timeline-view";
+    const presetSel = document.createElement("select");
+    presetSel.className = "timeline-view-preset";
+    VIEW_PRESETS.forEach((p, i) => {
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = p.label;
+      presetSel.appendChild(o);
+    });
+    const customOpt = document.createElement("option");
+    customOpt.value = CUSTOM_VIEW_VALUE;
+    customOpt.textContent = "Custom…";
+    presetSel.appendChild(customOpt);
+    const defaultIdx = VIEW_PRESETS.findIndex((p) => p.ms === HISTORY_WINDOW_MS);
+    presetSel.value = String(defaultIdx);
+
+    const customRow = document.createElement("div");
+    customRow.className = "timeline-view-custom";
+    customRow.style.display = "none";
+    const fromInput = document.createElement("input");
+    fromInput.type = "datetime-local";
+    fromInput.className = "timeline-view-from";
+    const toInput = document.createElement("input");
+    toInput.type = "datetime-local";
+    toInput.className = "timeline-view-to";
+    const applyBtn = document.createElement("button");
+    applyBtn.className = "timeline-view-apply";
+    applyBtn.textContent = "Apply";
+    customRow.append(fromInput, toInput, applyBtn);
+
+    presetSel.addEventListener("change", () => {
+      if (presetSel.value === CUSTOM_VIEW_VALUE) {
+        customRow.style.display = "flex";
+        return;
+      }
+      customRow.style.display = "none";
+      const preset = VIEW_PRESETS[Number(presetSel.value)];
+      opts.viewSelect?.({ mode: "preset", ms: preset.ms });
+    });
+
+    applyBtn.addEventListener("click", () => {
+      const fromT = Date.parse(fromInput.value);
+      const toT = Date.parse(toInput.value);
+      if (Number.isNaN(fromT) || Number.isNaN(toT)) return;
+      opts.viewSelect?.({ mode: "custom", from: fromT, to: toT });
+    });
+
+    const resetBtn = document.createElement("button");
+    resetBtn.className = "timeline-view-reset";
+    resetBtn.textContent = "Reset";
+    resetBtn.addEventListener("click", () => {
+      presetSel.value = String(defaultIdx);
+      customRow.style.display = "none";
+      opts.viewSelect?.(null);
+    });
+
+    view.append(presetSel, customRow, resetBtn);
+    el.appendChild(view);
   }
 
   const track = document.createElement("div");
@@ -148,10 +217,14 @@ export function createTimeline(
     if (from == null || to == null || from >= to) return;
     const span = to - from;
     for (const pin of currentPins) {
+      // Clamp both ends independently: a pin straddling or outside the view
+      // collapses to its visible span instead of smearing across the track.
+      const a = clampPct(((pin.from - from) / span) * 100);
+      const b = clampPct(((pin.to - from) / span) * 100);
       const s = document.createElement("span");
       s.className = "timeline-pin";
-      s.style.left = `${clampPct(((pin.from - from) / span) * 100)}%`;
-      s.style.width = `${clampPct(((pin.to - pin.from) / span) * 100)}%`;
+      s.style.left = `${a}%`;
+      s.style.width = `${b - a}%`;
       overlay.insertBefore(s, preview);
       pinEls.push(s);
     }
@@ -240,6 +313,20 @@ export function createTimeline(
     slider.value = String(preValue);
   }
 
+  // Hit on the clamped, as-drawn span rather than the raw times: a pin
+  // outside the view collapses to a track edge and stays removable there.
+  function findPinHit(t: number): Pin | undefined {
+    if (from == null || to == null || from >= to) return undefined;
+    const f = from;
+    const span = to - f;
+    const pct = clampPct(((t - f) / span) * 100);
+    return currentPins.find((p) => {
+      const a = clampPct(((p.from - f) / span) * 100);
+      const b = clampPct(((p.to - f) / span) * 100);
+      return a <= pct && pct <= b;
+    });
+  }
+
   function onMarkUp(ev: MouseEvent): void {
     const g = gesture;
     gesture = null;
@@ -257,7 +344,7 @@ export function createTimeline(
     if (hi - lo >= MIN_PIN_MS) {
       opts.markAdd?.(lo, hi);
     } else {
-      const hit = currentPins.find((p) => p.from <= g.start && g.start <= p.to);
+      const hit = findPinHit(g.start);
       if (hit != null) opts.markRemove?.(hit.id);
     }
   }
