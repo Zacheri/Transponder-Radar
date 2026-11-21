@@ -22,6 +22,7 @@ export interface TimelineApi {
   setPins: (pins: Pin[]) => void;
   setPlaying: (playing: boolean) => void;
   setCursor: (t: number) => void;
+  setViewSel: (sel: ViewSel | null) => void;
 }
 
 const DEBOUNCE_MS = 150;
@@ -83,7 +84,9 @@ export function createTimeline(
   }
 
   // View-window controls: rendered only when wired. Placed before the track
-  // in DOM order so they can never overlap the scrubber.
+  // in DOM order so they can never overlap the scrubber. syncPresetSel mirrors
+  // an externally-held selection into the select (setViewSel); null when unwired.
+  let syncPresetSel: ((sel: ViewSel | null) => void) | null = null;
   if (opts.viewSelect != null) {
     const view = document.createElement("div");
     view.className = "timeline-view";
@@ -141,6 +144,15 @@ export function createTimeline(
       customRow.style.display = "none";
       opts.viewSelect?.(null);
     });
+
+    syncPresetSel = (sel) => {
+      if (sel == null) presetSel.value = String(defaultIdx);
+      else if (sel.mode === "custom") presetSel.value = CUSTOM_VIEW_VALUE;
+      else {
+        const i = VIEW_PRESETS.findIndex((p) => p.ms === sel.ms);
+        presetSel.value = i >= 0 ? String(i) : CUSTOM_VIEW_VALUE;
+      }
+    };
 
     view.append(presetSel, customRow, resetBtn);
     el.appendChild(view);
@@ -392,7 +404,13 @@ export function createTimeline(
     selLbl.textContent = formatSelectedTime(t);
   }
 
+  // Mirrors an externally-held selection into the select display; fires no
+  // callback (the caller already owns the state).
+  function setViewSel(sel: ViewSel | null): void {
+    syncPresetSel?.(sel);
+  }
+
   setRange(null, null);
 
-  return { setRange, setLive, setPins, setPlaying, setCursor };
+  return { setRange, setLive, setPins, setPlaying, setCursor, setViewSel };
 }

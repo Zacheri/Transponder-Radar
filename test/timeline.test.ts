@@ -306,6 +306,19 @@ describe("timeline view controls", () => {
     expect(sel.value).toBe(pickOption(sel, "14 d").value);
     expect(must(custom, "custom row").style.display).toBe("none");
   });
+
+  it("setViewSel mirrors the select display without firing viewSelect", () => {
+    const viewSelect = vi.fn();
+    const { api, presetSel } = setup({ viewSelect });
+    const sel = must(presetSel, "preset select");
+    api.setViewSel({ mode: "custom", from: 1, to: 2 });
+    expect(sel.value).toBe(pickOption(sel, "Custom…").value);
+    api.setViewSel({ mode: "preset", ms: 86_400_000 });
+    expect(sel.value).toBe(pickOption(sel, "24 h").value);
+    api.setViewSel(null);
+    expect(sel.value).toBe(pickOption(sel, "14 d").value);
+    expect(viewSelect).not.toHaveBeenCalled();
+  });
 });
 
 describe("timeline out-of-window pins and cursor (review focus)", () => {

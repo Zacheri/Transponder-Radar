@@ -19,6 +19,8 @@ import { createFilters } from "./ui/filters.js";
 import { createHud } from "./ui/hud.js";
 import { createFeedRate } from "./ui/pollrate.js";
 import { createTimeline } from "./ui/timeline.js";
+import { DEFAULT_VIEW_SEL, computeViewWindow, parseViewSel } from "./ui/format.js";
+import type { ViewSel } from "./ui/format.js";
 import { createSettings, type SettingsStats } from "./ui/settings.js";
 import { ReplayGate } from "./data/replay.js";
 
@@ -63,6 +65,10 @@ let metaSnapshotMs = 60000;
 let metaStaleMs = 120000;
 let histFrom: number | null = null;
 let histTo: number | null = null;
+// User-chosen view within history; persisted. viewWindow() re-intersects it
+// with histFrom/histTo on every call, so status frames refresh it for free.
+let viewSel: ViewSel = parseViewSel(localStorage.getItem("radar.viewSel")) ?? DEFAULT_VIEW_SEL;
+const viewWindow = () => computeViewWindow(histFrom, histTo, viewSel);
 let lastSeekT: number | null = null;
 // Monotonic seek seq echoed on timeline.state replies: a reply whose seq is
 // below the last applied one comes from a superseded seek and is dropped.
@@ -226,7 +232,7 @@ const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
     if (histTo == null) return;
     replay.enterReplay();
     setPlaybackMode(map, true);
-    const t0 = eng.state === "paused" ? eng.cursor : lastSeekT ?? histTo;
+    const t0 = eng.state === "paused" ? eng.cursor : lastSeekT ?? viewWindow()?.to ?? histTo;
     eng.start(t0);
   },
   speed: (s) => {
@@ -236,7 +242,17 @@ const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
   markAdd: (f, t) => socket?.sendPinAdd(f, t),
   markRemove: (id) => socket?.sendPinRemove(id),
   playAvailable: decodeSupported(),
+  viewSelect: (sel) => {
+    viewSel = sel ?? DEFAULT_VIEW_SEL;
+    localStorage.setItem("radar.viewSel", JSON.stringify(viewSel));
+    const v = viewWindow();
+    timeline.setRange(v?.from ?? null, v?.to ?? null);
+  },
 });
+
+// Mirror a persisted selection (e.g. custom) into the select; preset values
+// map to their option, so this is a no-op display sync for preset restores.
+timeline.setViewSel(viewSel);
 
 map.on("load", async () => {
   // Family/sea icons are lazy color-keyed registrations (the first refresh
@@ -275,7 +291,6 @@ map.on("load", async () => {
       hud.setIcons(s.icons ?? null); // ?? — legacy frames carry no icons
       pollRate.setMs(s.feeds.opensky.pollMs);
       shipRate.setMs(s.feeds.ais.flushMs ?? 120000); // ?? — legacy frames carry no flushMs
-      timeline.setRange(s.history.from, s.history.to);
       if (s.faa.state === "ready" && lastFaaState !== "ready") {
         const purged: string[] = [];
         for (const [id, v] of infoCache) {
@@ -291,6 +306,9 @@ map.on("load", async () => {
       metaStaleMs = s.staleMs ?? 120000;
       histFrom = s.history.from;
       histTo = s.history.to;
+      // Re-intersect the view with history on every status frame.
+      const v = viewWindow();
+      timeline.setRange(v?.from ?? null, v?.to ?? null);
       lastStats = {
         storageCapGb: s.settings?.storageCapGb ?? STORAGE_CAP_GB_DEFAULT,
         ramCacheGb: s.settings?.ramCacheGb ?? RAM_CACHE_GB_DEFAULT,
@@ -347,8 +365,8 @@ map.on("load", async () => {
   engine = createPlaybackEngine({
     snapshotMs: () => metaSnapshotMs,
     staleMs: () => metaStaleMs,
-    historyFrom: () => histFrom,
-    historyTo: () => histTo,
+    historyFrom: () => viewWindow()?.from ?? null,
+    historyTo: () => viewWindow()?.to ?? null,
     requestWindow: (r) => socket?.sendTimelineWindow(r.seq, r.from, r.to, r.stride, r.maxBytes),
     decode: pl ? (b) => pl.decode(b) : () => Promise.reject(new Error("decode unsupported")),
     onFrame,

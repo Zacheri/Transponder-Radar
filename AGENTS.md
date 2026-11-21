@@ -336,7 +336,10 @@ Recolor limit: `recolorPixels`
   `opensky-auth.ts` (OAuth2 token provider), `ais.ts` (AIS WS client),
   `normalize.ts` (raw → `Craft`), `classify.ts` (kind inference from
   callsign/`aisType`; exports `N_NUMBER_RE`), `history.ts` (HistoryRecorder:
-  gzipped snapshots to `data/history/`, size-capped eviction, `seek()`),
+  gzipped snapshots to `data/history/`, size-capped eviction, `seek()`; tiered
+  retention — younger than `FULL_RES_AGE_MS` (48 h) rides `snapshotMs`, older
+  collapses to one survivor per `COMPACT_STEP_MS` bucket (`planCompaction`),
+  pins exempt, hourly `compact()` pass),
   `faa.ts` (FaaLoader: daily bulk registry download + hex→record index),
   `faa-lookup.ts` (FaaLookup: per-click N-number web fallback + enrichment
   cache), `icon-tables.ts` (MILITARY_RULES/CIVIL_RULES — the resolver's
@@ -354,7 +357,10 @@ Recolor limit: `recolorPixels`
   `addImage`, failed-set retry), layer defs), `data/`
   (socket client, client store, feature building, icon filter, `replay.ts` =
   client-side update suppression gate for rewind), `ui/` (panel (FAA info
-  rows), filters, HUD, `timeline.ts` (scrubber + REPLAY badge + LIVE),
+  rows), filters, HUD, `timeline.ts` (scrubber + REPLAY badge + LIVE +
+  view-window row — preset/custom range select over `ViewSel` (`format.ts`),
+  persisted to the `radar.viewSel` localStorage key; scrubber and playback
+  follow the view, no protocol change),
   `pollrate.ts` (`createFeedRate` factory — one slider per feed; the opensky
   instance shows credit warnings; the ais instance is the "Ship updates"
   slider (no credits)).
