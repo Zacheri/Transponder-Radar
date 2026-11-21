@@ -16,6 +16,11 @@ export const RAM_CACHE_GB_DEFAULT = 1;
 // Timeline rewind: minimum gap between pinned snapshots (ms).
 export const MIN_PIN_MS = 60_000;
 
+// Tiered history retention.
+export const HISTORY_WINDOW_MS = 336 * 3600_000; // default scrubber window (14 d)
+export const FULL_RES_AGE_MS = 48 * 3600_000; // full-resolution horizon
+export const COMPACT_STEP_MS = 5 * 60_000; // one kept snapshot per 5-min bucket beyond it
+
 // Playback speed: history-ms consumed per real-ms. Discrete step scale:
 // 0.5, 1, 1.5, 3 min/s, then 5-min/s increments up to 60 min/s (1 h/s).
 export const SPEED_STEPS = [

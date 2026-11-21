@@ -3,7 +3,7 @@ import { mkdtemp, rm, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
-import { HistoryRecorder, type HistoryRecorderOpts } from "../server/history.js";
+import { HistoryRecorder, planCompaction, type HistoryRecorderOpts } from "../server/history.js";
 import { PinStore } from "../server/pins.js";
 import { SnapshotCache } from "../server/snapshot-cache.js";
 import { MIN_PIN_MS } from "../shared/limits.js";
@@ -301,5 +301,56 @@ describe("HistoryRecorder", () => {
       expect(st.pinnedBytes).toBe(e[0].size);
       expect(st.snapshotMs).toBe(60000);
     });
+  });
+});
+
+describe("planCompaction", () => {
+  // NOW is an exact multiple of COMPACT_STEP_MS, so buckets align with whole
+  // hours of NOW: NOW - 49 h is a bucket start, NOW - 48 h is a bucket end.
+  const NOW = 1_700_000_100_000;
+  const H = 3_600_000;
+  const S = 60_000;
+  const B0 = NOW - 49 * H; // first ts of a dead bucket (its end is < NOW - 48 h)
+
+  const idx = (...ts: number[]) => ts.map((t) => ({ ts: t }));
+
+  it("keeps every snapshot newer than the horizon", () => {
+    const got = planCompaction(idx(NOW - H, NOW - 10 * H, NOW - 47 * H), NOW, () => false);
+    expect(got).toEqual([]);
+  });
+
+  it("prunes a dead bucket to its earliest snapshot", () => {
+    const ts = [B0, B0 + S, B0 + 2 * S, B0 + 3 * S, B0 + 4 * S];
+    expect(planCompaction(idx(...ts), NOW, () => false)).toEqual(ts.slice(1));
+  });
+
+  it("never deletes a pinned earliest snapshot", () => {
+    const ts = [B0, B0 + S, B0 + 2 * S, B0 + 3 * S, B0 + 4 * S];
+    expect(planCompaction(idx(...ts), NOW, (t) => t === B0)).toEqual(ts.slice(1));
+  });
+
+  it("deletes every unpinned ts of a bucket that holds a pinned one", () => {
+    const ts = [B0, B0 + S, B0 + 2 * S, B0 + 3 * S, B0 + 4 * S];
+    const got = planCompaction(idx(...ts), NOW, (t) => t === B0 + 2 * S);
+    expect(got).toEqual([B0, B0 + S, B0 + 3 * S, B0 + 4 * S]);
+  });
+
+  it("keeps a bucket that spans the horizon", () => {
+    // NOW-aligned buckets put this bucket's end exactly on the horizon, so it
+    // is not strictly older than it and the whole bucket stays.
+    const got = planCompaction(idx(NOW - 48 * H - 4 * S, NOW - 48 * H - 2 * S), NOW, () => false);
+    expect(got).toEqual([]);
+  });
+
+  it("handles an empty index", () => {
+    expect(planCompaction([], NOW, () => false)).toEqual([]);
+  });
+
+  it("honours custom horizonMs and stepMs", () => {
+    // horizon 10 s, step 2 s, now 100 s: a bucket dies once its end is < 90 s.
+    // 1_000 survives as earliest of its dead bucket; 90_000's bucket (end 92 s)
+    // is alive. With the default 48 h horizon nothing here would be old enough.
+    const got = planCompaction(idx(1_000, 1_500, 90_000), 100_000, () => false, 10_000, 2_000);
+    expect(got).toEqual([1_500]);
   });
 });

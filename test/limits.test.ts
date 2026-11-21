@@ -17,6 +17,9 @@ import {
   WINDOW_MAX_BYTES_MAX,
   WINDOW_MAX_BYTES_DEFAULT,
   PLAYBACK_TAIL_MS,
+  HISTORY_WINDOW_MS,
+  FULL_RES_AGE_MS,
+  COMPACT_STEP_MS,
   speedFromSlider,
   sliderFromSpeed,
   clampStorageCapGb,
@@ -42,6 +45,14 @@ describe("timeline-modernization limits constants", () => {
     expect(WINDOW_MAX_BYTES_MIN).toBe(1 << 20);
     expect(WINDOW_MAX_BYTES_MAX).toBe(64 << 20);
     expect(WINDOW_MAX_BYTES_DEFAULT).toBe(32 << 20);
+  });
+});
+
+describe("tiered history retention constants", () => {
+  it("matches the exact spec values", () => {
+    expect(HISTORY_WINDOW_MS).toBe(336 * 3600_000);
+    expect(FULL_RES_AGE_MS).toBe(48 * 3600_000);
+    expect(COMPACT_STEP_MS).toBe(5 * 60_000);
   });
 });
 

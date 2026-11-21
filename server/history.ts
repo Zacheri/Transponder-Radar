@@ -2,6 +2,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Craft } from "../shared/craft.js";
+import { COMPACT_STEP_MS, FULL_RES_AGE_MS } from "../shared/limits.js";
 import type { PinStore } from "./pins.js";
 import type { SnapshotCache } from "./snapshot-cache.js";
 
@@ -44,6 +45,37 @@ function lowerBound(index: Meta[], t: number): number {
     else hi = mid;
   }
   return lo;
+}
+
+/**
+ * Snapshot ts's to delete when compacting: every bucket (`stepMs` wide) whose
+ * end is strictly older than `now - horizonMs` keeps at most one survivor —
+ * the earliest unpinned snapshot, and none if the bucket holds a pinned
+ * snapshot (a pinned snapshot is already a survivor). Pinned ts are never
+ * returned. The index is ascending; the delete list comes back ascending.
+ */
+export function planCompaction(
+  index: { ts: number }[],
+  now: number,
+  pinned: (ts: number) => boolean,
+  horizonMs = FULL_RES_AGE_MS,
+  stepMs = COMPACT_STEP_MS,
+): number[] {
+  const horizon = now - horizonMs;
+  const buckets = new Map<number, { unpinned: number[]; hasPinned: boolean }>();
+  for (const { ts } of index) {
+    const b = Math.floor(ts / stepMs);
+    let bucket = buckets.get(b);
+    if (!bucket) buckets.set(b, (bucket = { unpinned: [], hasPinned: false }));
+    if (pinned(ts)) bucket.hasPinned = true;
+    else bucket.unpinned.push(ts);
+  }
+  const del: number[] = [];
+  for (const [b, bucket] of buckets) {
+    if ((b + 1) * stepMs >= horizon) continue; // live bucket (may span the horizon)
+    del.push(...bucket.unpinned.slice(bucket.hasPinned ? 0 : 1));
+  }
+  return del;
 }
 
 export class HistoryRecorder {
