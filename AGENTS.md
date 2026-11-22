@@ -342,7 +342,7 @@ Recolor limit: `recolorPixels`
   pins exempt, hourly `compact()` pass),
   `faa.ts` (FaaLoader: daily bulk registry download + hex→record index),
   `faa-lookup.ts` (FaaLookup: per-click N-number web fallback + enrichment
-  cache), `airports.ts` (initAirports: pinned offline `airports.dat` download
+  cache), `airports.ts` (createAirports: pinned offline `airports.dat` download
   into `data/airports/`, ICAO+IATA lookup, never throws), `routes.ts`
   (RoutesService: callsign→route ladder adsbdb → OpenSky `/flights/all`
   est-airports → null; 24 h/1 h caches persisted `data/routes/cache.json`),
