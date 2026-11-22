@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
 import { cartoStyle } from "../src/map/basemap.js";
 import { CRAFT_SOURCE_ID, craftLayerDefs } from "../src/map/layers.js";
+import { TRACK_SOURCES, trackLayerDefs } from "../src/map/trackLayers.js";
 import { buildIconFilter } from "../src/data/filter.js";
 import { AIR_KINDS, SEA_KINDS } from "../shared/craft.js";
 
@@ -14,16 +15,21 @@ const withBounds = (layers: any[]) =>
   layers.map((l) => ({ minzoom: 0, maxzoom: 22, ...l }));
 
 const craftSource = { type: "geojson", data: { type: "FeatureCollection", features: [] } };
+const trackSources = Object.fromEntries(TRACK_SOURCES.map((id) => [id, craftSource]));
 
 const ALL_KINDS = new Set([...AIR_KINDS, ...SEA_KINDS]);
 
 describe("full style validation (Carto raster basemap)", () => {
-  it("basemap + craft source + craft layers validate with zero errors", () => {
+  it("basemap + craft and track sources + layers validate with zero errors", () => {
     const carto = cartoStyle("test-key") as any;
     const style = {
       ...carto,
-      sources: { ...carto.sources, [CRAFT_SOURCE_ID]: craftSource },
-      layers: withBounds([...(carto.layers ?? []), ...craftLayerDefs(buildIconFilter(ALL_KINDS))]),
+      sources: { ...carto.sources, [CRAFT_SOURCE_ID]: craftSource, ...trackSources },
+      layers: withBounds([
+        ...(carto.layers ?? []),
+        ...trackLayerDefs(),
+        ...craftLayerDefs(buildIconFilter(ALL_KINDS)),
+      ]),
     };
     expect(validateStyleMin(style as any)).toEqual([]);
   });
@@ -38,9 +44,11 @@ describe("full style validation (vector basemap with glyphs, OpenFreeMap-shaped)
       sources: {
         basemap: { type: "raster", tiles: ["https://tiles.example/{z}/{x}/{y}.png"] },
         [CRAFT_SOURCE_ID]: craftSource,
+        ...trackSources,
       },
       layers: withBounds([
         { id: "basemap", type: "raster", source: "basemap" },
+        ...trackLayerDefs(),
         ...craftLayerDefs(buildIconFilter(ALL_KINDS)),
       ]),
     };
