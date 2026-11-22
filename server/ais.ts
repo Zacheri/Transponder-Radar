@@ -159,6 +159,12 @@ export class AisClient {
     const ws = this.ws;
     if (!ws || !this.connected) return;
     const boxes = this.currentBoxes();
+    // A subscription frame with zero boxes would replace the server-side
+    // filter with nothing; stay silent until a tile exists instead.
+    if (boxes.length === 0) {
+      this.opts.log?.(`${this.name}: no subscribe boxes — keeping the connection silent`);
+      return;
+    }
     this.lastSubscribeAt = this.now();
     this.lastSentBoxes = boxes.slice();
     ws.send(

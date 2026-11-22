@@ -467,3 +467,29 @@ describe("AisClient attribution", () => {
     expect(client.secondaryStatus.attributions).toEqual([]);
   });
 });
+
+describe("AisClient empty-box guard", () => {
+  it("sends nothing while no boxes exist, logs the skip, recovers when boxes arrive", async () => {
+    const { port, frames } = await recordingServer();
+    const logs: string[] = [];
+    const client = new AisClient({
+      url: `ws://127.0.0.1:${port}`,
+      apiKey: "k",
+      store: new CraftStore(),
+      name: "aiscast",
+      boxesProvider: () => [],
+      resubscribeMs: 10,
+      log: (m) => logs.push(m),
+    });
+    client.start();
+    await waitFor(() => client.isConnected, 3000);
+    await sleep(100);
+    expect(frames).toHaveLength(0);
+    expect(logs.some((l) => l.startsWith("aiscast:") && l.includes("no subscribe boxes"))).toBe(true);
+
+    client.setBoxes([BOX_A]);
+    await waitFor(() => frames.length === 1, 3000);
+    expect(JSON.parse(frames[0]).BoundingBoxes).toEqual([BOX_A]);
+    client.stop();
+  });
+});

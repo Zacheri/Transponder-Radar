@@ -168,8 +168,19 @@ export async function buildApp(deps: ServerDeps = {}) {
   // Same idiom as the aisstream start guard: an injected client (tests)
   // enables the feed even without a key.
   const aiscastEnabled = Boolean(deps.aiscast || config.AISCAST_API_KEY);
+  let aiscastStarted = false;
+  // Deferred connect: aiscast connects only once a tile exists (headless with
+  // a key and no viewport = zero network; a box-less connection would die to
+  // the 3 s subscribe rule anyway). Injected clients share the posture so the
+  // gate is testable. aisstream never reaches an empty set (frozen global).
   const pushAisTiles = (): void => {
-    if (aiscastEnabled) aiscast.setBoxes(composeTiles(aisHome(), aisFollow).map(boxesFor));
+    if (!aiscastEnabled) return;
+    const boxes = composeTiles(aisHome(), aisFollow).map(boxesFor);
+    aiscast.setBoxes(boxes);
+    if (!aiscastStarted && boxes.length > 0) {
+      aiscastStarted = true;
+      aiscast.start();
+    }
   };
   const pinStore = new PinStore({ file: pinFile, log });
   await pinStore.init();
@@ -546,12 +557,8 @@ export async function buildApp(deps: ServerDeps = {}) {
   opensky.start();
   if (deps.ais || config.AISSTREAM_API_KEY) ais.start();
   else log("ais: AISSTREAM_API_KEY not set — vessel feed disabled");
-  if (aiscastEnabled) {
-    pushAisTiles();
-    aiscast.start();
-  } else {
-    log("aiscast: AISCAST_API_KEY not set — vessel fill feed disabled");
-  }
+  if (aiscastEnabled) pushAisTiles(); // connects on the first non-empty tile
+  else log("aiscast: AISCAST_API_KEY not set — vessel fill feed disabled");
 
   const stop = async () => {
     clearInterval(sweeper);

@@ -1072,11 +1072,13 @@ describe("aiscast fill wiring", () => {
 
     await waitFor(() => fake.calls.length >= 1, 3000); // boot push: no home, no follow
     expect(fake.calls[0]).toEqual([]);
+    expect(fake.started).toBe(0); // deferred connect: no tiles, no network
     fake.calls.length = 0;
 
     ws.send(JSON.stringify({ type: "ais.tile", ...follow }));
     await waitFor(() => fake.calls.length === 1, 3000);
     expect(fake.calls[0]).toEqual([boxesFor(follow)]);
+    expect(fake.started).toBe(1); // the first tile connects the feed
 
     ws.send(JSON.stringify({ type: "settings.update", patch: { homeRegion: home } }));
     await waitFor(() => fake.calls.length === 2, 3000);
@@ -1141,6 +1143,7 @@ describe("aiscast fill wiring", () => {
       log: () => {},
     });
     expect(fake2.calls).toEqual([[[[0, 10], [20, 30]]]]); // compose+clamp of {10,20}, no follow yet
+    expect(fake2.started).toBe(1); // a home at boot is a tile: connects immediately
     await app2.stop();
     expect(fake2.started).toBe(1);
     expect(fake2.stopped).toBe(1);
