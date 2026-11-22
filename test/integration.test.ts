@@ -1034,7 +1034,7 @@ describe("aiscast fill wiring", () => {
 
   afterAll(async () => {
     await server.stop();
-    expect(fake.started).toBe(1); // injected client → started despite empty key
+    expect(fake.started).toBe(1); // started once the ais.tile test's first tile arrived (deferred connect)
     expect(fake.stopped).toBe(1);
     await rm(dir, { recursive: true, force: true });
   });

@@ -381,7 +381,8 @@ Recolor limit: `recolorPixels`
   `pollrate.ts` (`createFeedRate` factory — one slider per feed; the opensky
   instance shows credit warnings; the ais instance is the "Ship updates"
   slider (no credits)); the HUD adds an aiscast fill credit line under the
-  pill (`AIS fill: ≤3 attributions joined " · " (+N)`, visible only while
+  pill (`AIS fill: ≤3 attributions joined " · " (+N)`, or `AIS fill: waiting`
+  while connected with none seen yet; visible only while
   `secondary.enabled && connected`); the settings drawer has an "AIS fill"
   home-tile park/clear control (posts `settings.update {homeRegion}`).
 - WS protocol (both ends mirror it, no shared file):

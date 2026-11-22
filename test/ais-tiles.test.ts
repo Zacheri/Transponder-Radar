@@ -73,6 +73,8 @@ describe("composeTiles", () => {
   it("keeps tiles that differ by more than 1e-9", () => {
     const near = { lat: home.lat + 1e-6, lon: home.lon };
     expect(composeTiles(home, near)).toEqual([home, near]);
+    const justOut = { lat: home.lat + 1e-8, lon: home.lon };
+    expect(composeTiles(home, justOut)).toEqual([home, justOut]);
   });
 
   it("caps at 2 tiles", () => {
