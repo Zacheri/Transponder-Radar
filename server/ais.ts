@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import type { BoundingBoxes } from "./ais-tiles.js";
 import type { CraftStore } from "./store.js";
 import {
   normalizePositionReport,
@@ -9,6 +10,12 @@ import {
 
 export const PING_INTERVAL_MS = 20000;
 export const PING_TIMEOUT_MS = 40000;
+export const DEFAULT_RESUBSCRIBE_MS = 1200;
+export const MIN_SUBSCRIBE_SPACING_MS = 1100;
+export const FALLBACK_WINDOW_MS = 3000;
+export const ATTRIBUTION_MAX_AGE_MS = 5 * 60 * 1000;
+
+const GLOBAL_BOXES: BoundingBoxes[] = [[[-90, -180], [90, 180]]];
 
 export interface AisClientOpts {
   url?: string;
@@ -19,6 +26,27 @@ export interface AisClientOpts {
   log?: (msg: string) => void;
   pingIntervalMs?: number;
   pingTimeoutMs?: number;
+  name?: string;
+  boxesProvider?: () => BoundingBoxes[];
+  trackAttribution?: boolean;
+  resubscribeMs?: number;
+}
+
+export interface AisSecondaryStatus {
+  connected: boolean;
+  lastError: string | null;
+  lastMessageAt: number | null;
+  attributions: string[];
+}
+
+// Ruled: close-window check is a pure helper so the fallback decision is
+// unit-testable without connection timing games.
+export function shouldFallBackFollow(
+  closeCode: number,
+  elapsedMs: number,
+  boxCount: number,
+): boolean {
+  return boxCount >= 2 && closeCode >= 4000 && elapsedMs <= FALLBACK_WINDOW_MS;
 }
 
 export class AisClient {
@@ -32,8 +60,17 @@ export class AisClient {
   private lastPongAt: number | null = null;
   private lastError: string | null = null;
   private lastMessageAt: number | null = null;
+  private latestBoxes: BoundingBoxes[] | null = null;
+  private resubTimer: NodeJS.Timeout | null = null;
+  private lastSubscribeAt: number | null = null;
+  private lastSentBoxes: BoundingBoxes[] | null = null;
+  private attributions = new Map<string, number>();
 
   constructor(private opts: AisClientOpts) {}
+
+  private get name(): string {
+    return this.opts.name ?? "ais";
+  }
 
   private now(): number {
     return this.opts.now?.() ?? Date.now();
@@ -47,6 +84,22 @@ export class AisClient {
     return { lastError: this.lastError, lastMessageAt: this.lastMessageAt };
   }
 
+  get secondaryStatus(): AisSecondaryStatus {
+    const attributions: string[] = [];
+    if (this.opts.trackAttribution) {
+      this.pruneAttributions(this.now());
+      for (const [s] of [...this.attributions.entries()].sort((a, b) => b[1] - a[1])) {
+        attributions.push(s);
+      }
+    }
+    return {
+      connected: this.connected,
+      lastError: this.lastError,
+      lastMessageAt: this.lastMessageAt,
+      attributions,
+    };
+  }
+
   start(): void {
     this.closed = false;
     this.connect();
@@ -58,6 +111,8 @@ export class AisClient {
     this.stopPings();
     if (this.retry) clearTimeout(this.retry);
     this.retry = null;
+    if (this.resubTimer) clearTimeout(this.resubTimer);
+    this.resubTimer = null;
     if (this.ws) {
       try {
         this.ws.close();
@@ -66,6 +121,47 @@ export class AisClient {
       }
       this.ws = null;
     }
+  }
+
+  setBoxes(boxes: BoundingBoxes[]): void {
+    this.latestBoxes = boxes;
+    if (!this.connected) return;
+    if (this.resubTimer) clearTimeout(this.resubTimer);
+    this.resubTimer = setTimeout(
+      () => this.resubscribeTick(),
+      this.opts.resubscribeMs ?? DEFAULT_RESUBSCRIBE_MS,
+    );
+  }
+
+  private currentBoxes(): BoundingBoxes[] {
+    return this.latestBoxes ?? this.opts.boxesProvider?.() ?? GLOBAL_BOXES;
+  }
+
+  private resubscribeTick(): void {
+    this.resubTimer = null;
+    if (this.closed || !this.connected || !this.ws) return;
+    const since = this.lastSubscribeAt == null ? Infinity : this.now() - this.lastSubscribeAt;
+    const wait = MIN_SUBSCRIBE_SPACING_MS - since;
+    if (wait > 0) {
+      this.resubTimer = setTimeout(() => this.resubscribeTick(), wait);
+      return;
+    }
+    this.sendSubscribe();
+  }
+
+  private sendSubscribe(): void {
+    const ws = this.ws;
+    if (!ws || !this.connected) return;
+    const boxes = this.currentBoxes();
+    this.lastSubscribeAt = this.now();
+    this.lastSentBoxes = boxes;
+    ws.send(
+      JSON.stringify({
+        APIKey: this.opts.apiKey,
+        BoundingBoxes: boxes,
+        FilterMessageTypes: ["PositionReport", "ShipStaticData"],
+      }),
+    );
   }
 
   private connect(): void {
@@ -80,14 +176,8 @@ export class AisClient {
       this.lastError = null;
       this.lastPongAt = this.now();
       this.startPings();
-      this.opts.log?.("ais: connected");
-      ws.send(
-        JSON.stringify({
-          APIKey: this.opts.apiKey,
-          BoundingBoxes: [[[-90, -180], [90, 180]]],
-          FilterMessageTypes: ["PositionReport", "ShipStaticData"],
-        }),
-      );
+      this.opts.log?.(`${this.name}: connected`);
+      this.sendSubscribe();
     });
     ws.on("message", (data: WebSocket.RawData) => {
       this.handleMessage(data.toString());
@@ -98,15 +188,26 @@ export class AisClient {
     ws.on("close", (code: number, reason: Buffer) => {
       this.stopPings();
       this.connected = false;
+      if (this.resubTimer) clearTimeout(this.resubTimer);
+      this.resubTimer = null;
       const why = reason?.toString() ? `${code}: ${reason.toString()}` : String(code);
       this.lastError ??= `closed ${why}`;
-      this.opts.log?.(`ais: closed ${why}`);
+      this.opts.log?.(`${this.name}: closed ${why}`);
+      this.maybeFallBackFollow(code);
       this.scheduleReconnect();
     });
     ws.on("error", (err: Error) => {
       this.lastError = err.message;
-      this.opts.log?.(`ais: error ${err.message}`);
+      this.opts.log?.(`${this.name}: error ${err.message}`);
     });
+  }
+
+  private maybeFallBackFollow(closeCode: number): void {
+    const sent = this.lastSentBoxes;
+    if (!sent || this.lastSubscribeAt == null) return;
+    if (!shouldFallBackFollow(closeCode, this.now() - this.lastSubscribeAt, sent.length)) return;
+    this.latestBoxes = sent.slice(-1);
+    this.opts.log?.(`${this.name}: fell back to follow tile`);
   }
 
   private startPings(): void {
@@ -125,7 +226,7 @@ export class AisClient {
     const timeout = this.opts.pingTimeoutMs ?? PING_TIMEOUT_MS;
     if (this.lastPongAt != null && this.now() - this.lastPongAt > timeout) {
       this.lastError = "keepalive timeout";
-      this.opts.log?.("ais: keepalive timeout — terminating");
+      this.opts.log?.(`${this.name}: keepalive timeout — terminating`);
       ws.terminate();
       return;
     }
@@ -139,8 +240,24 @@ export class AisClient {
   private scheduleReconnect(): void {
     if (this.closed) return;
     const delay = Math.min(30000, 1000 * 2 ** this.attempts++);
-    this.opts.log?.(`ais: reconnect in ${delay}ms`);
+    this.opts.log?.(`${this.name}: reconnect in ${delay}ms`);
     this.retry = setTimeout(() => this.connect(), delay);
+  }
+
+  private captureAttribution(env: any): void {
+    const type = env?.MessageType;
+    if (type !== "PositionReport" && type !== "ShipStaticData") return;
+    const s = env.attribution ?? env.source ?? env.license;
+    if (typeof s !== "string" || s.length === 0) return;
+    const now = this.now();
+    this.pruneAttributions(now);
+    this.attributions.set(s, now);
+  }
+
+  private pruneAttributions(now: number): void {
+    for (const [s, seenAt] of this.attributions) {
+      if (now - seenAt > ATTRIBUTION_MAX_AGE_MS) this.attributions.delete(s);
+    }
   }
 
   handleMessage(raw: string): void {
@@ -150,11 +267,12 @@ export class AisClient {
     } catch {
       return;
     }
+    if (this.opts.trackAttribution) this.captureAttribution(env);
     const now = this.now();
     const type = env?.MessageType;
     if (type === "SubscriptionConfirmation") {
       const compressed = env?.Message?.CompressionEnabled === true;
-      this.opts.log?.(`ais: subscribed (compression: ${compressed})`);
+      this.opts.log?.(`${this.name}: subscribed (compression: ${compressed})`);
       return;
     }
     if (type === "ShipStaticData") {
