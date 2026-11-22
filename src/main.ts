@@ -433,7 +433,10 @@ map.on("load", async () => {
       // LIVE restored (snapshot answering requestLive, or reconnect): the
       // trail interval and the unsliced trail come back with it.
       syncTrailTimer();
-      if (trailId) applyTrailLayers();
+      if (trailId) {
+        applyTrailLayers();
+        sendTrail(true);
+      }
     },
     onUpdate: (upsert, remove) => {
       if (replay.onUpdate()) store.applyUpdate(upsert, remove);

@@ -215,7 +215,7 @@ export function createRoutes(opts: RoutesOpts): RoutesService {
       res = await call();
     }
     const remaining = res.headers.get("x-rate-limit-remaining");
-    if (remaining !== null && Number.isFinite(Number(remaining))) flightsRemaining = Number(remaining);
+    if (remaining !== null && remaining !== "" && Number.isFinite(Number(remaining))) flightsRemaining = Number(remaining);
     if (!res.ok) throw new Error(`flights/all HTTP ${res.status}`);
     const body = (await res.json()) as OpenSkyFlight[] | { data?: OpenSkyFlight[] };
     const records = Array.isArray(body) ? body : body.data ?? [];

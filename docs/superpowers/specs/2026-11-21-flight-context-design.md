@@ -165,8 +165,10 @@ server → { type:"flight.context", id, seq?, route }            // route: null 
 - Airports map empty → codes render without names; est-fallback returns null.
 - Selection churn (rapid clicks) → seq guard drops stale replies; single
   interval per selection.
-- Craft vanishes mid-view → trail persists until selection closes/deselects
-  (it is the *track*, not live state; matches FR24).
+- Craft vanishes mid-view → the panel's pre-existing auto-close takes the
+  trail with it (branch ruling: the panel is the trail's lifetime; R3 forbids
+  traffic for hidden panels). Within a selection, the trail is the *track*,
+  not live state, and never jitters or fades because the aircraft moved.
 
 ## Testing
 
