@@ -126,6 +126,52 @@ body {
 .panel-val.stale {
   color: #ef5350;
 }
+.panel-chips {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.panel-chip {
+  font-size: 11px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  white-space: nowrap;
+}
+.panel-chip-link {
+  cursor: pointer;
+  border-color: var(--accent);
+}
+.panel-chip-link:hover {
+  background: rgba(79, 195, 247, 0.12);
+}
+.panel-chip-sep {
+  color: var(--muted);
+  font-size: 11px;
+}
+.panel-trail-refresh {
+  margin-top: 8px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 0 10px;
+  cursor: pointer;
+}
+.panel-trail-refresh:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+.panel-note {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #ffb74d;
+}
 .panel-raw {
   margin-top: 8px;
 }

@@ -1,6 +1,11 @@
 import type { Craft } from "../../shared/craft.js";
 import { KINDS } from "../../shared/craft.js";
-import type { AircraftInfo } from "../data/ws.js";
+import type { AircraftInfo, AirportRef, FlightRoute, TrackReply } from "../data/ws.js";
+
+export type TrailBudget = TrackReply["budget"];
+
+// Destination a route chip points at (fly-to target + marker payload).
+export type FlightDest = { name: string; lat: number; lon: number };
 
 function row(label: string, value: string | number | null | undefined): HTMLDivElement {
   const d = document.createElement("div");
@@ -34,6 +39,18 @@ function timeSince(ts: number): string {
 export interface PanelHooks {
   getInfo?: (id: string) => AircraftInfo | null | undefined;
   requestInfo?: (id: string) => void;
+  // Flight context (spec §F): getRoute/getBudget mirror getInfo — undefined
+  // = no reply yet, null = known-none. requestTrail fires the trail refresh
+  // button (manual fetch, exempt from the server's daily auto budget);
+  // onDestClick fires for chips with coordinates.
+  getRoute?: (id: string) => FlightRoute | null | undefined;
+  getBudget?: (id: string) => TrailBudget | undefined;
+  requestTrail?: (id: string) => void;
+  onDestClick?: (dest: FlightDest) => void;
+  // Fires when the close button hides the panel, so the owner can end the
+  // trail refresh and clear the track layers (the other hide paths already
+  // run in the owner).
+  onClose?: () => void;
 }
 
 export function createPanel(root: HTMLElement, hooks: PanelHooks = {}): {
@@ -43,6 +60,8 @@ export function createPanel(root: HTMLElement, hooks: PanelHooks = {}): {
   selectedId(): string | null;
   setInfo(id: string, info: AircraftInfo | null): void;
   resetInfoRequests(ids: string[]): void;
+  showContext(id: string, route: FlightRoute | null): void;
+  showTrack(id: string, budget: TrailBudget): void;
 } {
   const el = document.createElement("aside");
   el.className = "panel";
@@ -86,6 +105,70 @@ export function createPanel(root: HTMLElement, hooks: PanelHooks = {}): {
     return [row("Type", typeText || null), row("N-number", info.nNumber), row("Owner", ownerText)];
   }
 
+  function chipLabel(a: AirportRef): string {
+    const head = a.iata ?? a.icao ?? a.code;
+    return a.city ? `${head} · ${a.city}` : head;
+  }
+
+  function chip(a: AirportRef, dir: "dep" | "arr"): HTMLSpanElement {
+    const c = document.createElement("span");
+    c.className = `panel-chip panel-chip-${dir}`;
+    c.textContent = chipLabel(a);
+    if (a.lat != null && a.lon != null && hooks.onDestClick) {
+      const dest: FlightDest = { name: a.name ?? a.icao ?? a.code, lat: a.lat, lon: a.lon };
+      c.classList.add("panel-chip-link");
+      c.addEventListener("click", () => hooks.onDestClick?.(dest));
+    }
+    return c;
+  }
+
+  function noteRow(text: string): HTMLDivElement {
+    const d = document.createElement("div");
+    d.className = "panel-note";
+    d.textContent = text;
+    return d;
+  }
+
+  // Route chips + trail section (spec §F): route/budget are read through
+  // hooks like the FAA info; the trail refresh button always renders and
+  // the budget note appears once a budget is known (R2).
+  function flightRows(craft: Craft): HTMLElement[] {
+    const out: HTMLElement[] = [];
+    const route = hooks.getRoute?.(craft.id);
+    if (route === undefined) {
+      out.push(row("Route", "…"));
+    } else if (route === null) {
+      out.push(row("Route", "no route data"));
+    } else {
+      const d = document.createElement("div");
+      d.className = "panel-row";
+      const k = document.createElement("span");
+      k.className = "panel-key";
+      k.textContent = "Route";
+      const v = document.createElement("span");
+      v.className = "panel-val panel-chips";
+      if (route.dep) v.append(chip(route.dep, "dep"));
+      const sep = document.createElement("span");
+      sep.className = "panel-chip-sep";
+      sep.textContent = "→";
+      v.append(sep);
+      if (route.arr) v.append(chip(route.arr, "arr"));
+      d.append(k, v);
+      out.push(d);
+    }
+    const btn = document.createElement("button");
+    btn.className = "panel-trail-refresh";
+    btn.textContent = "Refresh trail";
+    btn.addEventListener("click", () => hooks.requestTrail?.(craft.id));
+    out.push(btn);
+    const budget = hooks.getBudget?.(craft.id);
+    if (budget) {
+      if (budget.hard) out.push(noteRow("daily trail fetch limit reached"));
+      else if (budget.autoLeft === 0) out.push(noteRow("trail auto-refresh paused (daily limit)"));
+    }
+    return out;
+  }
+
   function lastFixText(craft: Craft): string {
     return timeSince(craft.updatedAt) + (craft.stale ? " (stale)" : "");
   }
@@ -114,7 +197,7 @@ export function createPanel(root: HTMLElement, hooks: PanelHooks = {}): {
         row("SPI (military)", craft.spi ? "yes" : "no"),
         row("Origin", craft.originCountry),
       );
-      body.append(...infoRows(craft));
+      body.append(...infoRows(craft), ...flightRows(craft));
     } else {
       body.append(
         row("Name", craft.shipName),
@@ -198,6 +281,17 @@ export function createPanel(root: HTMLElement, hooks: PanelHooks = {}): {
     for (const id of ids) requestedInfo.delete(id);
   }
 
-  closeBtn.addEventListener("click", hide);
-  return { show, hide, update, selectedId, setInfo, resetInfoRequests };
+  function showContext(id: string, _route: FlightRoute | null): void {
+    if (selected && selected.id === id) render(selected);
+  }
+
+  function showTrack(id: string, _budget: TrailBudget): void {
+    if (selected && selected.id === id) render(selected);
+  }
+
+  closeBtn.addEventListener("click", () => {
+    hide();
+    hooks.onClose?.();
+  });
+  return { show, hide, update, selectedId, setInfo, resetInfoRequests, showContext, showTrack };
 }

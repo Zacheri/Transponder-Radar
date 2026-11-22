@@ -342,7 +342,14 @@ Recolor limit: `recolorPixels`
   pins exempt, hourly `compact()` pass),
   `faa.ts` (FaaLoader: daily bulk registry download + hex→record index),
   `faa-lookup.ts` (FaaLookup: per-click N-number web fallback + enrichment
-  cache), `icon-tables.ts` (MILITARY_RULES/CIVIL_RULES — the resolver's
+  cache), `airports.ts` (initAirports: pinned offline `airports.dat` download
+  into `data/airports/`, ICAO+IATA lookup, never throws), `routes.ts`
+  (RoutesService: callsign→route ladder adsbdb → OpenSky `/flights/all`
+  est-airports → null; 24 h/1 h caches persisted `data/routes/cache.json`),
+  `tracks.ts` (TracksService: HistoryRecorder.trackFor + OpenSky `/tracks/all`
+  merged per-icao24 trail; daily ledger `data/tracks/ledger.json` caps auto
+  fetches at 300/day and all at 800/day — refusals answer cache + `budget`),
+  `icon-tables.ts` (MILITARY_RULES/CIVIL_RULES — the resolver's
   callsign/model tables; a rule may carry a `pack` name),
   `icons.ts` (resolveAirIcon: military callsign table → FAA model table →
   kind fallback; emits the rule's pack name when the caller's pack set
@@ -350,14 +357,20 @@ Recolor limit: `recolorPixels`
   `iconpack.ts` (IconPack: download/verify/index the vendored pack into
   `data/icons/`; `init()` never throws — failures land in `status()`),
   `icons-catalog.ts` (catalog page HTML + gap list).
-- `src/` — `main.ts` (top-level await; wiring, rewind mode, info cache),
+- `src/` — `main.ts` (top-level await; wiring, rewind mode, info cache,
+  flight-trail selection + credit-guarded refresh loop
+  `clamp(pollMs/2, 30 s, 300 s)` — paused while hidden/rewound, seq-guarded
+  replies, layers cleared on selection close/change),
   `map/` (basemap probe, map creation, icon rasterization, `icon-urls.ts` =
   13 air family + 10 sea SVG imports = 23 entries, `pack-icons.ts` = lazy
   pack‑icon loader (fetch `GET /icons/*` → transform → 96×96 raster →
-  `addImage`, failed-set retry), layer defs), `data/`
+  `addImage`, failed-set retry), layer defs, `trackLayers.ts` =
+  `flight-trail`/`flight-predicted`/`flight-dest` defs + pure data setters,
+  inserted below `craft-icons`), `data/`
   (socket client, client store, feature building, icon filter, `replay.ts` =
   client-side update suppression gate for rewind), `ui/` (panel (FAA info
-  rows), filters, HUD, `timeline.ts` (scrubber + REPLAY badge + LIVE +
+  rows; air: dep/arr route chips `IATA · city` → fly-to + dest marker,
+  trail refresh button, R2 budget note), filters, HUD, `timeline.ts` (scrubber + REPLAY badge + LIVE +
   view-window row — preset/custom range select over `ViewSel` (`format.ts`),
   persisted to the `radar.viewSel` localStorage key; scrubber and playback
   follow the view, no protocol change),
@@ -374,7 +387,10 @@ Recolor limit: `recolorPixels`
   `{type:"timeline.seek",time,seq?}`, `{type:"timeline.live"}`,
   `{type:"aircraft.info",id}` (the optional `seq` is echoed on the reply so the
   client can drop replies from superseded seeks; legacy seq-less replies are
-  always applied);
+  always applied),
+  `{type:"flight.track",id,seq,auto?}` (`auto:false` = manual refresh, exempt
+  from the daily auto ledger), `{type:"flight.context",id,seq}` (both carry a
+  client-monotonic `seq` bumped on every selection change and refresh wave);
   server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`
   (craft objects carry an optional `icon` — air shape family / sea kind /
   absent in pre-icon snapshots),
@@ -382,6 +398,13 @@ Recolor limit: `recolorPixels`
   (icons.state: ready|downloading|failed|absent),
   `{type:"timeline.state",time,craft,seq?}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
-  `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`).
-- `test/` — 37 files, 739 tests. Node-environment Vitest; browser-only code
+  `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`),
+  `{type:"flight.track",id,seq?,path,fetchedAt,source,budget}` (`path` =
+  ascending `{t,lat,lon,alt,onGround}` trail points, unknown id → `[]`;
+  `source`: both|history|opensky|none; `budget` = `{autoLeft,hard}` daily
+  ledger remaining — note row in the panel, no HUD item),
+  `{type:"flight.context",id,seq?,route}` (`route:null` = none; else
+  `{airline,dep,arr,source}` with server-resolved `{icao,iata,name,city,
+  country,lat,lon}` airport refs — the client never looks airports up).
+- `test/` — 43 files, 837 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

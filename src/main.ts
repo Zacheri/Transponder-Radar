@@ -2,9 +2,18 @@ import { createMap } from "./map/map.js";
 import { createKindIconRegistrar, type KindIconRegistrar } from "./map/icons.js";
 import { createPackIconLoader, type PackIconLoader } from "./map/pack-icons.js";
 import { addCraftSource, addCraftLayers, setCraftData, setPlaybackMode } from "./map/layers.js";
+import {
+  addTrackLayers,
+  setTrailData,
+  clearTrailData,
+  setPredictedData,
+  clearPredicted,
+  setDestMarker,
+  clearDestMarker,
+} from "./map/trackLayers.js";
 import { ClientStore } from "./data/store.js";
 import { RadarSocket } from "./data/ws.js";
-import type { AircraftInfo } from "./data/ws.js";
+import type { AircraftInfo, FlightRoute, TrackPoint } from "./data/ws.js";
 import { buildFeatureCollection } from "./data/features.js";
 import { buildIconFilter } from "./data/filter.js";
 import { createCoalescedRun } from "./data/coalesce.js";
@@ -12,9 +21,11 @@ import { decodeSupported, createDecodePool, type DecodePool } from "./data/decod
 import { createPlaybackEngine, type PlaybackApi } from "./data/playback.js";
 import { AIR_KINDS, SEA_KINDS, KIND_FALLBACK_ICON, colorKey } from "../shared/craft.js";
 import type { AirKind, Craft, CraftKind } from "../shared/craft.js";
+import { greatCircle, destinationPoint } from "../shared/geo.js";
+import type { LonLat } from "../shared/geo.js";
 import { effectiveColor, loadIconColors, saveIconColors, setKindColor, type IconColorState } from "./data/icon-colors.js";
 import { RAM_CACHE_GB_DEFAULT, STORAGE_CAP_GB_DEFAULT } from "../shared/limits.js";
-import { createPanel } from "./ui/panel.js";
+import { createPanel, type TrailBudget } from "./ui/panel.js";
 import { createFilters } from "./ui/filters.js";
 import { createHud } from "./ui/hud.js";
 import { createFeedRate } from "./ui/pollrate.js";
@@ -30,10 +41,24 @@ if (!container) throw new Error("#map missing");
 const map = await createMap(container);
 const store = new ClientStore();
 const infoCache = new Map<string, AircraftInfo | null>();
+// Flight-context caches for the panel's read-through hooks (infoCache idiom).
+const routeCache = new Map<string, FlightRoute | null>();
+const budgetCache = new Map<string, TrailBudget>();
 let lastFaaState: string | null = null;
 const panel = createPanel(document.getElementById("app") as HTMLElement, {
   getInfo: (id) => infoCache.get(id),
   requestInfo: (id) => socket?.sendAircraftInfo(id),
+  getRoute: (id) => routeCache.get(id),
+  getBudget: (id) => budgetCache.get(id),
+  requestTrail: (id) => {
+    if (id === trailId) sendTrail(false); // manual fetch: exempt from the auto budget
+  },
+  onDestClick: (dest) => {
+    setDestMarker(map, dest);
+    // Right padding clears the 280 px docked panel so the marker stays visible.
+    map.flyTo({ center: [dest.lon, dest.lat], zoom: Math.max(map.getZoom(), 8), padding: { right: 304 } });
+  },
+  onClose: () => clearTrail(),
 });
 const hud = createHud(document.getElementById("app") as HTMLElement);
 let visible = new Set<CraftKind>([...AIR_KINDS, ...SEA_KINDS]);
@@ -74,6 +99,19 @@ let lastSeekT: number | null = null;
 // below the last applied one comes from a superseded seek and is dropped.
 let seekSeq = 0;
 let appliedSeekSeq = 0;
+// Flight-context selection (spec §F): the air craft whose trail layers and
+// credit-guarded refresh loop are active, plus the last replies the layers
+// render. Seq counters mirror seekSeq/appliedSeekSeq for the two reply kinds.
+let trailId: string | null = null;
+let trailKind: CraftKind | null = null;
+let trailPath: TrackPoint[] = [];
+let trailRoute: FlightRoute | null = null;
+let trackTimer: number | null = null;
+let openSkyPollMs = 90000;
+let trackSeq = 0;
+let appliedTrackSeq = 0;
+let contextSeq = 0;
+let appliedContextSeq = 0;
 let lastStats: SettingsStats = {
   storageCapGb: STORAGE_CAP_GB_DEFAULT,
   ramCacheGb: RAM_CACHE_GB_DEFAULT,
@@ -115,8 +153,14 @@ async function refresh(): Promise<void> {
   if (id) {
     const c = store.get(id);
     if (c) panel.update(c);
-    else panel.hide();
+    else {
+      panel.hide();
+      clearTrail();
+    }
   }
+  // Live update tick: re-anchor the prediction on the selected craft's new
+  // position (FR24-follows-the-aircraft).
+  if (trailId) applyTrailLayers();
 }
 
 // Store writes burst (snapshots + batched feeds); one map pass per frame.
@@ -153,6 +197,7 @@ function onFrame(crafts: Craft[], t: number): void {
       const c = lastPlayFrame.get(id);
       if (c) panel.update(c);
     }
+    if (trailId) applyTrailLayers(); // throttle-follow the playback cursor
   }
 }
 
@@ -180,6 +225,107 @@ const shipRate = createFeedRate(settingsUi.feedRates, {
   send: (ms) => socket?.sendFeedRate("ais", ms),
 });
 const replay = new ReplayGate();
+
+// Trail auto-refresh cadence: half the aircraft poll, clamped to
+// [30 s, 300 s] (user ruling), re-read on every (re)start.
+const trailCadence = (): number => Math.min(300_000, Math.max(30_000, openSkyPollMs / 2));
+
+// R3: zero track sends while the panel is closed, the tab is hidden, or the
+// timeline is rewound. auto=false marks the manual (budget-exempt) fetch.
+function sendTrail(auto: boolean): void {
+  if (trailId == null || document.hidden || replay.rewound) return;
+  socket?.sendFlightTrack(trailId, ++trackSeq, auto);
+}
+
+function stopTrailTimer(): void {
+  if (trackTimer != null) {
+    window.clearInterval(trackTimer);
+    trackTimer = null;
+  }
+}
+
+// The interval runs only while a trail is selected, visible and live; call
+// stopTrailTimer() first to re-create it at a new cadence (pollMs change).
+function syncTrailTimer(): void {
+  const run = trailId != null && !document.hidden && !replay.rewound;
+  if (run && trackTimer == null) trackTimer = window.setInterval(() => sendTrail(true), trailCadence());
+  else if (!run) stopTrailTimer();
+}
+
+// Rewind display cursor: the playing engine's cursor, else the last applied
+// seek; null while live.
+function rewindCursor(): number | null {
+  if (!replay.rewound) return null;
+  const eng = engine;
+  return eng && eng.state !== "idle" ? eng.cursor : lastSeekT;
+}
+
+// Redraw the three track layers for the selected trail: recorded path (sliced
+// to the rewind cursor while rewound) in the kind's icon color, predicted
+// geometry from the current position — great-circle to the arrival airport,
+// else a 20-minute heading stub (Craft.speed is knots).
+function applyTrailLayers(): void {
+  if (trailId == null || trailKind == null) return;
+  const cursor = rewindCursor();
+  const pts: LonLat[] = [];
+  for (const p of trailPath) {
+    if (cursor != null && p.t > cursor) break;
+    pts.push({ lon: p.lon, lat: p.lat });
+  }
+  setTrailData(map, pts, iconColorFor(trailKind));
+  const craft = lastPlayFrame?.get(trailId) ?? store.get(trailId);
+  let pred: LonLat[] | null = null;
+  if (craft) {
+    const here = { lon: craft.lon, lat: craft.lat };
+    const arr = trailRoute?.arr;
+    if (arr && arr.lat != null && arr.lon != null) {
+      pred = greatCircle(here, { lon: arr.lon, lat: arr.lat });
+    } else if (craft.speed != null && craft.speed > 0 && craft.heading != null) {
+      pred = [here, destinationPoint(here, craft.heading, craft.speed * 1852 * (20 / 60))];
+    }
+  }
+  setPredictedData(map, pred);
+}
+
+// Close/change bump: in-flight replies for the old selection fall below the
+// applied gates and are dropped (selection churn, spec Failure modes).
+function bumpFlightSeqs(): void {
+  appliedTrackSeq = ++trackSeq;
+  appliedContextSeq = ++contextSeq;
+}
+
+// End the selected trail: stop the refresh, supersede in-flight replies and
+// clear all three track sources.
+function clearTrail(): void {
+  if (trailId == null) return;
+  trailId = null;
+  trailKind = null;
+  trailPath = [];
+  trailRoute = null;
+  stopTrailTimer();
+  bumpFlightSeqs();
+  clearTrailData(map);
+  clearPredicted(map);
+  clearDestMarker(map);
+}
+
+// Air selection: re-selecting the same craft keeps the running interval;
+// anything else ends the old trail, sends flight.context + the first auto
+// track, draws the prediction stub right away and schedules refreshes.
+function beginTrail(craft: Craft): void {
+  if (craft.domain !== "air") {
+    clearTrail();
+    return;
+  }
+  if (trailId === craft.id) return;
+  clearTrail();
+  trailId = craft.id;
+  trailKind = craft.kind;
+  socket?.sendFlightContext(craft.id, ++contextSeq);
+  sendTrail(true);
+  applyTrailLayers();
+  syncTrailTimer();
+}
 
 // One rAF loop drives engine ticks; idempotent start (state can re-emit
 // buffering/playing), self-stops when playback leaves playing/buffering.
@@ -210,6 +356,8 @@ const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
     lastSeekT = t;
     replay.enterReplay();
     hud.setReplay(t);
+    syncTrailTimer();
+    applyTrailLayers();
     socket?.sendTimelineSeek(t, ++seekSeq);
   },
   goLive: () => {
@@ -221,6 +369,8 @@ const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
     lastPlayFrame = null;
     replay.requestLive();
     socket?.sendTimelineLive();
+    // The timer + full trail restore with the live snapshot (onSnapshot);
+    // sends stay suppressed until then (still rewound).
   },
   play: () => {
     const eng = engine;
@@ -231,6 +381,7 @@ const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
     }
     if (histTo == null) return;
     replay.enterReplay();
+    syncTrailTimer(); // R3: playback is rewind — no trail traffic
     setPlaybackMode(map, true);
     const t0 = eng.state === "paused" ? eng.cursor : lastSeekT ?? viewWindow()?.to ?? histTo;
     eng.start(t0);
@@ -254,6 +405,16 @@ const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
 // map to their option, so this is a no-op display sync for preset restores.
 timeline.setViewSel(viewSel);
 
+// R3: a hidden tab stops trail traffic; returning resumes with an immediate
+// refresh plus the interval.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopTrailTimer();
+  else if (trailId) {
+    sendTrail(true);
+    syncTrailTimer();
+  }
+});
+
 map.on("load", async () => {
   // Family/sea icons are lazy color-keyed registrations (the first refresh
   // registers the keys in use) — no start-up registration anymore.
@@ -261,6 +422,7 @@ map.on("load", async () => {
   packLoader = createPackIconLoader(map);
   addCraftSource(map);
   addCraftLayers(map, buildIconFilter(visible));
+  addTrackLayers(map);
   void refresh();
 
   socket = new RadarSocket(wsUrl, {
@@ -268,6 +430,10 @@ map.on("load", async () => {
       replay.onSnapshot();
       if (!replay.rewound) timeline.setLive();
       store.applySnapshot(crafts);
+      // LIVE restored (snapshot answering requestLive, or reconnect): the
+      // trail interval and the unsliced trail come back with it.
+      syncTrailTimer();
+      if (trailId) applyTrailLayers();
     },
     onUpdate: (upsert, remove) => {
       if (replay.onUpdate()) store.applyUpdate(upsert, remove);
@@ -284,6 +450,7 @@ map.on("load", async () => {
           eng.stop();
           setPlaybackMode(map, false);
         }
+        syncTrailTimer();
       }
     },
     onStatus: (s) => {
@@ -291,6 +458,11 @@ map.on("load", async () => {
       hud.setIcons(s.icons ?? null); // ?? — legacy frames carry no icons
       pollRate.setMs(s.feeds.opensky.pollMs);
       shipRate.setMs(s.feeds.ais.flushMs ?? 120000); // ?? — legacy frames carry no flushMs
+      if (s.feeds.opensky.pollMs !== openSkyPollMs) {
+        openSkyPollMs = s.feeds.opensky.pollMs;
+        stopTrailTimer();
+        syncTrailTimer(); // re-create the refresh interval at the new cadence
+      }
       if (s.faa.state === "ready" && lastFaaState !== "ready") {
         const purged: string[] = [];
         for (const [id, v] of infoCache) {
@@ -333,6 +505,7 @@ map.on("load", async () => {
         }
         replay.requestLive();
         socket?.sendTimelineLive();
+        syncTrailTimer(); // rewind exited immediately: trail traffic resumes
         return;
       }
       const s = seq ?? 0;
@@ -341,10 +514,39 @@ map.on("load", async () => {
       lastSeekT = time;
       store.applySnapshot(crafts);
       hud.setReplay(time);
+      applyTrailLayers(); // trail/prediction slice to the seek cursor
     },
     onAircraftInfo: (id, info) => {
       infoCache.set(id, info);
       panel.setInfo(id, info);
+    },
+    onFlightContext: (id, route, seq) => {
+      const s = seq ?? 0;
+      if (s < appliedContextSeq) return;
+      appliedContextSeq = s;
+      routeCache.set(id, route);
+      if (id === trailId) {
+        trailRoute = route;
+        const arr = route?.arr;
+        if (arr && arr.lat != null && arr.lon != null) {
+          setDestMarker(map, { lon: arr.lon, lat: arr.lat, name: arr.name ?? arr.icao ?? arr.code });
+        } else {
+          clearDestMarker(map);
+        }
+        applyTrailLayers(); // prediction may switch stub → great circle
+      }
+      panel.showContext(id, route);
+    },
+    onFlightTrack: (id, reply, seq) => {
+      const s = seq ?? 0;
+      if (s < appliedTrackSeq) return;
+      appliedTrackSeq = s;
+      budgetCache.set(id, reply.budget);
+      if (id === trailId) {
+        trailPath = reply.path;
+        applyTrailLayers();
+      }
+      panel.showTrack(id, reply.budget);
     },
     onPins: (pins) => {
       timeline.setPins(pins);
@@ -406,11 +608,17 @@ map.on("load", async () => {
     if (!f) return;
     const id = f.properties.id as string;
     const craft = lastPlayFrame?.get(id) ?? store.get(id);
-    if (craft) panel.show(craft);
+    if (craft) {
+      panel.show(craft);
+      beginTrail(craft);
+    }
   });
   map.on("click", (e) => {
     const features = map.queryRenderedFeatures(e.point, { layers: ["craft-icons"] });
-    if (!features.length) panel.hide();
+    if (!features.length) {
+      panel.hide();
+      clearTrail();
+    }
   });
   map.on("mouseenter", "craft-icons", () => {
     map.getCanvas().style.cursor = "pointer";
