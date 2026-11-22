@@ -1,4 +1,6 @@
 import type { Craft } from "../shared/craft.js";
+import type { AisSecondaryStatus } from "./ais.js";
+import type { TileCenter } from "./ais-tiles.js";
 import type { CraftStore } from "./store.js";
 import type { HistoryStatus } from "./history.js";
 import type { FaaStatus } from "./faa.js";
@@ -13,7 +15,16 @@ export interface WsLike {
 
 export interface FeedStatus {
   opensky: { lastOkAt: number | null; lastError: string | null; pollMs: number };
-  ais: { connected: boolean; enabled: boolean; lastError: string | null; lastMessageAt: number | null; flushMs: number };
+  ais: {
+    connected: boolean;
+    enabled: boolean;
+    lastError: string | null;
+    lastMessageAt: number | null;
+    flushMs: number;
+    // aiscast fill feed. Non-nullable by design: disabled = enabled:false
+    // zeroed block, never null (kills a client-branch class).
+    secondary: { enabled: boolean } & AisSecondaryStatus;
+  };
 }
 
 export const FEED_IDS = ["opensky", "ais"] as const;
@@ -33,7 +44,8 @@ export type ClientMessage =
   | { type: "timeline.seek"; time: number; seq?: number }
   | { type: "timeline.live" }
   | { type: "aircraft.info"; id: string }
-  | { type: "settings.update"; patch: { storageCapGb?: number; ramCacheGb?: number } }
+  | { type: "settings.update"; patch: { storageCapGb?: number; ramCacheGb?: number; homeRegion?: TileCenter | null } }
+  | { type: "ais.tile"; lat: number; lon: number }
   | { type: "pin.add"; from: number; to: number }
   | { type: "pin.remove"; id: string }
   | { type: "flight.track"; id: string; seq?: number; auto?: boolean }
@@ -61,6 +73,16 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     if (m.type === "timeline.live") return m;
     if (m.type === "aircraft.info" && typeof m.id === "string" && m.id.length > 0) return m;
     if (m.type === "settings.update" && typeof m.patch === "object" && m.patch !== null && !Array.isArray(m.patch)) return m;
+    // homeRegion passes through untouched (object-or-null); field checks live
+    // in the index.ts handler.
+    if (
+      m.type === "ais.tile" &&
+      typeof m.lat === "number" &&
+      Number.isFinite(m.lat) &&
+      typeof m.lon === "number" &&
+      Number.isFinite(m.lon)
+    )
+      return m;
     if (
       m.type === "pin.add" &&
       typeof m.from === "number" &&
@@ -108,7 +130,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
 export interface StatusPayload {
   feeds: FeedStatus;
   history: HistoryStatus;
-  settings: { storageCapGb: number; ramCacheGb: number; cacheUsedBytes: number };
+  settings: { storageCapGb: number; ramCacheGb: number; cacheUsedBytes: number; homeRegion: TileCenter | null };
   pins: Pin[];
   staleMs: number;
   faa: FaaStatus;

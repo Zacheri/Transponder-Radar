@@ -38,6 +38,8 @@ function fakeSocket() {
 
 const ICONS_STUB: IconStatus = { state: "ready", count: 0, updatedAt: null, lastError: null };
 
+const SECONDARY = { enabled: false, connected: false, lastError: null, lastMessageAt: null, attributions: [] as string[] };
+
 function historyStatus(over: Partial<HistoryStatus> = {}): HistoryStatus {
   return { from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: 60000, ...over };
 }
@@ -46,7 +48,7 @@ function payload(feeds: FeedStatus, history: HistoryStatus = historyStatus(), ov
   return {
     feeds,
     history,
-    settings: { storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0 },
+    settings: { storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0, homeRegion: null },
     pins: [],
     staleMs: 120000,
     faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null },
@@ -110,7 +112,7 @@ describe("Hub", () => {
     const store = new CraftStore();
     let feeds: FeedStatus = {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000, secondary: SECONDARY },
     };
     const hub = new Hub({ store, batchMs: 20, statusPayload: () => payload(feeds) });
     const sock = fakeSocket();
@@ -118,7 +120,7 @@ describe("Hub", () => {
     hub.start();
     feeds = {
       opensky: { lastOkAt: 123, lastError: null, pollMs: 120000 },
-      ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 456, flushMs: 120000 },
+      ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 456, flushMs: 120000, secondary: { ...SECONDARY, enabled: true, connected: true } },
     };
     await waitFor(() => statusFrames(sock.sent).length >= 2);
     const frames = statusFrames(sock.sent);
@@ -134,7 +136,7 @@ describe("Hub", () => {
     const store = new CraftStore();
     const feeds = {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000, secondary: SECONDARY },
     };
     const hub = new Hub({ store, batchMs: 20, statusPayload: () => payload(feeds) });
     const sock = fakeSocket();
@@ -151,7 +153,7 @@ describe("Hub", () => {
     const store = new CraftStore();
     const feeds = {
       opensky: { lastOkAt: null, lastError: "HTTP 429", pollMs: 120000 },
-      ais: { connected: false, enabled: true, lastError: "closed 1006", lastMessageAt: null, flushMs: 120000 },
+      ais: { connected: false, enabled: true, lastError: "closed 1006", lastMessageAt: null, flushMs: 120000, secondary: { ...SECONDARY, enabled: true } },
     };
     const hub = new Hub({ store, batchMs: 1000, statusPayload: () => payload(feeds) });
     const sock = fakeSocket();
@@ -167,7 +169,7 @@ describe("Hub", () => {
   it("status frames carry history bounds", async () => {
     const store = new CraftStore();
     let history: HistoryStatus = historyStatus();
-    const feeds = { opensky: { lastOkAt: null, lastError: null, pollMs: 120000 }, ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 } };
+    const feeds = { opensky: { lastOkAt: null, lastError: null, pollMs: 120000 }, ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000, secondary: SECONDARY } };
     const hub = new Hub({ store, batchMs: 20, statusPayload: () => payload(feeds, history) });
     const sock = fakeSocket();
     hub.attach(sock);
@@ -187,7 +189,7 @@ describe("Hub", () => {
     const icons: IconStatus = { state: "downloading", count: 0, updatedAt: null, lastError: null };
     const feeds = {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000, secondary: SECONDARY },
     };
     const hub = new Hub({ store, batchMs: 1000, statusPayload: () => ({ ...payload(feeds), icons }) });
     const sock = fakeSocket();
@@ -201,13 +203,13 @@ describe("Hub", () => {
     const store = new CraftStore();
     const feeds: FeedStatus = {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000, secondary: SECONDARY },
     };
     const hub = new Hub({ store, batchMs: 1000, statusPayload: () => payload(feeds) });
     const sock = fakeSocket();
     hub.attach(sock);
     const st = JSON.parse(sock.sent[1]);
-    expect(st.settings).toEqual({ storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0 });
+    expect(st.settings).toEqual({ storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0, homeRegion: null });
     expect(st.pins).toEqual([]);
     expect(st.staleMs).toBe(120000);
     expect(st.history).toEqual({ from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: 60000 });
@@ -217,7 +219,7 @@ describe("Hub", () => {
     const store = new CraftStore();
     const feeds: FeedStatus = {
       opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000 },
+      ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000, secondary: SECONDARY },
     };
     let pins: Pin[] = [];
     const hub = new Hub({ store, batchMs: 1000, statusPayload: () => payload(feeds, historyStatus(), { pins }) });
@@ -412,5 +414,29 @@ describe("parseClientMessage (flight context)", () => {
     expect(parseClientMessage(JSON.stringify({ type: "flight.context" }))).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: "flight.context", id: 5 }))).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: "flight.context", id: "abc", seq: -1 }))).toBeNull();
+  });
+});
+
+describe("parseClientMessage (ais.tile)", () => {
+  it("accepts finite viewport centers", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "ais.tile", lat: 40.5, lon: -73.9 }))).toEqual({ type: "ais.tile", lat: 40.5, lon: -73.9 });
+    expect(parseClientMessage(JSON.stringify({ type: "ais.tile", lat: 0, lon: 0 }))).toEqual({ type: "ais.tile", lat: 0, lon: 0 });
+    // Finite-but-invalid lat/lon passes: clamping is the tile composer's job.
+    expect(parseClientMessage(JSON.stringify({ type: "ais.tile", lat: 1000, lon: -1000 }))).toEqual({ type: "ais.tile", lat: 1000, lon: -1000 });
+  });
+
+  it("drops frames with non-finite or missing coordinates", () => {
+    // NaN/Infinity serialize to null on the wire; either form must be dropped.
+    expect(parseClientMessage(JSON.stringify({ type: "ais.tile", lat: NaN, lon: 5 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "ais.tile", lat: Infinity, lon: 5 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "ais.tile", lat: 40 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "ais.tile", lon: 5 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "ais.tile", lat: "40", lon: 5 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "ais.tile" }))).toBeNull();
+  });
+
+  it("passes settings.update homeRegion through (field checks live in the handler)", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "settings.update", patch: { homeRegion: { lat: 35, lon: 139 } } }))).toEqual({ type: "settings.update", patch: { homeRegion: { lat: 35, lon: 139 } } });
+    expect(parseClientMessage(JSON.stringify({ type: "settings.update", patch: { homeRegion: null } }))).toEqual({ type: "settings.update", patch: { homeRegion: null } });
   });
 });

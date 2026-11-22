@@ -14,6 +14,7 @@ import { AisClient } from "../server/ais.js";
 import { Hub } from "../server/hub.js";
 import { HistoryRecorder } from "../server/history.js";
 import type { FaaProvider } from "../server/faa.js";
+import { boxesFor, type BoundingBoxes } from "../server/ais-tiles.js";
 import { resolveAirIcon } from "../server/icons.js";
 import { IconPack } from "../server/iconpack.js";
 import type { IconSources } from "../server/iconpack-sources.js";
@@ -125,10 +126,11 @@ describe("full pipeline (stub feeds -> hub)", () => {
             lastError: ais.feedStatus.lastError,
             lastMessageAt: ais.feedStatus.lastMessageAt,
             flushMs: 50, // mirrors the explicit aisFlushMs above
+            secondary: { enabled: false, connected: false, lastError: null, lastMessageAt: null, attributions: [] },
           },
         },
         history: { from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: 60000 },
-        settings: { storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0 },
+        settings: { storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0, homeRegion: null },
         pins: [],
         staleMs: 120000,
         faa: fakeFaa.status(),
@@ -569,10 +571,10 @@ describe("icon pack routes (fixture pack)", () => {
       statusPayload: () => ({
         feeds: {
           opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
-          ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 50 },
+          ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 50, secondary: { enabled: false, connected: false, lastError: null, lastMessageAt: null, attributions: [] } },
         },
         history: { from: null, to: null, snapshots: 0, usedBytes: 0, pinnedBytes: 0, snapshotMs: 60000 },
-        settings: { storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0 },
+        settings: { storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0, homeRegion: null },
         pins: [],
         staleMs: 120000,
         faa: { state: "loading", updatedAt: null, aircraft: 0, lastError: null },
@@ -958,5 +960,238 @@ describe("flight context frames (flight.track / flight.context)", () => {
     expect(fc).toHaveLength(1);
     expect(fc[0]).toMatchObject({ id: "deadbe", seq: 11 });
     ws.close();
+  });
+});
+
+describe("aiscast fill wiring", () => {
+  // Fake aiscast client: captures every setBoxes push (the only observable
+  // of the tile policy) and hands out a distinctive secondary status.
+  function fakeAiscast(secondary?: Partial<AisClient["secondaryStatus"]>) {
+    const calls: BoundingBoxes[][] = [];
+    const fake = {
+      calls,
+      started: 0,
+      stopped: 0,
+      setBoxes(boxes: BoundingBoxes[]) {
+        calls.push(boxes);
+      },
+      start() {
+        fake.started += 1;
+      },
+      stop() {
+        fake.stopped += 1;
+      },
+      secondaryStatus: {
+        connected: true,
+        lastError: null,
+        lastMessageAt: 123,
+        attributions: ["AISHub"],
+        ...secondary,
+      },
+      client: null as unknown as AisClient,
+    };
+    fake.client = fake as unknown as AisClient;
+    return fake;
+  }
+
+  const noPoller = {
+    feedStatus: { lastOkAt: null, lastError: null, pollMs: 120000 },
+    setPollInterval: () => {},
+    start: () => {},
+    stop: () => {},
+  } as unknown as OpenSkyPoller;
+  const noAis = {
+    isConnected: false,
+    feedStatus: { lastError: null, lastMessageAt: null },
+    start: () => {},
+    stop: () => {},
+  } as unknown as AisClient;
+
+  let dir: string;
+  let server: Awaited<ReturnType<typeof buildApp>>;
+  let port: number;
+  let fake: ReturnType<typeof fakeAiscast>;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "radar-aiscast-it-"));
+    fake = fakeAiscast();
+    server = await buildApp({
+      store: new CraftStore(),
+      opensky: noPoller,
+      ais: noAis,
+      aiscast: fake.client,
+      recorder: null,
+      faa: null,
+      iconPack: null,
+      fetchImpl: offline,
+      settingsFile: join(dir, "settings.json"),
+      pinFile: join(dir, "pins.json"),
+      log: () => {},
+    });
+    await server.app.listen({ port: 0, host: "127.0.0.1" });
+    port = (server.app.server.address() as { port: number }).port;
+  });
+
+  afterAll(async () => {
+    await server.stop();
+    expect(fake.started).toBe(1); // injected client → started despite empty key
+    expect(fake.stopped).toBe(1);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  async function connect(): Promise<{ ws: WebSocket; frames: any[] }> {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const frames: any[] = [];
+    ws.on("message", (d) => frames.push(JSON.parse(d.toString())));
+    let opened = false;
+    ws.on("open", () => {
+      opened = true;
+    });
+    await waitFor(() => opened, 3000);
+    return { ws, frames };
+  }
+
+  it("status embeds the client's secondaryStatus with enabled derived from the key", async () => {
+    const { ws, frames } = await connect();
+    await waitFor(() => frames.some((f) => f.type === "status"), 3000);
+    const st = frames.find((f) => f.type === "status")!;
+    expect(st.feeds.ais.secondary).toEqual({
+      enabled: false, // no AISCAST_API_KEY in the test env
+      connected: true,
+      lastError: null,
+      lastMessageAt: 123,
+      attributions: ["AISHub"],
+    });
+    ws.close();
+  });
+
+  it("ais.tile follows; homeRegion composes [home, follow]; garbage drops the field; null clears", async () => {
+    const { ws, frames } = await connect();
+    const follow = { lat: 51.5, lon: -0.12 };
+    const home = { lat: 35, lon: 139 };
+
+    await waitFor(() => fake.calls.length >= 1, 3000); // boot push: no home, no follow
+    expect(fake.calls[0]).toEqual([]);
+    fake.calls.length = 0;
+
+    ws.send(JSON.stringify({ type: "ais.tile", ...follow }));
+    await waitFor(() => fake.calls.length === 1, 3000);
+    expect(fake.calls[0]).toEqual([boxesFor(follow)]);
+
+    ws.send(JSON.stringify({ type: "settings.update", patch: { homeRegion: home } }));
+    await waitFor(() => fake.calls.length === 2, 3000);
+    expect(fake.calls[1]).toEqual([boxesFor(home), boxesFor(follow)]); // order: [home, follow]
+    await waitFor(
+      () => frames.some((m) => m.type === "status" && m.settings?.homeRegion?.lat === 35 && m.settings?.homeRegion?.lon === 139),
+      3000,
+    );
+    await waitFor(() => {
+      try {
+        const doc = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
+        return doc.homeRegion?.lat === 35 && doc.homeRegion?.lon === 139;
+      } catch {
+        return false;
+      }
+    }, 3000);
+
+    // Malformed tiles and a garbage homeRegion: no crash, no subscription
+    // change, while the other patch fields still apply (Review Focus 3/4).
+    const before = fake.calls.length;
+    ws.send(JSON.stringify({ type: "ais.tile", lat: null, lon: 5 }));
+    ws.send(JSON.stringify({ type: "ais.tile" }));
+    ws.send(JSON.stringify({ type: "ais.tile", lat: "40", lon: 5 }));
+    ws.send(JSON.stringify({ type: "settings.update", patch: { homeRegion: { lat: "x", lon: 5 }, ramCacheGb: 3 } }));
+    await waitFor(
+      () => frames.some((m) => m.type === "status" && m.settings?.ramCacheGb === 3 && m.settings?.homeRegion?.lat === 35),
+      3000,
+    );
+    expect(fake.calls).toHaveLength(before);
+
+    // Finite-but-oversized coords are accepted and clamped into a valid box.
+    ws.send(JSON.stringify({ type: "ais.tile", lat: 1e12, lon: -1e12 }));
+    await waitFor(() => fake.calls.length === before + 1, 3000);
+    expect(fake.calls.at(-1)).toEqual([boxesFor(home), boxesFor({ lat: 80, lon: -170 })]);
+
+    // Explicit null clears the parked tile; the follow tile stays.
+    ws.send(JSON.stringify({ type: "settings.update", patch: { homeRegion: null } }));
+    await waitFor(() => fake.calls.length === before + 2, 3000);
+    expect(fake.calls.at(-1)).toEqual([boxesFor({ lat: 80, lon: -170 })]);
+    await waitFor(
+      () => frames.some((m) => m.type === "status" && m.settings?.ramCacheGb === 3 && m.settings.homeRegion === null),
+      3000,
+    );
+    ws.close();
+  });
+
+  it("boots with a persisted homeRegion: the first push is the parked tile", async () => {
+    const dir2 = await mkdtemp(join(tmpdir(), "radar-aiscast-it2-"));
+    writeFileSync(join(dir2, "settings.json"), JSON.stringify({ storageCapGb: 10, ramCacheGb: 1, homeRegion: { lat: 10, lon: 20 } }));
+    const fake2 = fakeAiscast({ connected: false, lastMessageAt: null, attributions: [] });
+    const app2 = await buildApp({
+      store: new CraftStore(),
+      opensky: noPoller,
+      ais: noAis,
+      aiscast: fake2.client,
+      recorder: null,
+      faa: null,
+      iconPack: null,
+      fetchImpl: offline,
+      settingsFile: join(dir2, "settings.json"),
+      pinFile: join(dir2, "pins.json"),
+      log: () => {},
+    });
+    expect(fake2.calls).toEqual([[[[0, 10], [20, 30]]]]); // compose+clamp of {10,20}, no follow yet
+    await app2.stop();
+    expect(fake2.started).toBe(1);
+    expect(fake2.stopped).toBe(1);
+    await rm(dir2, { recursive: true, force: true });
+  });
+
+  it("without a key or an injected client the secondary block reads disabled and ais.tile is skipped", async () => {
+    const dir2 = await mkdtemp(join(tmpdir(), "radar-aiscast-off-"));
+    const logs: string[] = [];
+    const app2 = await buildApp({
+      store: new CraftStore(),
+      opensky: noPoller,
+      ais: noAis,
+      recorder: null,
+      faa: null,
+      iconPack: null,
+      fetchImpl: offline,
+      settingsFile: join(dir2, "settings.json"),
+      pinFile: join(dir2, "pins.json"),
+      log: (m) => logs.push(m),
+    });
+    await app2.app.listen({ port: 0, host: "127.0.0.1" });
+    const port2 = (app2.app.server.address() as { port: number }).port;
+    expect(logs.some((l) => l.startsWith("aiscast: AISCAST_API_KEY not set"))).toBe(true);
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port2}/ws`);
+    const frames: any[] = [];
+    ws.on("message", (d) => frames.push(JSON.parse(d.toString())));
+    await waitFor(() => frames.some((f) => f.type === "status"), 3000);
+    const st = frames.find((f) => f.type === "status")!;
+    expect(st.feeds.ais.secondary).toEqual({
+      enabled: false,
+      connected: false,
+      lastError: null,
+      lastMessageAt: null,
+      attributions: [],
+    });
+
+    // Frames are processed (no crash) but change nothing observable.
+    ws.send(JSON.stringify({ type: "ais.tile", lat: 10, lon: 20 }));
+    ws.send(JSON.stringify({ type: "settings.update", patch: { homeRegion: { lat: 10, lon: 20 } } }));
+    await waitFor(
+      () => frames.some((f) => f.type === "status" && f.settings?.homeRegion?.lat === 10), // the setting persists…
+      3000,
+    );
+    const last = frames.filter((f) => f.type === "status").at(-1)!;
+    expect(last.feeds.ais.secondary).toEqual({ enabled: false, connected: false, lastError: null, lastMessageAt: null, attributions: [] }); // …without touching the feed
+    const health = await app2.app.inject({ url: "/health" });
+    expect(health.statusCode).toBe(200);
+    ws.close();
+    await app2.stop();
+    await rm(dir2, { recursive: true, force: true });
   });
 });

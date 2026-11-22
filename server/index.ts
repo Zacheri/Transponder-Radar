@@ -10,6 +10,7 @@ import { CraftStore } from "./store.js";
 import { OpenSkyPoller } from "./opensky.js";
 import { createTokenProvider } from "./opensky-auth.js";
 import { AisClient } from "./ais.js";
+import { boxesFor, clampCenter, composeTiles, type TileCenter } from "./ais-tiles.js";
 import { Hub, parseClientMessage, type FeedId, type StatusPayload } from "./hub.js";
 import { HistoryRecorder } from "./history.js";
 import { PinStore } from "./pins.js";
@@ -39,6 +40,7 @@ export interface ServerDeps {
   hub?: Hub;
   opensky?: OpenSkyPoller;
   ais?: AisClient;
+  aiscast?: AisClient;
   recorder?: HistoryRecorder | null;
   faa?: FaaProvider | null;
   // Icon pack: undefined → default construction (data/icons + pinned sources)
@@ -52,6 +54,18 @@ export interface ServerDeps {
   // otherwise reach GitHub/adsbdb/OpenSky); default is the global fetch.
   fetchImpl?: typeof fetch;
   log?: (msg: string) => void;
+}
+
+const AISCAST_URL = "wss://ais.openwaters.io/v0/stream";
+
+// Wire-shape check for a tile center (settings.update patch objects pass the
+// frame validator untouched; this is the field-level gate).
+function validCenter(v: unknown): TileCenter | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const c = v as { lat?: unknown; lon?: unknown };
+  return typeof c.lat === "number" && Number.isFinite(c.lat) && typeof c.lon === "number" && Number.isFinite(c.lon)
+    ? { lat: c.lat, lon: c.lon }
+    : null;
 }
 
 export async function buildApp(deps: ServerDeps = {}) {
@@ -134,6 +148,29 @@ export async function buildApp(deps: ServerDeps = {}) {
   };
   // `let`: the settings.update handler mutates it live.
   let settingsDoc: SettingsDoc = await loadSettingsDoc(settingsOpts);
+  // aiscast fill feed: one 20° tile parked at the settings home region, one
+  // following the viewport center (ais.tile frames). Boxes are recomposed
+  // with composeTiles and pushed on every change; the client debounces and
+  // rate-caps the outbound subscribe.
+  let aisFollow: TileCenter | null = null;
+  const aisHome = (): TileCenter | null => validCenter(settingsDoc.homeRegion);
+  const aiscast =
+    deps.aiscast ??
+    new AisClient({
+      name: "aiscast",
+      url: AISCAST_URL,
+      apiKey: config.AISCAST_API_KEY,
+      store,
+      trackAttribution: true,
+      boxesProvider: () => composeTiles(aisHome(), aisFollow).map(boxesFor),
+      log,
+    });
+  // Same idiom as the aisstream start guard: an injected client (tests)
+  // enables the feed even without a key.
+  const aiscastEnabled = Boolean(deps.aiscast || config.AISCAST_API_KEY);
+  const pushAisTiles = (): void => {
+    if (aiscastEnabled) aiscast.setBoxes(composeTiles(aisHome(), aisFollow).map(boxesFor));
+  };
   const pinStore = new PinStore({ file: pinFile, log });
   await pinStore.init();
   const snapshotCache = new SnapshotCache({ maxBytes: toRuntime(settingsDoc).ramCacheBytes, log });
@@ -198,6 +235,7 @@ export async function buildApp(deps: ServerDeps = {}) {
             lastError: ais.feedStatus.lastError,
             lastMessageAt: ais.feedStatus.lastMessageAt,
             flushMs: hub.aisFlushMs,
+            secondary: { enabled: Boolean(config.AISCAST_API_KEY), ...aiscast.secondaryStatus },
           },
         },
         history: recorder
@@ -207,6 +245,7 @@ export async function buildApp(deps: ServerDeps = {}) {
           storageCapGb: settingsDoc.storageCapGb,
           ramCacheGb: settingsDoc.ramCacheGb,
           cacheUsedBytes: snapshotCache.usedBytes(),
+          homeRegion: aisHome(),
         },
         pins: pinStore.all(),
         staleMs: config.STALE_MS,
@@ -241,6 +280,12 @@ export async function buildApp(deps: ServerDeps = {}) {
         case "feed.rate":
           feedRate[msg.feed]?.(msg.ms);
           break;
+        case "ais.tile": {
+          if (!aiscastEnabled) break;
+          aisFollow = { lat: msg.lat, lon: msg.lon };
+          pushAisTiles();
+          break;
+        }
         case "timeline.seek": {
           const r = recorder;
           if (!r) break;
@@ -265,6 +310,17 @@ export async function buildApp(deps: ServerDeps = {}) {
           }
           if (typeof p.ramCacheGb === "number" && Number.isFinite(p.ramCacheGb)) {
             settingsDoc.ramCacheGb = clampRamCacheGb(p.ramCacheGb);
+          }
+          // homeRegion: explicit null clears; a finite {lat,lon} object is
+          // clamped and stored; anything else leaves the field untouched.
+          if ("homeRegion" in p) {
+            const before = JSON.stringify(aisHome());
+            if (p.homeRegion === null) settingsDoc.homeRegion = null;
+            else {
+              const c = validCenter(p.homeRegion);
+              if (c) settingsDoc.homeRegion = clampCenter(c);
+            }
+            if (JSON.stringify(aisHome()) !== before) pushAisTiles();
           }
           // All idempotent, so an empty patch is a harmless no-op.
           recorder?.setCap(toRuntime(settingsDoc).storageCapBytes);
@@ -490,6 +546,12 @@ export async function buildApp(deps: ServerDeps = {}) {
   opensky.start();
   if (deps.ais || config.AISSTREAM_API_KEY) ais.start();
   else log("ais: AISSTREAM_API_KEY not set — vessel feed disabled");
+  if (aiscastEnabled) {
+    pushAisTiles();
+    aiscast.start();
+  } else {
+    log("aiscast: AISCAST_API_KEY not set — vessel fill feed disabled");
+  }
 
   const stop = async () => {
     clearInterval(sweeper);
@@ -501,6 +563,7 @@ export async function buildApp(deps: ServerDeps = {}) {
     routes.stop();
     opensky.stop();
     ais.stop();
+    aiscast.stop();
     await app.close();
   };
 
