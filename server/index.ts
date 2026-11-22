@@ -100,6 +100,17 @@ export async function buildApp(deps: ServerDeps = {}) {
       log(`iconpack: re-stamped ${changed.length} aircraft with pack icons`);
     }
   });
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  // One token provider for the poller, the routes fallback (/flights/all)
+  // and the track fetch (/tracks/all) — different credit buckets, same token.
+  const openskyToken =
+    config.OPENSKY_CLIENT_ID && config.OPENSKY_CLIENT_SECRET
+      ? createTokenProvider({
+          clientId: config.OPENSKY_CLIENT_ID,
+          clientSecret: config.OPENSKY_CLIENT_SECRET,
+          fetchImpl,
+        })
+      : undefined;
   const opensky =
     deps.opensky ??
     new OpenSkyPoller({
@@ -107,13 +118,7 @@ export async function buildApp(deps: ServerDeps = {}) {
       graceMs: 30000,
       store,
       log,
-      tokenProvider:
-        config.OPENSKY_CLIENT_ID && config.OPENSKY_CLIENT_SECRET
-          ? createTokenProvider({
-              clientId: config.OPENSKY_CLIENT_ID,
-              clientSecret: config.OPENSKY_CLIENT_SECRET,
-            })
-          : undefined,
+      tokenProvider: openskyToken,
       resolveIcon: faa ? resolveCraftIcon : undefined,
     });
   const ais = deps.ais ?? new AisClient({ apiKey: config.AISSTREAM_API_KEY, store, log });
@@ -159,19 +164,8 @@ export async function buildApp(deps: ServerDeps = {}) {
   // Flight-context services live beside settings.json so tests that pass a
   // tmp settingsFile never touch the live data/ dir.
   const dataBase = dirname(settingsFile);
-  const fetchImpl = deps.fetchImpl ?? fetch;
   const airports = createAirports({ dir: join(dataBase, "airports"), fetchImpl, log });
   void airports.init().catch((e) => log(`airports: init failed — code-only airport refs (${e instanceof Error ? e.message : String(e)})`));
-  // Shared token provider for the routes fallback (/flights/all) and the
-  // track fetch (/tracks/all); routes and tracks hit different credit buckets.
-  const openskyToken =
-    config.OPENSKY_CLIENT_ID && config.OPENSKY_CLIENT_SECRET
-      ? createTokenProvider({
-          clientId: config.OPENSKY_CLIENT_ID,
-          clientSecret: config.OPENSKY_CLIENT_SECRET,
-          fetchImpl,
-        })
-      : undefined;
   const routes = createRoutes({
     airports,
     cacheFile: join(dataBase, "routes", "cache.json"),

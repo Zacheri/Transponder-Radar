@@ -156,7 +156,8 @@ export function parseRadarMessage(raw: string): RadarMessage | null {
       msg.type === "flight.context" &&
       typeof msg.id === "string" &&
       msg.id.length > 0 &&
-      (msg.route === null || (msg.route && typeof msg.route.source === "string"))
+      (msg.route === null ||
+        (msg.route != null && (msg.route.source === "adsbdb" || msg.route.source === "opensky")))
     ) {
       return msg;
     }
