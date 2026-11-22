@@ -35,6 +35,7 @@ The gate is run after every change: `npm test` then `npm run typecheck` then
 
 All live in `.env` (gitignored). `credentials.json` (OpenSky OAuth2 client) is
 in the repo root and gitignored. Values: `AISSTREAM_API_KEY`,
+`AISCAST_API_KEY`,
 `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET`, `VITE_CARTO_API_KEY`.
 `.env.example` holds empty secrets plus non-secret defaults (`PORT`,
 `OPENSKY_POLL_MS`, `BATCH_MS`, `STALE_MS`, `REMOVE_MS`, `HISTORY_SNAPSHOT_MS`,
@@ -333,7 +334,10 @@ Recolor limit: `recolorPixels`
   (CraftStore: upsert/prune/sweep), `hub.ts` (WS broadcast: `snapshot`,
    `update`, `status` frames), `opensky.ts` (poller; setTimeout chain; live
    `setPollInterval`),
-  `opensky-auth.ts` (OAuth2 token provider), `ais.ts` (AIS WS client),
+  `opensky-auth.ts` (OAuth2 token provider), `ais.ts` (parameterized AIS WS
+  client — url/name/boxesProvider/attribution injectable; index.ts runs two
+  instances: primary aisstream + the `aiscast` fill client aimed by
+  `ais-tiles.ts` composed home/follow tiles),
   `normalize.ts` (raw → `Craft`), `classify.ts` (kind inference from
   callsign/`aisType`; exports `N_NUMBER_RE`), `history.ts` (HistoryRecorder:
   gzipped snapshots to `data/history/`, size-capped eviction, `seek()`; tiered
@@ -376,7 +380,10 @@ Recolor limit: `recolorPixels`
   follow the view, no protocol change),
   `pollrate.ts` (`createFeedRate` factory — one slider per feed; the opensky
   instance shows credit warnings; the ais instance is the "Ship updates"
-  slider (no credits)).
+  slider (no credits)); the HUD adds an aiscast fill credit line under the
+  pill (`AIS fill: ≤3 attributions joined " · " (+N)`, visible only while
+  `secondary.enabled && connected`); the settings drawer has an "AIS fill"
+  home-tile park/clear control (posts `settings.update {homeRegion}`).
 - WS protocol (both ends mirror it, no shared file):
   client → server: `{type:"feed.rate",feed,ms}` (`feed` ∈ hub `FEED_IDS` =
   `["opensky", "ais"]`; the server clamps `feed.rate`/`ais` to [60000, 600000]
@@ -390,12 +397,19 @@ Recolor limit: `recolorPixels`
   always applied),
   `{type:"flight.track",id,seq,auto?}` (`auto:false` = manual refresh, exempt
   from the daily auto ledger), `{type:"flight.context",id,seq}` (both carry a
-  client-monotonic `seq` bumped on every selection change and refresh wave);
+  client-monotonic `seq` bumped on every selection change and refresh wave),
+  `{type:"settings.update",patch{storageCapGb?,ramCacheGb?,homeRegion?:{lat,lon}|null}}`
+  (`homeRegion` null clears the parked aiscast tile),
+  `{type:"ais.tile",lat,lon}` (viewport center; sent from the client's
+  moveend 1 s debounce only while status `secondary.enabled` — multiple
+  connected browsers are last-writer-wins, by design);
   server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`
   (craft objects carry an optional `icon` — air shape family / sea kind /
   absent in pre-icon snapshots),
-  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled,lastError,lastMessageAt,flushMs}},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},serverTime}`
-  (icons.state: ready|downloading|failed|absent),
+  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled,lastError,lastMessageAt,flushMs,secondary:{enabled,connected,lastError,lastMessageAt,attributions}}},settings:{storageCapGb,ramCacheGb,cacheUsedBytes,homeRegion},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},serverTime}`
+  (icons.state: ready|downloading|failed|absent; `secondary` is non-nullable —
+  disabled = `enabled:false` zeroed, never null; `homeRegion` is
+  `{lat,lon}|null`),
   `{type:"timeline.state",time,craft,seq?}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
   `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`),
@@ -406,5 +420,5 @@ Recolor limit: `recolorPixels`
   `{type:"flight.context",id,seq?,route}` (`route:null` = none; else
   `{airline,dep,arr,source}` with server-resolved `{icao,iata,name,city,
   country,lat,lon}` airport refs — the client never looks airports up).
-- `test/` — 43 files, 837 tests. Node-environment Vitest; browser-only code
+- `test/` — 46 files, 880 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

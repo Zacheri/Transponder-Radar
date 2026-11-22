@@ -11,6 +11,7 @@ export interface SettingsStats {
   usedBytes: number;
   pinnedBytes: number;
   pins: Pin[];
+  homeRegion?: { lat: number; lon: number } | null;
 }
 
 export interface SettingsApi { setStats: (s: SettingsStats) => void; feedRates: HTMLElement }
@@ -39,6 +40,8 @@ export function createSettings(
   opts: {
     update: (patch: { storageCapGb?: number; ramCacheGb?: number }) => void;
     removePin: (id: string) => void;
+    parkHome: () => void;
+    clearHome: () => void;
   },
 ): SettingsApi {
   const el = document.createElement("aside");
@@ -114,8 +117,33 @@ export function createSettings(
   feedTitle.className = "settings-group-title";
   feedTitle.textContent = "Feed rates";
   feedGroup.appendChild(feedTitle);
-  body.appendChild(feedGroup);
-  body.appendChild(group);
+
+  const fillGroup = document.createElement("div");
+  fillGroup.className = "settings-group";
+  const fillTitle = document.createElement("div");
+  fillTitle.className = "settings-group-title";
+  fillTitle.textContent = "AIS fill";
+  const homeRow = document.createElement("div");
+  homeRow.className = "settings-row";
+  const homeLabel = document.createElement("label");
+  homeLabel.textContent = "Home tile";
+  const homeVal = document.createElement("span");
+  homeVal.className = "settings-value settings-home-value";
+  homeVal.textContent = "not parked";
+  const parkBtn = document.createElement("button");
+  parkBtn.type = "button";
+  parkBtn.className = "settings-btn";
+  parkBtn.textContent = "Park AIS fill tile here";
+  parkBtn.addEventListener("click", () => opts.parkHome());
+  const clearBtn = document.createElement("button");
+  clearBtn.type = "button";
+  clearBtn.className = "settings-btn";
+  clearBtn.textContent = "Clear";
+  clearBtn.addEventListener("click", () => opts.clearHome());
+  homeRow.append(homeLabel, homeVal, parkBtn, clearBtn);
+  fillGroup.append(fillTitle, homeRow);
+
+  body.append(feedGroup, fillGroup, group);
   root.appendChild(el);
 
   let collapsed = true;
@@ -189,6 +217,7 @@ export function createSettings(
     const over = s.usedBytes - s.storageCapGb * GB;
     warnLine.classList.toggle("warn", over > 0);
     warnLine.textContent = over > 0 ? `⚠ pinned data exceeds cap by ${formatBytes(over)}` : "";
+    homeVal.textContent = s.homeRegion ? `${s.homeRegion.lat.toFixed(2)}, ${s.homeRegion.lon.toFixed(2)}` : "not parked";
     renderPins(s.pins);
   }
 

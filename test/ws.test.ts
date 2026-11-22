@@ -149,6 +149,27 @@ describe("pins and window.chunk frames", () => {
     expect(msg).not.toBeNull();
     expect(msg?.type).toBe("status");
   });
+
+  it("passes through ais.secondary and settings.homeRegion (mirror fields)", () => {
+    const raw = JSON.stringify({
+      type: "status",
+      feeds: {
+        opensky: { lastOkAt: 1000, lastError: null, pollMs: 120000 },
+        ais: {
+          connected: true, enabled: true, lastError: null, lastMessageAt: 900, flushMs: 120000,
+          secondary: { enabled: true, connected: true, lastError: null, lastMessageAt: 800, attributions: ["AISHub"] },
+        },
+      },
+      history, faa, serverTime: 2000,
+      settings: { storageCapGb: 4, ramCacheGb: 2, cacheUsedBytes: 100, homeRegion: { lat: 35, lon: 139 } },
+    });
+    const msg = parseRadarMessage(raw);
+    expect(msg).not.toBeNull();
+    if (msg?.type === "status") {
+      expect(msg.feeds.ais.secondary).toEqual({ enabled: true, connected: true, lastError: null, lastMessageAt: 800, attributions: ["AISHub"] });
+      expect(msg.settings?.homeRegion).toEqual({ lat: 35, lon: 139 });
+    }
+  });
 });
 
 describe("feed.rate protocol mirror", () => {
@@ -222,6 +243,41 @@ describe("pins/settings/window.send helpers", () => {
       expect(frames[2]).toBe('{"type":"pin.remove","id":"p1"}');
       socket.sendTimelineWindow(7, 1, 2, 3, 4);
       expect(frames[3]).toBe('{"type":"timeline.window","seq":7,"from":1,"to":2,"stride":3,"maxBytes":4}');
+      socket.close();
+    } finally {
+      globalThis.WebSocket = original;
+    }
+  });
+
+  it("emit byte-exact JSON for ais.tile and settings.update homeRegion patches", () => {
+    const frames: string[] = [];
+    class FakeWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      readyState = FakeWebSocket.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((ev: { data: unknown }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(public url: string) {}
+      send(data: string) {
+        frames.push(data);
+      }
+      close() {}
+    }
+    const original = globalThis.WebSocket;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    try {
+      const socket = new RadarSocket("ws://127.0.0.1:2001/ws", { onSnapshot: () => {}, onUpdate: () => {} });
+      socket.connect();
+      socket.sendAisTile(35.25, 139.75);
+      expect(frames[0]).toBe('{"type":"ais.tile","lat":35.25,"lon":139.75}');
+      socket.sendSettingsUpdate({ homeRegion: { lat: 35.25, lon: 139.75 } });
+      expect(frames[1]).toBe('{"type":"settings.update","patch":{"homeRegion":{"lat":35.25,"lon":139.75}}}');
+      socket.sendSettingsUpdate({ homeRegion: null });
+      expect(frames[2]).toBe('{"type":"settings.update","patch":{"homeRegion":null}}');
       socket.close();
     } finally {
       globalThis.WebSocket = original;

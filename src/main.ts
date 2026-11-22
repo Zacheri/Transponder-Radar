@@ -66,6 +66,11 @@ let filters: { setCounts(c: Map<CraftKind, number>): void } | null = null;
 const settingsUi = createSettings(document.getElementById("app") as HTMLElement, {
   update: (p) => socket?.sendSettingsUpdate(p),
   removePin: (id) => socket?.sendPinRemove(id),
+  parkHome: () => {
+    const c = map.getCenter();
+    socket?.sendSettingsUpdate({ homeRegion: { lat: c.lat, lon: c.lng } });
+  },
+  clearHome: () => socket?.sendSettingsUpdate({ homeRegion: null }),
 });
 
 // Set after the map.load flow; null until then.
@@ -108,6 +113,9 @@ let trailPath: TrackPoint[] = [];
 let trailRoute: FlightRoute | null = null;
 let trackTimer: number | null = null;
 let openSkyPollMs = 90000;
+// Latest status mirror: gate the aiscast follow-tile sends on the server's
+// real secondary-enabled field (optional chain guards pre-secondary frames).
+let aiscastEnabled = false;
 let trackSeq = 0;
 let appliedTrackSeq = 0;
 let contextSeq = 0;
@@ -119,6 +127,7 @@ let lastStats: SettingsStats = {
   usedBytes: 0,
   pinnedBytes: 0,
   pins: [],
+  homeRegion: null,
 };
 
 async function refresh(): Promise<void> {
@@ -459,6 +468,7 @@ map.on("load", async () => {
     onStatus: (s) => {
       hud.setFeeds(s.feeds, s.serverTime);
       hud.setIcons(s.icons ?? null); // ?? — legacy frames carry no icons
+      aiscastEnabled = s.feeds.ais.secondary?.enabled === true;
       pollRate.setMs(s.feeds.opensky.pollMs);
       shipRate.setMs(s.feeds.ais.flushMs ?? 120000); // ?? — legacy frames carry no flushMs
       if (s.feeds.opensky.pollMs !== openSkyPollMs) {
@@ -491,6 +501,7 @@ map.on("load", async () => {
         usedBytes: s.history.usedBytes ?? 0,
         pinnedBytes: s.history.pinnedBytes ?? 0,
         pins: s.pins ?? [],
+        homeRegion: s.settings?.homeRegion ?? null,
       };
       settingsUi.setStats(lastStats);
     },
@@ -628,5 +639,18 @@ map.on("load", async () => {
   });
   map.on("mouseleave", "craft-icons", () => {
     map.getCanvas().style.cursor = "";
+  });
+
+  // aiscast follow tile: push the settled viewport center, 1 s debounce,
+  // only while the status says the fill feed is enabled.
+  let tileTimer: number | null = null;
+  map.on("moveend", () => {
+    if (tileTimer != null) window.clearTimeout(tileTimer);
+    tileTimer = window.setTimeout(() => {
+      tileTimer = null;
+      if (!aiscastEnabled || !socket) return;
+      const c = map.getCenter();
+      socket.sendAisTile(c.lat, c.lng);
+    }, 1000);
   });
 });

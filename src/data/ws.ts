@@ -2,7 +2,16 @@ import type { Craft } from "../../shared/craft.js";
 
 export interface FeedStatus {
   opensky: { lastOkAt: number | null; lastError: string | null; pollMs: number };
-  ais: { connected: boolean; enabled: boolean; lastError: string | null; lastMessageAt: number | null; flushMs: number };
+  ais: {
+    connected: boolean;
+    enabled: boolean;
+    lastError: string | null;
+    lastMessageAt: number | null;
+    flushMs: number;
+    // aiscast fill feed. Non-nullable by design: disabled = enabled:false
+    // zeroed block, never null (mirror of server/hub.ts FeedStatus).
+    secondary: { enabled: boolean; connected: boolean; lastError: string | null; lastMessageAt: number | null; attributions: string[] };
+  };
 }
 
 export interface HistoryRange {
@@ -97,7 +106,7 @@ export interface StatusMessage {
   faa: FaaStatus;
   icons: IconStatus;
   serverTime: number;
-  settings?: { storageCapGb: number; ramCacheGb: number; cacheUsedBytes: number };
+  settings?: { storageCapGb: number; ramCacheGb: number; cacheUsedBytes: number; homeRegion?: { lat: number; lon: number } | null };
   pins?: Pin[];
   staleMs?: number;
 }
@@ -214,8 +223,13 @@ export class RadarSocket {
     this.send({ type: "aircraft.info", id });
   }
 
-  sendSettingsUpdate(patch: { storageCapGb?: number; ramCacheGb?: number }): void {
+  sendSettingsUpdate(patch: { storageCapGb?: number; ramCacheGb?: number; homeRegion?: { lat: number; lon: number } | null }): void {
     this.send({ type: "settings.update", patch });
+  }
+
+  // Viewport center for the aiscast follow tile (fire-and-forget).
+  sendAisTile(lat: number, lon: number): void {
+    this.send({ type: "ais.tile", lat, lon });
   }
 
   sendPinAdd(from: number, to: number): void {

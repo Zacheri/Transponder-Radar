@@ -24,6 +24,8 @@ export function createHud(root: HTMLElement): {
   counts.className = "hud-counts";
   const feedsEl = document.createElement("span");
   feedsEl.className = "hud-feeds";
+  const fillEl = document.createElement("div");
+  fillEl.className = "hud-fill";
   const iconsEl = document.createElement("span");
   iconsEl.className = "hud-icons";
   const clock = document.createElement("span");
@@ -31,7 +33,7 @@ export function createHud(root: HTMLElement): {
   const replayBadge = document.createElement("span");
   replayBadge.className = "hud-replay";
   replayBadge.textContent = "REPLAY";
-  el.append(dot, replayBadge, status, counts, feedsEl, iconsEl, clock);
+  el.append(dot, replayBadge, status, counts, feedsEl, fillEl, iconsEl, clock);
   root.appendChild(el);
 
   let replayT: number | null = null;
@@ -75,6 +77,17 @@ export function createHud(root: HTMLElement): {
       ai = age <= AIS_STALE_MS ? "AIS: ok" : `AIS: stale ${Math.max(1, Math.round(age / 60000))}m`;
     }
     feedsEl.textContent = `${os} · ${ai}`;
+    // Attribution credit line (below the pill via CSS); hidden while the
+    // fill feed is off or down. ?. guards legacy frames without secondary.
+    const sec = feeds.ais.secondary;
+    if (sec?.enabled && sec?.connected) {
+      const atts = sec.attributions ?? [];
+      const shown = atts.slice(0, 3);
+      const more = atts.length > shown.length ? ` (+${atts.length - shown.length})` : "";
+      fillEl.textContent = shown.length ? `AIS fill: ${shown.join(" · ")}${more}` : "AIS fill: waiting";
+    } else {
+      fillEl.textContent = "";
+    }
   }
 
   function setIcons(i: IconStatus | null): void {

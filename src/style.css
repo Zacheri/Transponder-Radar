@@ -369,6 +369,25 @@ body {
   color: var(--muted);
   font-size: 11px;
 }
+/* aiscast attribution credit line, rendered below the HUD pill; hidden
+   while empty (fill feed off or down). */
+.hud-fill {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 4px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  color: var(--muted);
+  font-size: 11px;
+}
+.hud-fill:empty {
+  display: none;
+}
 .hud-icons.warn {
   color: #ef5350;
 }
@@ -615,6 +634,21 @@ body {
   cursor: pointer;
 }
 .settings-pin-row button:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+.settings-btn {
+  flex: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 0 8px;
+  cursor: pointer;
+}
+.settings-btn:hover {
   color: var(--text);
   border-color: var(--muted);
 }
