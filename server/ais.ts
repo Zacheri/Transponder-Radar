@@ -15,7 +15,13 @@ export const MIN_SUBSCRIBE_SPACING_MS = 1100;
 export const FALLBACK_WINDOW_MS = 3000;
 export const ATTRIBUTION_MAX_AGE_MS = 5 * 60 * 1000;
 
-const GLOBAL_BOXES: BoundingBoxes[] = [[[-90, -180], [90, 180]]];
+// Shared fallback state: frozen so nobody can mutate it through a stored ref.
+const GLOBAL_BOXES = Object.freeze([
+  Object.freeze([
+    Object.freeze([-90, -180]) as [number, number],
+    Object.freeze([90, 180]) as [number, number],
+  ]) as BoundingBoxes,
+]) as BoundingBoxes[];
 
 export interface AisClientOpts {
   url?: string;
@@ -124,7 +130,7 @@ export class AisClient {
   }
 
   setBoxes(boxes: BoundingBoxes[]): void {
-    this.latestBoxes = boxes;
+    this.latestBoxes = boxes.slice();
     if (!this.connected) return;
     if (this.resubTimer) clearTimeout(this.resubTimer);
     this.resubTimer = setTimeout(
@@ -154,7 +160,7 @@ export class AisClient {
     if (!ws || !this.connected) return;
     const boxes = this.currentBoxes();
     this.lastSubscribeAt = this.now();
-    this.lastSentBoxes = boxes;
+    this.lastSentBoxes = boxes.slice();
     ws.send(
       JSON.stringify({
         APIKey: this.opts.apiKey,
