@@ -92,8 +92,11 @@ zoneIntervalFor(requestedMs: number, surplus: number, secondsToUtcMidnight: numb
 ```
 `reserve = ceil(secondsToUtcMidnight / globePollMs) × globeCost + 100`.
 Scheduler re-reads `globePollMs` and the latest header every cycle (the
-slider moves). `creditsRemaining` comes from the existing header read in
-`opensky.ts` (waves: the poller already stores it for the HUD).
+slider moves). `creditsRemaining` does NOT exist yet in the poller (spec
+draft assumption corrected during planning — the `/states` bucket has no
+capture today; only `routes.ts` reads it for the flights bucket): Task 2
+adds the capture in `pollOnce` following the `routes.ts:217-218` idiom
+(present + finite → store; else keep previous).
 
 ### C. Poller integration — `server/opensky.ts`
 
