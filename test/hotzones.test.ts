@@ -137,6 +137,43 @@ describe("planZone — clustering", () => {
     expect(zone!.center.lon - zone!.halfW).toBeCloseTo(-180, 9);
   });
 
+  it("clamps the north edge to +90 without losing cluster members", () => {
+    const { zone } = planZone(
+      [
+        m("a", "general", 89.9, 10.0),
+        m("b", "general", 90.0, 10.0),
+        m("c", "general", 90.0, 10.0),
+        m("d", "general", 89.5, 10.0),
+      ],
+      T0,
+      null,
+    );
+    expect(zone!.count).toBe(4);
+    expect(zone!.center.lat + zone!.halfH).toBeCloseTo(90, 9);
+    expect(zone!.center.lat).toBeLessThan(89.9); // shifted south by the clamp
+  });
+
+  it("clamps the south edge to -90 without losing cluster members", () => {
+    const { zone } = planZone(
+      [
+        m("a", "general", -89.9, 10.0),
+        m("b", "general", -90.0, 10.0),
+        m("c", "general", -90.0, 10.0),
+        m("d", "general", -89.5, 10.0),
+      ],
+      T0,
+      null,
+    );
+    expect(zone!.count).toBe(4);
+    expect(zone!.center.lat - zone!.halfH).toBeCloseTo(-90, 9);
+  });
+
+  it("leaves polar boxes that already fit inside +/-90 untouched", () => {
+    const { zone } = planZone([m("a", "general", 85.0, 10.0), m("b", "general", 85.4, 10.0)], T0, null);
+    expect(zone!.center.lat).toBeCloseTo(85.2, 6);
+    expect(zone!.halfH).toBeCloseTo(0.2, 6);
+  });
+
   it("never clusters across the dateline (grid does not wrap)", () => {
     const { zone } = planZone(
       [m("e", "general", 40.0, 179.9), m("w1", "general", 40.0, -179.9), m("w2", "general", 40.0, -179.8)],

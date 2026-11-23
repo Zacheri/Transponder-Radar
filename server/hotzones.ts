@@ -81,9 +81,11 @@ function geometryFor(cluster: ZoneMember[]): HotZone {
   }
   halfW = Math.min(halfW, MAX_HALF_DEG);
   halfH = Math.min(halfH, MAX_HALF_DEG);
-  // Clamp by shifting the box inward; seam members outside the edge stay in
-  // the count (box membership follows the grid neighborhood, not the rect).
+  // Clamp by shifting the box inward on each axis; seam members outside the
+  // edge stay in the count (box membership follows the grid neighborhood,
+  // not the rect).
   center.lon = Math.min(180 - halfW, Math.max(-180 + halfW, center.lon));
+  center.lat = Math.min(90 - halfH, Math.max(-90 + halfH, center.lat));
   // Kind ties go to the later input order (same rule as the densest cell).
   const kindCounts = new Map<AirKind, number>();
   for (const m of cluster) kindCounts.set(m.kind, (kindCounts.get(m.kind) ?? 0) + 1);
