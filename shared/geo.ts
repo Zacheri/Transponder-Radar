@@ -5,7 +5,7 @@
 export type LonLat = { lon: number; lat: number };
 
 const EARTH_RADIUS_M = 6_371_000;
-const MS_PER_KNOT = 1852 / 3600;
+export const MS_PER_KNOT = 1852 / 3600;
 
 const toRad = (deg: number): number => (deg * Math.PI) / 180;
 const toDeg = (rad: number): number => (rad * 180) / Math.PI;
