@@ -23,8 +23,9 @@ cost; FR24-class smoothness. Playback already lerps between history frames
 5. Settings-drawer toggle "Smooth motion", default ON, persisted
    `radar.motion` (localStorage, `radar.zonesCfg` idiom); off = byte-identical
    to today's render path.
-6. A throwing motion loop self-disables (log once) — the map must never die
-   because of the animation.
+6. A throwing motion-loop tick self-disables after 3 consecutive throws
+   (logged once). A throwing repaint is caught and logged at the coalesced-
+   refresh boundary, which keeps running and honors follow-up requests.
 
 ## Requirements
 
@@ -82,7 +83,7 @@ export function startMotionTick(intervalMs: number, onTick: () => void): () => v
 
 `settings.ts`: "Smooth motion" checkbox row (same idiom as the existing
 rows), fed from `radar.motion` (absent = on); onChange → callback into
-main (which owns the tick), persisted via `src/ui/motion-cfg.ts`
+main (which owns the tick), persisted via `src/data/motion-cfg.ts`
 (`loadMotion/saveMotion(storage)` StorageLike pair like icon-colors.ts —
 pure, Node-testable).
 
