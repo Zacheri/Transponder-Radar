@@ -73,11 +73,11 @@ commit it; delete it to reset all cached data.
     **4,000/day**; active feeder 8,000/day; licensed 14,400/hour.
   - `/states/all` cost by bounding-box area: ≤25 sq° = 1, ≤100 = 2, ≤400 = 3,
     **>400 or global = 4**.
-  - `X-Rate-Limit-Remaining` header = credits left; exhaustion → 429. Docs
-    say the 429 carries `X-Rate-Limit-Retry-After-Seconds`, but the poller
-    only reads the standard `retry-after` header (`server/opensky.ts:102`) —
-    so in practice exponential backoff applies (cap 5 min,
-    `BACKOFF_CAP_MS=300000`).
+  - `X-Rate-Limit-Remaining` header = credits left (captured in `pollOnce`;
+    feeds the hot-zone scheduler); exhaustion → 429. 429 handling reads
+    `retry-after` first, falls back to `X-Rate-Limit-Retry-After-Seconds`
+    (globe poller AND the zone-pause formula), exponential only when neither
+    is present (cap 5 min, `BACKOFF_CAP_MS=300000`).
 - Practical numbers: standard tier full-globe = 1,000 polls/day (4 credits
   each). Default `OPENSKY_POLL_MS=90000` (960/day, ~3,840 credits) is
   sustainable 24/7; `120000` (720/day) is the old, more conservative default.

@@ -86,7 +86,8 @@ function geometryFor(cluster: ZoneMember[]): HotZone {
   // not the rect).
   center.lon = Math.min(180 - halfW, Math.max(-180 + halfW, center.lon));
   center.lat = Math.min(90 - halfH, Math.max(-90 + halfH, center.lat));
-  // Kind ties go to the later input order (same rule as the densest cell).
+  // Kind ties go to the kind whose first member appears later in the input
+  // (first-appearance map order + >=); distinct from the densest-cell rule.
   const kindCounts = new Map<AirKind, number>();
   for (const m of cluster) kindCounts.set(m.kind, (kindCounts.get(m.kind) ?? 0) + 1);
   let dominantKind: AirKind = "general";
