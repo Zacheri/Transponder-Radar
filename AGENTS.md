@@ -456,5 +456,5 @@ Recolor limit: `recolorPixels`
   `{type:"flight.context",id,seq?,route}` (`route:null` = none; else
   `{airline,dep,arr,source}` with server-resolved `{icao,iata,name,city,
   country,lat,lon}` airport refs — the client never looks airports up).
-- `test/` — 52 files, 990 tests. Node-environment Vitest; browser-only code
+- `test/` — 52 files, 992 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

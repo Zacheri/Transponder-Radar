@@ -2,7 +2,10 @@
 // dirty and schedules at most ONE run per scheduled frame; a request that
 // lands while a run is in flight yields exactly one more run after it
 // settles. flush() runs immediately (single-flight: a flush while running
-// just marks dirty). schedule defaults to requestAnimationFrame.
+// just marks dirty). schedule defaults to requestAnimationFrame. A run that
+// throws or rejects is caught here and logged — the error boundary for
+// repaints (callers hold no catch) — and the coalescer stays alive with its
+// dirty semantics intact.
 
 export function createCoalescedRun(
   run: () => void | Promise<void>,
@@ -18,10 +21,13 @@ export function createCoalescedRun(
     dirty = false;
     try {
       await run();
+    } catch (err) {
+      console.warn("coalesced run failed", err);
     } finally {
       running = false;
-      // A request/flush landed mid-run: exactly one follow-up, and only
-      // now if no scheduled frame is still going to run it.
+      // A request/flush landed mid-run (or the run threw with one pending):
+      // exactly one follow-up, and only now if no scheduled frame is still
+      // going to run it.
       if (dirty && !scheduled) void execute();
     }
   };

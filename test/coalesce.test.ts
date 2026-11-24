@@ -95,3 +95,82 @@ describe("createCoalescedRun", () => {
     expect(runs).toBe(3); // exactly one more after settle (dirty flag)
   });
 });
+
+describe("createCoalescedRun — run failures", () => {
+  // Captures console.warn and process-level unhandled rejections for the
+  // duration of fn: a throwing run must neither die loudly upstream nor
+  // escape as an unhandled rejection (motion tick requests at ~5 Hz).
+  async function withProbes(fn: () => Promise<void> | void): Promise<{ warns: number; unhandled: unknown }> {
+    const realWarn = console.warn;
+    let warns = 0;
+    let unhandled: unknown = null;
+    const onUnhandled = (e: unknown): void => {
+      unhandled = e;
+    };
+    console.warn = () => warns++;
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      await fn();
+      await tick();
+      await tick();
+    } finally {
+      console.warn = realWarn;
+      process.off("unhandledRejection", onUnhandled);
+    }
+    return { warns, unhandled };
+  }
+
+  it("a sync-throwing run: caught + warned once, no unhandled rejection, coalescer still works", async () => {
+    const sched = makeScheduler();
+    let runs = 0;
+    let boom = true;
+    const { request } = createCoalescedRun(
+      () => {
+        runs++;
+        if (boom) throw new Error("paint exploded");
+      },
+      sched.schedule,
+    );
+    const { warns, unhandled } = await withProbes(async () => {
+      request();
+      sched.run();
+      expect(runs).toBe(1);
+      boom = false;
+      request();
+      sched.run();
+      expect(runs).toBe(2); // survived the failed run
+    });
+    expect(unhandled).toBeNull();
+    expect(warns).toBe(1);
+  });
+
+  it("an async-rejecting run: warned, no unhandled rejection, and a request that landed mid-run still gets its follow-up", async () => {
+    const sched = makeScheduler();
+    let runs = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const { request } = createCoalescedRun(
+      async () => {
+        runs++;
+        if (runs === 1) {
+          await gate;
+          throw new Error("paint exploded");
+        }
+      },
+      sched.schedule,
+    );
+    const { warns, unhandled } = await withProbes(async () => {
+      request();
+      sched.run();
+      expect(runs).toBe(1); // in flight
+      request(); // lands while the doomed run is in flight
+      release!();
+      await tick();
+      expect(runs).toBe(2); // dirty follow-up survived the failure
+    });
+    expect(unhandled).toBeNull();
+    expect(warns).toBe(1);
+  });
+});
