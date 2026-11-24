@@ -146,8 +146,9 @@ sender/mirror (the usual mirrors; no reply frame). Status blocks are additive
   improvement, never a data dependency; killing boost mid-zone leaves the
   craft on globe cadence with zero special handling.
 - Stale `zones.config` kinds include a kind that vanishes → cluster empty →
-  zone expires by hysteresis (5 min worst case; member-count 0 is immediate
-  since persist needs ≥1).
+  the zone holds until 5 min after the last member was seen (the hysteresis
+  clock starts at the last sighting, then expiry is immediate on its
+  deadline).
 - Both hemisphere browsers connected (single-user app): last config wins —
   same posture as `ais.tile`.
 
