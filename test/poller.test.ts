@@ -531,3 +531,45 @@ describe("OpenSkyPoller hot-zone boost", () => {
     expect(poller.feedStatus.boost).toBeNull();
   });
 });
+
+describe("OpenSkyPoller hot-zone boost active flag", () => {
+  it("boost.active stays true through the whole in-flight zone-tick window", async () => {
+    const { vi } = await import("vitest"); // dynamic: the import line above is frozen
+    const store = new CraftStore();
+    const urls: string[] = [];
+    const t = 0;
+    let resolveZone!: (r: Response) => void;
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: (async (url: string) => {
+        urls.push(url);
+        if (url.includes("lamin=")) return new Promise<Response>((r) => (resolveZone = r));
+        return jsonResponse({ states: [] }, 200, { "x-rate-limit-remaining": "4000" });
+      }) as typeof fetch,
+    });
+    vi.useFakeTimers();
+    try {
+      poller.start(); // real zoneTick path; globe re-poll sits at 120000, never reached
+      await vi.advanceTimersByTimeAsync(1); // start's globe poll settles -> remaining captured
+      seedCluster(store);
+      poller.setZonesConfig({ kinds: ["military"], boostMs: 10000 });
+      await vi.advanceTimersByTimeAsync(10000); // enable-arm fires: zoneTick -> pending fetch
+      expect(urls).toHaveLength(2);
+      expect(poller.feedStatus.boost?.active).toBe(true); // in-flight (bug: timer-identity = false)
+
+      resolveZone(jsonResponse({ states: [] }, 200, { "x-rate-limit-remaining": "4000" }));
+      await vi.advanceTimersByTimeAsync(0); // in-flight resolves, zoneTick re-arms
+
+      poller.setZonesConfig(null);
+      expect(poller.feedStatus.boost).toBeNull();
+      // Re-enable must not inherit the stale due-time: the next cadence tick fetches.
+      poller.setZonesConfig({ kinds: ["military"], boostMs: 10000 });
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(urls).toHaveLength(3);
+      expect(poller.feedStatus.boost?.active).toBe(true);
+    } finally {
+      poller.stop();
+      vi.useRealTimers();
+    }
+  });
+});

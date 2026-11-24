@@ -56,6 +56,9 @@ export class OpenSkyPoller {
   private zonesCfg: ZonesConfig | null = null;
   private zoneState: ZoneState | null = null;
   private zoneTimer: NodeJS.Timeout | null = null;
+  // Boost enablement, independent of timer identity — must stay true through
+  // the in-flight window of a zone tick (the timer is nulled during it).
+  private zoneActive = false;
   private zoneNextAt: number | null = null;
   private boostPausedUntil = 0;
   private boostPaused: "credits" | null = null;
@@ -72,7 +75,7 @@ export class OpenSkyPoller {
   } {
     const boost = this.zonesCfg
       ? {
-          active: this.zoneTimer !== null,
+          active: this.zoneActive,
           count: this.zoneState?.box?.count ?? 0,
           intervalMs: this.boostPaused ? null : this.boostIntervalMs,
           paused: this.boostPaused,
@@ -92,6 +95,8 @@ export class OpenSkyPoller {
     if (!cfg) {
       this.zonesCfg = null;
       this.zoneState = null;
+      this.zoneActive = false;
+      this.zoneNextAt = null;
       this.boostPaused = null;
       this.boostIntervalMs = null;
       this.boostPausedUntil = 0;
@@ -102,6 +107,8 @@ export class OpenSkyPoller {
     const boostMs = Math.min(ZONE_BOOST_MAX_MS, Math.max(ZONE_BOOST_MIN_MS, Math.round(cfg.boostMs)));
     this.zonesCfg = { kinds: [...cfg.kinds], boostMs };
     this.zoneState = null; // new kind set -> the old zone is void
+    this.zoneActive = true;
+    this.zoneNextAt = null; // re-enable must not inherit a stale due-time
     this.boostPausedUntil = 0;
     this.boostPaused = null;
     this.boostIntervalMs = null;
@@ -125,6 +132,7 @@ export class OpenSkyPoller {
     this.running = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    this.zoneActive = false;
     this.clearZoneTimer();
   }
 
