@@ -42,6 +42,8 @@ export function createSettings(
     removePin: (id: string) => void;
     parkHome: () => void;
     clearHome: () => void;
+    motionOn: boolean;
+    setMotion: (on: boolean) => void;
   },
 ): SettingsApi {
   const el = document.createElement("aside");
@@ -143,7 +145,26 @@ export function createSettings(
   homeRow.append(homeLabel, homeVal, parkBtn, clearBtn);
   fillGroup.append(fillTitle, homeRow);
 
-  body.append(feedGroup, fillGroup, group);
+  const displayGroup = document.createElement("div");
+  displayGroup.className = "settings-group";
+  const displayTitle = document.createElement("div");
+  displayTitle.className = "settings-group-title";
+  displayTitle.textContent = "Display";
+  const motionRow = document.createElement("div");
+  motionRow.className = "settings-row";
+  const motionLabel = document.createElement("label");
+  const motionInput = document.createElement("input");
+  motionInput.type = "checkbox";
+  motionInput.checked = opts.motionOn;
+  motionInput.setAttribute("aria-label", "Smooth motion");
+  motionInput.addEventListener("change", () => opts.setMotion(motionInput.checked));
+  const motionText = document.createElement("span");
+  motionText.textContent = "Smooth motion";
+  motionLabel.append(motionInput, motionText);
+  motionRow.appendChild(motionLabel);
+  displayGroup.append(displayTitle, motionRow);
+
+  body.append(displayGroup, feedGroup, fillGroup, group);
   root.appendChild(el);
 
   let collapsed = true;

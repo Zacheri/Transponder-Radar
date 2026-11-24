@@ -12,10 +12,11 @@ import {
   clearDestMarker,
 } from "./map/trackLayers.js";
 import { addHotzoneLayer, setHotzone } from "./map/hotzone.js";
+import { startMotionTick } from "./map/motion.js";
 import { ClientStore } from "./data/store.js";
 import { RadarSocket } from "./data/ws.js";
 import type { AircraftInfo, FlightRoute, TrackPoint } from "./data/ws.js";
-import { buildFeatureCollection } from "./data/features.js";
+import { buildFeatureCollection, type FeatureBuildOpts } from "./data/features.js";
 import { buildIconFilter } from "./data/filter.js";
 import { createCoalescedRun } from "./data/coalesce.js";
 import { decodeSupported, createDecodePool, type DecodePool } from "./data/decode.js";
@@ -25,6 +26,7 @@ import type { AirKind, Craft, CraftKind } from "../shared/craft.js";
 import { greatCircle, destinationPoint } from "../shared/geo.js";
 import type { LonLat } from "../shared/geo.js";
 import { effectiveColor, loadIconColors, saveIconColors, setKindColor, type IconColorState } from "./data/icon-colors.js";
+import { loadMotion, saveMotion } from "./data/motion-cfg.js";
 import {
   clampZonesBoost,
   parseZonesCfg,
@@ -72,6 +74,11 @@ const panel = createPanel(document.getElementById("app") as HTMLElement, {
 const hud = createHud(document.getElementById("app") as HTMLElement);
 let visible = new Set<CraftKind>([...AIR_KINDS, ...SEA_KINDS]);
 let filters: { setCounts(c: Map<CraftKind, number>): void } | null = null;
+// Smooth motion: live frames dead-reckon air craft ahead of their last fix
+// (spec 2026-11-23-smooth-motion). Boot-restored like radar.zonesCfg — the
+// drawer owns the row, main owns the flag, persistence and the repaint tick.
+let motionOn = loadMotion(localStorage);
+let stopMotion: (() => void) | null = null;
 const settingsUi = createSettings(document.getElementById("app") as HTMLElement, {
   update: (p) => socket?.sendSettingsUpdate(p),
   removePin: (id) => socket?.sendPinRemove(id),
@@ -80,6 +87,15 @@ const settingsUi = createSettings(document.getElementById("app") as HTMLElement,
     socket?.sendSettingsUpdate({ homeRegion: { lat: c.lat, lon: c.lng } });
   },
   clearHome: () => socket?.sendSettingsUpdate({ homeRegion: null }),
+  motionOn,
+  setMotion: (on) => {
+    motionOn = on;
+    saveMotion(on, localStorage);
+    syncMotionTick();
+    // flush, not void refresh(): immediate, and single-flight — an in-flight
+    // refresh that started motion-ON can never land after this OFF rebuild
+    refreshRun.flush();
+  },
 });
 
 // Set after the map.load flow; null until then.
@@ -171,7 +187,14 @@ async function refresh(): Promise<void> {
     registered = new Set([...packKeys, ...kindKeys]);
   }
   lastRegistered = registered;
-  setCraftData(map, buildFeatureCollection(crafts, registered !== undefined ? { iconRegistered: registered, colorFor: iconColorFor } : undefined));
+  const opts: FeatureBuildOpts = {};
+  if (registered !== undefined) {
+    opts.iconRegistered = registered;
+    opts.colorFor = iconColorFor;
+  }
+  // Motion on live frames only (gated in rewind); one shared nowMs per pass.
+  if (motionOn && !replay.rewound) opts.motion = { nowMs: Date.now() };
+  setCraftData(map, buildFeatureCollection(crafts, opts));
   let air = 0;
   let sea = 0;
   const counts = new Map<CraftKind, number>();
@@ -285,6 +308,19 @@ function syncTrailTimer(): void {
   else if (!run) stopTrailTimer();
 }
 
+// Live + motion on ⇒ repaint every MOTION_TICK_MS so dead-reckoned craft
+// glide between polls; anything else disposes the loop (spec §B). Call it
+// wherever the toggle or the rewind gate flips.
+const MOTION_TICK_MS = 200;
+function syncMotionTick(): void {
+  const run = motionOn && !replay.rewound;
+  if (run && stopMotion == null) stopMotion = startMotionTick(MOTION_TICK_MS, () => refreshRun.request());
+  else if (!run && stopMotion != null) {
+    stopMotion();
+    stopMotion = null;
+  }
+}
+
 // Rewind display cursor: the playing engine's cursor, else the last applied
 // seek; null while live.
 function rewindCursor(): number | null {
@@ -390,6 +426,7 @@ const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
     replay.enterReplay();
     hud.setReplay(t);
     syncTrailTimer();
+    syncMotionTick();
     applyTrailLayers();
     socket?.sendTimelineSeek(t, ++seekSeq);
   },
@@ -415,6 +452,7 @@ const timeline = createTimeline(document.getElementById("app") as HTMLElement, {
     if (histTo == null) return;
     replay.enterReplay();
     syncTrailTimer(); // R3: playback is rewind — no trail traffic
+    syncMotionTick(); // …and no motion extrapolation
     setPlaybackMode(map, true);
     const t0 = eng.state === "paused" ? eng.cursor : lastSeekT ?? viewWindow()?.to ?? histTo;
     eng.start(t0);
@@ -467,6 +505,7 @@ map.on("load", async () => {
       // LIVE restored (snapshot answering requestLive, or reconnect): the
       // trail interval and the unsliced trail come back with it.
       syncTrailTimer();
+      syncMotionTick(); // motion resumes on LIVE restore, if toggled on
       if (trailId) {
         applyTrailLayers();
         sendTrail(true);
@@ -491,6 +530,7 @@ map.on("load", async () => {
           setPlaybackMode(map, false);
         }
         syncTrailTimer();
+        syncMotionTick();
       }
     },
     onStatus: (s) => {
@@ -552,6 +592,7 @@ map.on("load", async () => {
         replay.requestLive();
         socket?.sendTimelineLive();
         syncTrailTimer(); // rewind exited immediately: trail traffic resumes
+        syncMotionTick();
         return;
       }
       const s = seq ?? 0;

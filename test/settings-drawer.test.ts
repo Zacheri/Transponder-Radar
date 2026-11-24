@@ -4,14 +4,16 @@ import type { SettingsStats } from "../src/ui/settings.js";
 
 // Node-env Vitest without jsdom: a minimal DOM shim covering exactly what
 // createSettings touches (document.createElement/activeElement, classList,
-// dataset, child ops incl. replaceChildren and the textContent-clears-
-// children idiom, listeners, window.setTimeout).
+// dataset, value/type/checked, child ops incl. replaceChildren and the
+// textContent-clears-children idiom, listeners, window.setTimeout).
 
 type Listener = () => void;
 
 class FakeEl {
   className = "";
   value = "";
+  type = "";
+  checked = false;
   children: FakeEl[] = [];
   parent: FakeEl | null = null;
   readonly dataset: Record<string, string> = {};
@@ -104,13 +106,15 @@ const STATS: SettingsStats = {
   pins: [],
 };
 
-function setup() {
+function setup(motionOn = true) {
   const root = new FakeEl("div");
   const opts = {
     update: vi.fn(),
     removePin: vi.fn(),
     parkHome: vi.fn(),
     clearHome: vi.fn(),
+    motionOn,
+    setMotion: vi.fn(),
   };
   const ui = createSettings(root as unknown as HTMLElement, opts);
   const park = must(
@@ -122,7 +126,11 @@ function setup() {
     "clear button",
   );
   const homeVal = must(byClass(root, "settings-home-value"), "home value display");
-  return { ui, opts, park, clear, homeVal };
+  const motion = must(
+    find(root, (el) => el.tag === "input" && el.type === "checkbox"),
+    "smooth-motion checkbox",
+  );
+  return { ui, opts, park, clear, homeVal, motion };
 }
 
 describe("settings drawer AIS fill home controls", () => {
@@ -147,5 +155,24 @@ describe("settings drawer AIS fill home controls", () => {
     expect(homeVal.textContent).toBe("not parked");
     ui.setStats(STATS);
     expect(homeVal.textContent).toBe("not parked");
+  });
+});
+
+describe("settings drawer smooth-motion row", () => {
+  it("renders checked per the motionOn opt", () => {
+    expect(setup(true).motion.checked).toBe(true);
+    expect(setup(false).motion.checked).toBe(false);
+  });
+
+  it("change fires setMotion with the new checked value", () => {
+    const { opts, motion } = setup(true);
+    motion.checked = false; // a real browser flips checked before firing change
+    motion.fire("change");
+    expect(opts.setMotion).toHaveBeenCalledTimes(1);
+    expect(opts.setMotion).toHaveBeenCalledWith(false);
+    motion.checked = true;
+    motion.fire("change");
+    expect(opts.setMotion).toHaveBeenCalledTimes(2);
+    expect(opts.setMotion).toHaveBeenLastCalledWith(true);
   });
 });

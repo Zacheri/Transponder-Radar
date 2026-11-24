@@ -373,7 +373,11 @@ Recolor limit: `recolorPixels`
   replies, layers cleared on selection close/change; hot zone — restores
   `radar.zonesCfg` at boot, re-sends the config on every socket open
   (server-side state is memory-only), paints `status.hotzone` via
-  `setHotzone`),
+  `setHotzone`; smooth motion — restores `radar.motion` at boot, `refresh()`
+  passes the `motion` opt only while `motionOn && !replay.rewound` (playback
+  frames never do), a 200 ms repaint tick (`startMotionTick`) armed/disposed
+  around rewind via `syncMotionTick` at every gate flip, drawer toggle flips
+  the flag + persists + rebuilds immediately),
   `map/` (basemap probe, map creation, icon rasterization, `icon-urls.ts` =
   13 air family + 10 sea SVG imports = 23 entries, `pack-icons.ts` = lazy
   pack‑icon loader (fetch `GET /icons/*` → transform → 96×96 raster →
@@ -381,9 +385,14 @@ Recolor limit: `recolorPixels`
   `flight-trail`/`flight-predicted`/`flight-dest` defs + pure data setters,
   inserted below `craft-icons`, `hotzone.ts` =
   `hotzone-fill`/`hotzone-outline` rect (dominant-kind color at 18% fill +
-  1 px stroke, feature `color`/`count` props) inserted below `craft-icons`), `data/`
-  (socket client, client store, feature building, icon filter, `replay.ts` =
-  client-side update suppression gate for rewind), `ui/` (panel (FAA info
+  1 px stroke, feature `color`/`count` props) inserted below `craft-icons`,
+  `motion.ts` = dead-reckoning `effectivePosition` (air-only, 150 s cap,
+  exclusions pass the raw fix) + `startMotionTick` throw-giving loop), `data/`
+  (socket client, client store, feature building (live frames take a
+  `motion: {nowMs}` opt that rewrites coordinates only), icon filter,
+  `replay.ts` =
+  client-side update suppression gate for rewind, `motion-cfg.ts` =
+  `radar.motion` load/save ("1"/"0"; absent/corrupt/throw → on)), `ui/` (panel (FAA info
   rows; air: dep/arr route chips `IATA · city` → fly-to + dest marker,
   trail refresh button, R2 budget note), filters (+ the "Boost zones"
   section: air-kind checkboxes tinted via the color api + a 10–120 s slider,
@@ -400,7 +409,8 @@ Recolor limit: `recolorPixels`
   pill (`AIS fill: ≤3 attributions joined " · " (+N)`, or `AIS fill: waiting`
   while connected with none seen yet; visible only while
   `secondary.enabled && connected`); the settings drawer has an "AIS fill"
-  home-tile park/clear control (posts `settings.update {homeRegion}`).
+  home-tile park/clear control (posts `settings.update {homeRegion}`) and a
+  "Smooth motion" checkbox (Display group → `opts.setMotion`).
 - WS protocol (both ends mirror it, no shared file):
   client → server: `{type:"feed.rate",feed,ms}` (`feed` ∈ hub `FEED_IDS` =
   `["opensky", "ais"]`; the server clamps `feed.rate`/`ais` to [60000, 600000]
@@ -446,5 +456,5 @@ Recolor limit: `recolorPixels`
   `{type:"flight.context",id,seq?,route}` (`route:null` = none; else
   `{airline,dep,arr,source}` with server-resolved `{icao,iata,name,city,
   country,lat,lon}` airport refs — the client never looks airports up).
-- `test/` — 50 files, 956 tests. Node-environment Vitest; browser-only code
+- `test/` — 52 files, 990 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

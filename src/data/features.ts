@@ -1,4 +1,12 @@
 import { KIND_FALLBACK_ICON, colorKey, isPackIconName, type AirKind, type Craft, type CraftKind } from "../../shared/craft.js";
+import { effectivePosition } from "../map/motion.js";
+
+export interface FeatureBuildOpts {
+  iconRegistered?: ReadonlySet<string>;
+  colorFor?: (kind: CraftKind) => string;
+  /** Live frames only: coordinates dead-reckoned to one shared nowMs (R2: position only). */
+  motion?: { nowMs: number };
+}
 
 export interface PointGeometry {
   type: "Point";
@@ -52,16 +60,17 @@ function iconFor(c: Craft, registered: ReadonlySet<string> | undefined, colorFor
   return key(base);
 }
 
-function toFeature(c: Craft, registered: ReadonlySet<string> | undefined, colorFor: ((kind: CraftKind) => string) | undefined): CraftFeature {
+function toFeature(c: Craft, registered: ReadonlySet<string> | undefined, colorFor: ((kind: CraftKind) => string) | undefined, motion: { nowMs: number } | undefined): CraftFeature {
   const label = c.domain === "air" ? c.callsign ?? c.id : c.shipName ?? c.id;
   const parts: string[] = [];
   if (c.speed != null) parts.push(`${Math.round(c.speed)}kn`);
   if (c.domain === "air" && c.altitude != null) parts.push(`${Math.round(c.altitude)}ft`);
   if (c.heading != null) parts.push(`${Math.round(c.heading)}°`);
+  const pos = motion !== undefined ? effectivePosition(c, motion.nowMs) : undefined;
   return {
     type: "Feature",
     id: c.id,
-    geometry: { type: "Point", coordinates: [c.lon, c.lat] },
+    geometry: { type: "Point", coordinates: pos ? [pos.lon, pos.lat] : [c.lon, c.lat] },
     properties: {
       id: c.id,
       domain: c.domain,
@@ -77,9 +86,6 @@ function toFeature(c: Craft, registered: ReadonlySet<string> | undefined, colorF
   };
 }
 
-export function buildFeatureCollection(
-  crafts: Craft[],
-  opts?: { iconRegistered?: ReadonlySet<string>; colorFor?: (kind: CraftKind) => string },
-): FeatureCollection {
-  return { type: "FeatureCollection", features: crafts.map((c) => toFeature(c, opts?.iconRegistered, opts?.colorFor)) };
+export function buildFeatureCollection(crafts: Craft[], opts?: FeatureBuildOpts): FeatureCollection {
+  return { type: "FeatureCollection", features: crafts.map((c) => toFeature(c, opts?.iconRegistered, opts?.colorFor, opts?.motion)) };
 }

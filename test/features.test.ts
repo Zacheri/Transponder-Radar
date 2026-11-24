@@ -117,3 +117,49 @@ describe("icon property with colorFor (per-category color picker)", () => {
     expect(fc.features[0].properties.icon).toBe(colorKey("widebody", "#00ff00"));
   });
 });
+
+describe("motion option (live-frame dead reckoning)", () => {
+  const NOW = 60_000; // fixtures sit at updatedAt 0 → 60 s of extrapolation
+
+  it("moves an eastbound air craft east off its stored lon; nothing else changes", () => {
+    const fc = buildFeatureCollection([air()], { motion: { nowMs: NOW } });
+    const [lon, lat] = fc.features[0].geometry.coordinates;
+    expect(lon).toBeGreaterThan(-73.7); // heading 90 ⇒ east
+    expect(lat).toBeCloseTo(40.6, 3); // great circle ≠ rhumb: latitude drifts a little
+    expect(fc.features[0].properties.heading).toBe(90); // raw heading, untouched
+    expect(fc.features[0].properties.sublabel).toContain("486kn");
+  });
+
+  it("never displaces a vessel, even with the motion opt", () => {
+    const fc = buildFeatureCollection([sea()], { motion: { nowMs: NOW } });
+    expect(fc.features[0].geometry.coordinates).toEqual([-0.1, 51.5]);
+  });
+
+  it("off / undefined motion / empty opts are identical to a bare build (byte-identical)", () => {
+    const crafts = [air(), sea(), air({ onGround: true })];
+    const bare = buildFeatureCollection(crafts);
+    expect(buildFeatureCollection(crafts, {})).toEqual(bare);
+    expect(buildFeatureCollection(crafts, { motion: undefined })).toEqual(bare);
+    expect(buildFeatureCollection(crafts, { iconRegistered: undefined, colorFor: undefined, motion: undefined })).toEqual(bare);
+  });
+
+  it("exclusions under an ON motion opt stay byte-identical too", () => {
+    const crafts = [sea(), air({ onGround: true }), air({ speed: null }), air({ heading: null })];
+    expect(buildFeatureCollection(crafts, { motion: { nowMs: NOW } })).toEqual(buildFeatureCollection(crafts));
+  });
+
+  it("R2: motion on changes coordinates only — feature keys and properties identical", () => {
+    const crafts = [air(), sea()];
+    const off = buildFeatureCollection(crafts);
+    const on = buildFeatureCollection(crafts, { motion: { nowMs: NOW } });
+    expect(on.features).toHaveLength(off.features.length);
+    for (let i = 0; i < on.features.length; i++) {
+      expect(on.features[i].id).toBe(off.features[i].id);
+      expect(Object.keys(on.features[i])).toEqual(Object.keys(off.features[i]));
+      expect(Object.keys(on.features[i].geometry)).toEqual(Object.keys(off.features[i].geometry));
+      expect(on.features[i].properties).toEqual(off.features[i].properties);
+      const moved = JSON.stringify(on.features[i].geometry) !== JSON.stringify(off.features[i].geometry);
+      expect(moved).toBe(i === 0); // only the air craft's coordinates differ
+    }
+  });
+});
