@@ -125,6 +125,9 @@ export class OpenSkyPoller {
   start(): void {
     if (this.running) return;
     this.running = true;
+    // stop() cleared enablement; a restart with a live config must not leave
+    // boost.active false while the machinery is back (re-arms on this poll).
+    this.zoneActive = this.zonesCfg !== null;
     void this.loop();
   }
 

@@ -573,3 +573,29 @@ describe("OpenSkyPoller hot-zone boost active flag", () => {
     }
   });
 });
+
+describe("OpenSkyPoller start() re-establishes boost enablement", () => {
+  it("stop() clears boost.active and the next start() restores it while a config is live", async () => {
+    const store = new CraftStore();
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store,
+      fetchImpl: (async () => jsonResponse({ states: [] })) as typeof fetch,
+    });
+    poller.setZonesConfig({ kinds: ["military"], boostMs: 10000 });
+    expect(poller.feedStatus.boost?.active).toBe(true);
+    poller.stop();
+    expect(poller.feedStatus.boost?.active).toBe(false);
+    poller.start(); // stop()+start() with a live config: display must not lie
+    expect(poller.feedStatus.boost?.active).toBe(true);
+    poller.stop();
+
+    // No live config: a restart stays fully off.
+    const cold = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store,
+      fetchImpl: (async () => jsonResponse({ states: [] })) as typeof fetch,
+    });
+    cold.start();
+    expect(cold.feedStatus.boost).toBeNull();
+    cold.stop();
+  });
+});

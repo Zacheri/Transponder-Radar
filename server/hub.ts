@@ -1,4 +1,6 @@
-import type { Craft } from "../shared/craft.js";
+import { AIR_KINDS } from "../shared/craft.js";
+import type { AirKind, Craft, CraftKind } from "../shared/craft.js";
+import type { LonLat } from "../shared/geo.js";
 import type { AisSecondaryStatus } from "./ais.js";
 import type { TileCenter } from "./ais-tiles.js";
 import type { CraftStore } from "./store.js";
@@ -14,7 +16,14 @@ export interface WsLike {
 }
 
 export interface FeedStatus {
-  opensky: { lastOkAt: number | null; lastError: string | null; pollMs: number };
+  opensky: {
+    lastOkAt: number | null;
+    lastError: string | null;
+    pollMs: number;
+    // Mirror of the poller's BoostStatus (import-free by hub convention); the
+    // poller sends it once a zones.config is live, null/absent = legacy.
+    boost?: { active: boolean; count: number; intervalMs: number | null; paused: "credits" | null } | null;
+  };
   ais: {
     connected: boolean;
     enabled: boolean;
@@ -46,6 +55,7 @@ export type ClientMessage =
   | { type: "aircraft.info"; id: string }
   | { type: "settings.update"; patch: { storageCapGb?: number; ramCacheGb?: number; homeRegion?: TileCenter | null } }
   | { type: "ais.tile"; lat: number; lon: number }
+  | { type: "zones.config"; kinds: CraftKind[]; boostMs: number }
   | { type: "pin.add"; from: number; to: number }
   | { type: "pin.remove"; id: string }
   | { type: "flight.track"; id: string; seq?: number; auto?: boolean }
@@ -81,6 +91,16 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       Number.isFinite(m.lat) &&
       typeof m.lon === "number" &&
       Number.isFinite(m.lon)
+    )
+      return m;
+    // zones.config carries what it carries: one invalid kind member drops the
+    // whole frame; dedup + boostMs clamping are the poller's (setZonesConfig).
+    if (
+      m.type === "zones.config" &&
+      Array.isArray(m.kinds) &&
+      m.kinds.every((k) => typeof k === "string" && (AIR_KINDS as readonly string[]).includes(k)) &&
+      typeof m.boostMs === "number" &&
+      Number.isFinite(m.boostMs)
     )
       return m;
     if (
@@ -135,6 +155,9 @@ export interface StatusPayload {
   staleMs: number;
   faa: FaaStatus;
   icons: IconStatus;
+  // Broadcast-geometry copy of the live hot zone (R4 hysteresis; the poller's
+  // dominantKind ships as `kind`), or null when no zone is configured/formed.
+  hotzone: { center: LonLat; halfW: number; halfH: number; count: number; kind: AirKind } | null;
 }
 
 export interface HubOpts {

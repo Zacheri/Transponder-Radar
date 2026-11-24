@@ -53,6 +53,7 @@ function payload(feeds: FeedStatus, history: HistoryStatus = historyStatus(), ov
     staleMs: 120000,
     faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null },
     icons: ICONS_STUB,
+    hotzone: null,
     ...over,
   };
 }
@@ -438,5 +439,67 @@ describe("parseClientMessage (ais.tile)", () => {
   it("passes settings.update homeRegion through (field checks live in the handler)", () => {
     expect(parseClientMessage(JSON.stringify({ type: "settings.update", patch: { homeRegion: { lat: 35, lon: 139 } } }))).toEqual({ type: "settings.update", patch: { homeRegion: { lat: 35, lon: 139 } } });
     expect(parseClientMessage(JSON.stringify({ type: "settings.update", patch: { homeRegion: null } }))).toEqual({ type: "settings.update", patch: { homeRegion: null } });
+  });
+});
+
+describe("parseClientMessage (zones.config)", () => {
+  it("accepts air-kind sets verbatim (dedup and boostMs clamping live in the poller)", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["military"], boostMs: 30000 }))).toEqual({ type: "zones.config", kinds: ["military"], boostMs: 30000 });
+    // Empty set is a valid (full-replace) config: inactive kinds = no zone.
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: [], boostMs: 30000 }))).toEqual({ type: "zones.config", kinds: [], boostMs: 30000 });
+    // Full air set.
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["commercial", "business", "military", "general"], boostMs: 10000 }))).toEqual({ type: "zones.config", kinds: ["commercial", "business", "military", "general"], boostMs: 10000 });
+    // Duplicates pass through untouched — the poller owns dedup.
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["military", "military"], boostMs: 30000 }))).toEqual({ type: "zones.config", kinds: ["military", "military"], boostMs: 30000 });
+    // Finite-but-odd boostMs is accepted: the [10000, 120000] clamp is pinned
+    // to the poller layer in test/poller.test.ts.
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["general"], boostMs: 5 }))).toEqual({ type: "zones.config", kinds: ["general"], boostMs: 5 });
+  });
+
+  it("drops the whole frame on any invalid kind or non-finite boostMs", () => {
+    // One sea member kills the frame (dedup/poller never sees a partial set).
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["cargo"], boostMs: 30000 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["military", "cargo"], boostMs: 30000 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: "military", boostMs: 30000 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", boostMs: 30000 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["military", 1], boostMs: 30000 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: [null], boostMs: 30000 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["military"] }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["military"], boostMs: "30000" }))).toBeNull();
+    // NaN/Infinity serialize to null on the wire; either form is dropped.
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["military"], boostMs: NaN }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["military"], boostMs: Infinity }))).toBeNull();
+  });
+});
+
+describe("Hub (legacy status shape)", () => {
+  it("still broadcasts a payload stripped of boost/hotzone (new status blocks are additive)", async () => {
+    const store = new CraftStore();
+    // Hand-built pre-hot-zone shape: no boost on opensky, no hotzone field
+    // (cast — the type now REQUIRES hotzone, this pins old producers).
+    const legacy = {
+      feeds: {
+        opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
+        ais: { connected: false, enabled: false, lastError: null, lastMessageAt: null, flushMs: 120000, secondary: SECONDARY },
+      },
+      history: historyStatus(),
+      settings: { storageCapGb: 10, ramCacheGb: 1, cacheUsedBytes: 0, homeRegion: null },
+      pins: [],
+      staleMs: 120000,
+      faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null },
+      icons: ICONS_STUB,
+    } as unknown as StatusPayload;
+    const hub = new Hub({ store, batchMs: 1000, statusPayload: () => legacy });
+    const sock = fakeSocket();
+    hub.attach(sock);
+    hub.start();
+    await waitFor(() => statusFrames(sock.sent).length >= 2);
+    for (const raw of sock.sent.map((s) => JSON.parse(s) as { type: string; [k: string]: any })) {
+      if (raw.type !== "status") continue;
+      expect(raw.hotzone).toBeUndefined();
+      expect(raw.feeds.opensky.boost).toBeUndefined();
+      expect(raw.feeds.opensky.pollMs).toBe(120000);
+    }
+    hub.stop();
   });
 });

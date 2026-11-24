@@ -228,6 +228,14 @@ export async function buildApp(deps: ServerDeps = {}) {
     fetchImpl,
     log,
   });
+  // Wire copy of the live hot zone (design §D): dominantKind renamed `kind`,
+  // null passthrough; injected stubs without the getter read as null.
+  const hotzoneWire = () => {
+    const z = opensky.zoneStatus;
+    return z
+      ? { center: z.center, halfW: z.halfW, halfH: z.halfH, count: z.count, kind: z.dominantKind }
+      : null;
+  };
   const hub =
     deps.hub ??
     new Hub({
@@ -262,6 +270,7 @@ export async function buildApp(deps: ServerDeps = {}) {
         staleMs: config.STALE_MS,
         faa: faa?.status() ?? { state: "loading", updatedAt: null, aircraft: 0, lastError: null },
         icons: iconPack ? iconPack.status() : { state: "absent", count: 0, updatedAt: null, lastError: null },
+        hotzone: hotzoneWire(),
       }),
     });
 
@@ -297,6 +306,11 @@ export async function buildApp(deps: ServerDeps = {}) {
           pushAisTiles();
           break;
         }
+        case "zones.config":
+          // Full replace, no reply frame (ais.tile posture); validation is the
+          // hub's, clamping the poller's.
+          opensky.setZonesConfig({ kinds: msg.kinds as AirKind[], boostMs: msg.boostMs });
+          break;
         case "timeline.seek": {
           const r = recorder;
           if (!r) break;

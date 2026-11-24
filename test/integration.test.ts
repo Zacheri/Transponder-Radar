@@ -135,6 +135,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
         staleMs: 120000,
         faa: fakeFaa.status(),
         icons: { state: "absent", count: 0, updatedAt: null, lastError: null },
+        hotzone: null,
       }),
     });
 
@@ -579,6 +580,7 @@ describe("icon pack routes (fixture pack)", () => {
         staleMs: 120000,
         faa: { state: "loading", updatedAt: null, aircraft: 0, lastError: null },
         icons: fixturePack.status(),
+        hotzone: null,
       }),
     });
     // Stub feed clients: the pack routes + hub are what's under test; pointing
@@ -1196,5 +1198,110 @@ describe("aiscast fill wiring", () => {
     ws.close();
     await app2.stop();
     await rm(dir2, { recursive: true, force: true });
+  });
+});
+
+describe("hot-zone boost wiring (zones.config frame + status)", () => {
+  // Real OpenSkyPoller + the REAL index.ts status assembly (no injected hub):
+  // the zones.config handler, the boost ride-through opensky.feedStatus, and
+  // the hotzone wire mapping (dominantKind -> kind) are all under test. Only
+  // the /states fetch is faked.
+  const nowSec = () => Math.floor(Date.now() / 1000);
+  // spi-true rows classify military (classifyAir); the two positions share a
+  // 2° grid hood and keep centroid/half math exact in binary floats.
+  const spiRow = (icao24: string, lat: number, lon: number): (string | number | boolean | null)[] => [
+    icao24, "VIPER1", "United States", nowSec(), nowSec(),
+    lon, lat, 10000, false, 250, 90, 10, null, 10050, "1200", true, 2,
+  ];
+
+  let dir: string;
+  let server: Awaited<ReturnType<typeof buildApp>>;
+  let port: number;
+  let states: (string | number | boolean | null)[][] = [];
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "radar-hotzone-it-"));
+    const store = new CraftStore();
+    const opensky = new OpenSkyPoller({
+      pollMs: 60,
+      graceMs: 30000,
+      store,
+      fetchImpl: (async () =>
+        new Response(JSON.stringify({ states }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })) as typeof fetch,
+    });
+    const ais = {
+      isConnected: false,
+      feedStatus: { lastError: null, lastMessageAt: null },
+      start: () => {},
+      stop: () => {},
+    } as unknown as AisClient;
+    server = await buildApp({
+      store, opensky, ais, recorder: null, faa: null, iconPack: null, fetchImpl: offline,
+      settingsFile: join(dir, "settings.json"), pinFile: join(dir, "pins.json"), log: () => {},
+    });
+    await server.app.listen({ port: 0, host: "127.0.0.1" });
+    port = (server.app.server.address() as { port: number }).port;
+  });
+
+  afterAll(async () => {
+    await server.stop();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const statusFrames = (frames: any[]) => frames.filter((f) => f.type === "status");
+
+  it("zones.config arms the boost; a military cluster forms a hotzone in status; full replace clears it", async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const frames: any[] = [];
+    ws.on("message", (d) => frames.push(JSON.parse(d.toString())));
+    let opened = false;
+    ws.on("open", () => {
+      opened = true;
+    });
+    await waitFor(() => opened, 3000);
+
+    await waitFor(() => statusFrames(frames).length >= 1, 3000);
+    const base = statusFrames(frames).at(-1)!;
+    expect(base.hotzone).toBeNull(); // idle server: explicit null, not absent
+    expect(base.feeds.opensky.boost).toBeNull();
+
+    // Invalid frames die at the validator; the well-formed one still applies
+    // (the drop matrix itself is pinned in test/hub.test.ts).
+    ws.send(JSON.stringify({ type: "zones.config", kinds: ["cargo"], boostMs: 30000 }));
+    ws.send(JSON.stringify({ type: "zones.config", kinds: ["military"], boostMs: "30000" }));
+    ws.send(JSON.stringify({ type: "zones.config", kinds: ["military"], boostMs: 30000 }));
+    await waitFor(() => server.opensky.feedStatus.boost?.active === true, 3000);
+    expect(server.opensky.feedStatus.boost?.count).toBe(0); // no military in the store yet
+    await waitFor(() => {
+      const st = statusFrames(frames).at(-1);
+      return st?.hotzone === null && st?.feeds?.opensky?.boost?.active === true;
+    }, 3000);
+
+    // Engineer 2 military rows into the stub /states payload: one globe poll
+    // lands them, the next zone tick forms the zone (planZone runs ahead of
+    // the credit gate, so the GEOMETRY needs no funded fetch).
+    states = [spiRow("m001", 40, -100), spiRow("m002", 40.5, -100.5)];
+    await server.opensky.pollOnce();
+    await server.opensky.pollZoneOnce();
+    await waitFor(() => statusFrames(frames).at(-1)?.hotzone != null, 3000);
+    const st = statusFrames(frames).at(-1)!;
+    expect(st.hotzone).toEqual({
+      center: { lat: 40.25, lon: -100.25 },
+      halfW: 0.25,
+      halfH: 0.25,
+      count: 2,
+      kind: "military", // dominantKind renamed on the wire
+    });
+    // boost rides opensky.feedStatus untouched (Task 2 shape; no duplication).
+    expect(st.feeds.opensky.boost).toEqual({ active: true, count: 2, intervalMs: null, paused: "credits" });
+
+    // Full replace with an empty kind set: the new config voids the zone.
+    ws.send(JSON.stringify({ type: "zones.config", kinds: [], boostMs: 30000 }));
+    await waitFor(() => server.opensky.zoneStatus === null, 3000);
+    await waitFor(() => statusFrames(frames).at(-1)?.hotzone === null, 3000);
+    ws.close();
   });
 });
