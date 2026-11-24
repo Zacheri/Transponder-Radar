@@ -94,7 +94,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     )
       return m;
     // zones.config carries what it carries: one invalid kind member drops the
-    // whole frame; dedup + boostMs clamping are the poller's (setZonesConfig).
+    // whole frame; the poller clamps boostMs and duplicate kinds are made
+    // inert by its membership checks.
     if (
       m.type === "zones.config" &&
       Array.isArray(m.kinds) &&

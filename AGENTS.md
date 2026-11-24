@@ -421,10 +421,10 @@ Recolor limit: `recolorPixels`
   moveend 1 s debounce only while status `secondary.enabled` — multiple
   connected browsers are last-writer-wins, by design),
   `{type:"zones.config",kinds,boostMs}` (hot-zone boost config, full replace:
-  `kinds` ⊆ AIR_KINDS (hub validator drops any bad member), `boostMs` finite
-  here, clamped [10 s, 120 s] by the poller; no reply frame; the client
-  re-sends on every socket open — server state is memory-only, last-writer-
-  wins like `ais.tile`);
+  `kinds` ⊆ AIR_KINDS — the hub validator drops the WHOLE frame on any bad
+  member; `boostMs` finite here, clamped [10 s, 120 s] by the poller; no
+  reply frame; the client re-sends on every socket open — server state is
+  memory-only, last-writer-wins like `ais.tile`);
   server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`
   (craft objects carry an optional `icon` — air shape family / sea kind /
   absent in pre-icon snapshots),

@@ -26,6 +26,7 @@ import { greatCircle, destinationPoint } from "../shared/geo.js";
 import type { LonLat } from "../shared/geo.js";
 import { effectiveColor, loadIconColors, saveIconColors, setKindColor, type IconColorState } from "./data/icon-colors.js";
 import {
+  clampZonesBoost,
   parseZonesCfg,
   serializeZonesCfg,
   ZONES_BOOST_DEFAULT_MS,
@@ -112,6 +113,7 @@ const viewWindow = () => computeViewWindow(histFrom, histTo, viewSel);
 // only edits the value, keeping the config's single source here.
 let zonesCfg: ZonesCfg =
   parseZonesCfg(localStorage.getItem(ZONES_CFG_KEY)) ?? { kinds: [], boostMs: ZONES_BOOST_DEFAULT_MS };
+zonesCfg.boostMs = clampZonesBoost(zonesCfg.boostMs);
 function applyZonesCfg(cfg: ZonesCfg): void {
   zonesCfg = cfg;
   try {
