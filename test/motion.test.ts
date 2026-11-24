@@ -212,3 +212,49 @@ describe("startMotionTick", () => {
     }
   });
 });
+
+describe("effectivePosition — fold pins", () => {
+  it("returns the exact stored numbers on every exclusion path (identity, not just equality)", () => {
+    const rows: Array<[Craft, number]> = [
+      [air({ onGround: true }), 60_000],
+      [air({ speed: null }), 60_000],
+      [air({ speed: 0 }), 60_000],
+      [air({ heading: null }), 60_000],
+      [air({ heading: 360 }), 60_000],
+      [air({ updatedAt: 10_000 }), 5_000],
+      [sea(), 60_000],
+    ];
+    for (const [c, nowMs] of rows) {
+      const p = effectivePosition(c, nowMs);
+      expect(p.lat).toBe(c.lat);
+      expect(p.lon).toBe(c.lon);
+    }
+  });
+
+  it("pins a NaN clock to the stored fix", () => {
+    expect(effectivePosition(air(), NaN)).toEqual(stored(air()));
+  });
+
+  it("wraps an eastbound dateline crossing to the west side", () => {
+    const c = air({ lat: 0, lon: 179.95, speed: 480, heading: 90, updatedAt: 0 });
+    const p = effectivePosition(c, 60_000); // 8 NM past 180°
+    expect(p.lon).toBeLessThan(-179.9);
+    expect(p.lon).toBeGreaterThan(-180);
+    expect(Math.abs(p.lat)).toBeLessThan(1e-9);
+  });
+});
+
+describe("startMotionTick — fold pins", () => {
+  it("returns a disposer that is safe to call after give-up", async () => {
+    let giveUps = 0;
+    const stop = startMotionTick(
+      15,
+      () => {
+        throw new Error("render exploded");
+      },
+      () => giveUps++,
+    );
+    await waitFor(() => giveUps === 1);
+    expect(() => stop()).not.toThrow();
+  });
+});
