@@ -1,5 +1,6 @@
 import type { CraftKind } from "../../shared/craft.js";
 import { KINDS, AIR_KINDS, SEA_KINDS } from "../../shared/craft.js";
+import { clampZonesBoost, ZONES_BOOST_MAX_MS, ZONES_BOOST_MIN_MS, type ZonesCfg } from "./zones-cfg.js";
 
 const VISIBLE_KEY = "radar.visibleKinds";
 const COLLAPSED_KEY = "radar.drawerCollapsed";
@@ -24,11 +25,17 @@ export interface FilterColorApi {
   setColor(kind: CraftKind, hex: string | null): void; // null = back to default
 }
 
+export interface ZonesControlOpts {
+  initial: ZonesCfg;
+  onZonesChange: (cfg: ZonesCfg) => void;
+}
+
 export function createFilters(
   root: HTMLElement,
   initial: Set<CraftKind>,
   onChange: (v: Set<CraftKind>) => void,
   color?: FilterColorApi,
+  zones?: ZonesControlOpts,
 ): { setCounts(counts: Map<CraftKind, number>): void } {
   const el = document.createElement("aside");
   el.className = "drawer";
@@ -113,7 +120,9 @@ export function createFilters(
 
   function apply(v: Set<CraftKind>): void {
     visible = new Set(v);
-    body.querySelectorAll<HTMLInputElement>("input[type=checkbox]").forEach((cb) => {
+    // [data-kind] scopes to the filter rows: the boost checkboxes (data-zkind)
+    // must survive All/None/Air-only/Sea-only untouched.
+    body.querySelectorAll<HTMLInputElement>("input[type=checkbox][data-kind]").forEach((cb) => {
       cb.checked = visible.has(cb.dataset.kind as CraftKind);
     });
     try {
@@ -144,6 +153,68 @@ export function createFilters(
 
   group("Air", AIR_KINDS);
   group("Sea", SEA_KINDS);
+
+  if (zones) {
+    const zc = zones;
+    const h = document.createElement("div");
+    h.className = "drawer-group";
+    h.textContent = "Boost zones";
+    body.appendChild(h);
+    const zChecked = new Set<CraftKind>(zc.initial.kinds);
+    let zBoostMs = clampZonesBoost(zc.initial.boostMs);
+    const zval = document.createElement("span");
+    zval.className = "drawer-count";
+    function emitZones(): void {
+      zc.onZonesChange({ kinds: AIR_KINDS.filter((k) => zChecked.has(k)), boostMs: zBoostMs });
+    }
+    function renderZval(): void {
+      zval.textContent = `${zBoostMs / 1000} s`;
+    }
+    for (const k of AIR_KINDS) {
+      const label = document.createElement("label");
+      label.className = "drawer-item";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = zChecked.has(k);
+      cb.dataset.zkind = k;
+      // Tint via the color api (kind overrides included), no new hex literals.
+      if (color) cb.style.accentColor = color.getColor(k);
+      cb.addEventListener("change", () => {
+        if (cb.checked) zChecked.add(k);
+        else zChecked.delete(k);
+        emitZones();
+      });
+      const sw = document.createElement("span");
+      sw.className = "swatch";
+      if (color) sw.style.background = color.getColor(k);
+      const txt = document.createElement("span");
+      txt.className = "drawer-label";
+      txt.textContent = KINDS[k].label;
+      label.append(cb, sw, txt);
+      body.appendChild(label);
+    }
+    const row = document.createElement("label");
+    row.className = "drawer-item";
+    const rl = document.createElement("span");
+    rl.textContent = "Interval";
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = String(ZONES_BOOST_MIN_MS);
+    slider.max = String(ZONES_BOOST_MAX_MS);
+    slider.step = "5000";
+    slider.value = String(zBoostMs);
+    slider.setAttribute("aria-label", "Boost interval");
+    slider.addEventListener("input", () => {
+      // Self-clamping (a programmatic out-of-range value must not leak out).
+      zBoostMs = clampZonesBoost(Number(slider.value));
+      slider.value = String(zBoostMs);
+      renderZval();
+      emitZones();
+    });
+    renderZval();
+    row.append(rl, slider, zval);
+    body.appendChild(row);
+  }
 
   let collapsed = false;
   try {

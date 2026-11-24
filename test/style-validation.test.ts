@@ -3,6 +3,7 @@ import { validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
 import { cartoStyle } from "../src/map/basemap.js";
 import { CRAFT_SOURCE_ID, craftLayerDefs } from "../src/map/layers.js";
 import { TRACK_SOURCES, trackLayerDefs } from "../src/map/trackLayers.js";
+import { HOTZONE_SOURCE, hotzoneDefs } from "../src/map/hotzone.js";
 import { buildIconFilter } from "../src/data/filter.js";
 import { AIR_KINDS, SEA_KINDS } from "../shared/craft.js";
 
@@ -15,7 +16,7 @@ const withBounds = (layers: any[]) =>
   layers.map((l) => ({ minzoom: 0, maxzoom: 22, ...l }));
 
 const craftSource = { type: "geojson", data: { type: "FeatureCollection", features: [] } };
-const trackSources = Object.fromEntries(TRACK_SOURCES.map((id) => [id, craftSource]));
+const trackSources = Object.fromEntries([...TRACK_SOURCES, HOTZONE_SOURCE].map((id) => [id, craftSource]));
 
 const ALL_KINDS = new Set([...AIR_KINDS, ...SEA_KINDS]);
 
@@ -28,6 +29,7 @@ describe("full style validation (Carto raster basemap)", () => {
       layers: withBounds([
         ...(carto.layers ?? []),
         ...trackLayerDefs(),
+        ...hotzoneDefs(),
         ...craftLayerDefs(buildIconFilter(ALL_KINDS)),
       ]),
     };
@@ -49,6 +51,7 @@ describe("full style validation (vector basemap with glyphs, OpenFreeMap-shaped)
       layers: withBounds([
         { id: "basemap", type: "raster", source: "basemap" },
         ...trackLayerDefs(),
+        ...hotzoneDefs(),
         ...craftLayerDefs(buildIconFilter(ALL_KINDS)),
       ]),
     };

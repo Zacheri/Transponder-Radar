@@ -479,3 +479,69 @@ describe("flight context client protocol mirror", () => {
     }
   });
 });
+
+describe("zones.config client protocol mirror", () => {
+  it("sendZonesConfig puts the exact frame on the wire", () => {
+    const frames: string[] = [];
+    class FakeWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      readyState = FakeWebSocket.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((ev: { data: unknown }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(public url: string) {}
+      send(data: string) {
+        frames.push(data);
+      }
+      close() {}
+    }
+    const original = globalThis.WebSocket;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    try {
+      const socket = new RadarSocket("ws://127.0.0.1:2001/ws", { onSnapshot: () => {}, onUpdate: () => {} });
+      socket.connect();
+      socket.sendZonesConfig(["military", "general"], 45000);
+      socket.sendZonesConfig([], 30000);
+      socket.close();
+      expect(frames).toHaveLength(2);
+      expect(JSON.parse(frames[0])).toEqual({ type: "zones.config", kinds: ["military", "general"], boostMs: 45000 });
+      expect(JSON.parse(frames[1])).toEqual({ type: "zones.config", kinds: [], boostMs: 30000 });
+      // The sender-side frame must survive the server validator untouched.
+      expect(frames.map((f) => parseClientMessage(f)?.type)).toEqual(["zones.config", "zones.config"]);
+    } finally {
+      globalThis.WebSocket = original;
+    }
+  });
+
+  it("parses a status frame carrying boost + hotzone (additive fields)", () => {
+    const raw = JSON.stringify({
+      type: "status",
+      feeds: {
+        opensky: { lastOkAt: 1000, lastError: null, pollMs: 90000, boost: { active: true, count: 4, intervalMs: 30000, paused: null } },
+        ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 900, flushMs: 120000 },
+      },
+      history,
+      faa,
+      serverTime: 2000,
+      hotzone: { center: { lon: -74, lat: 40 }, halfW: 2.5, halfH: 2, count: 4, kind: "military" },
+    });
+    const msg = parseRadarMessage(raw);
+    expect(msg?.type).toBe("status");
+    if (msg?.type === "status") {
+      expect(msg.feeds.opensky.boost).toEqual({ active: true, count: 4, intervalMs: 30000, paused: null });
+      expect(msg.hotzone?.kind).toBe("military");
+    }
+  });
+
+  it("parses a legacy status frame with neither field", () => {
+    const raw = JSON.stringify({ type: "status", feeds, history, faa, serverTime: 2000 });
+    const msg = parseRadarMessage(raw);
+    if (msg?.type !== "status") throw new Error("status rejected");
+    expect(msg.hotzone ?? null).toBeNull();
+    expect(msg.feeds.opensky.boost ?? null).toBeNull();
+  });
+});

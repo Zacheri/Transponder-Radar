@@ -294,6 +294,10 @@ body {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
+.drawer-item input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
 .drawer-actions {
   display: flex;
   gap: 6px;

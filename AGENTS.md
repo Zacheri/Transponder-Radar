@@ -333,7 +333,13 @@ Recolor limit: `recolorPixels`
   static serving, clean shutdown), `config.ts` (env), `store.ts`
   (CraftStore: upsert/prune/sweep), `hub.ts` (WS broadcast: `snapshot`,
    `update`, `status` frames), `opensky.ts` (poller; setTimeout chain; live
-   `setPollInterval`),
+   `setPollInterval`; hot-zone boost — `setZonesConfig`, own zone tick
+   (1-credit bbox call funded from the `X-Rate-Limit-Remaining` captured in
+   `pollOnce`; a zone 429 pauses boost only), `feedStatus.boost` +
+   `zoneStatus`),
+  `hotzones.ts` (pure: `planZone` 2°-grid clustering (box cap 5°×5°,
+  create ≥2/hold ≥1/expire 5 min, broadcast copy moves only on >0.5°
+  centroid drift) + scheduler `surplusCredits`/`zoneIntervalFor`),
   `opensky-auth.ts` (OAuth2 token provider), `ais.ts` (parameterized AIS WS
   client — url/name/boxesProvider/attribution injectable; index.ts runs two
   instances: primary aisstream + the `aiscast` fill client aimed by
@@ -364,17 +370,27 @@ Recolor limit: `recolorPixels`
 - `src/` — `main.ts` (top-level await; wiring, rewind mode, info cache,
   flight-trail selection + credit-guarded refresh loop
   `clamp(pollMs/2, 30 s, 300 s)` — paused while hidden/rewound, seq-guarded
-  replies, layers cleared on selection close/change),
+  replies, layers cleared on selection close/change; hot zone — restores
+  `radar.zonesCfg` at boot, re-sends the config on every socket open
+  (server-side state is memory-only), paints `status.hotzone` via
+  `setHotzone`),
   `map/` (basemap probe, map creation, icon rasterization, `icon-urls.ts` =
   13 air family + 10 sea SVG imports = 23 entries, `pack-icons.ts` = lazy
   pack‑icon loader (fetch `GET /icons/*` → transform → 96×96 raster →
   `addImage`, failed-set retry), layer defs, `trackLayers.ts` =
   `flight-trail`/`flight-predicted`/`flight-dest` defs + pure data setters,
-  inserted below `craft-icons`), `data/`
+  inserted below `craft-icons`, `hotzone.ts` =
+  `hotzone-fill`/`hotzone-outline` rect (dominant-kind color at 18% fill +
+  1 px stroke, feature `color`/`count` props) inserted below `craft-icons`), `data/`
   (socket client, client store, feature building, icon filter, `replay.ts` =
   client-side update suppression gate for rewind), `ui/` (panel (FAA info
   rows; air: dep/arr route chips `IATA · city` → fly-to + dest marker,
-  trail refresh button, R2 budget note), filters, HUD, `timeline.ts` (scrubber + REPLAY badge + LIVE +
+  trail refresh button, R2 budget note), filters (+ the "Boost zones"
+  section: air-kind checkboxes tinted via the color api + a 10–120 s slider,
+  `ZonesControlOpts` 5th arg → `zones.config`), `zones-cfg.ts` (pure
+  parse/serialize of `radar.zonesCfg`; corrupt → null, caller defaults
+  `{kinds:[], 30000}`), HUD (` · Boost: <count> @<s>s` / ` · Boost paused`
+  appended to the feeds line from `feeds.opensky.boost`), `timeline.ts` (scrubber + REPLAY badge + LIVE +
   view-window row — preset/custom range select over `ViewSel` (`format.ts`),
   persisted to the `radar.viewSel` localStorage key; scrubber and playback
   follow the view, no protocol change),
@@ -403,14 +419,23 @@ Recolor limit: `recolorPixels`
   (`homeRegion` null clears the parked aiscast tile),
   `{type:"ais.tile",lat,lon}` (viewport center; sent from the client's
   moveend 1 s debounce only while status `secondary.enabled` — multiple
-  connected browsers are last-writer-wins, by design);
+  connected browsers are last-writer-wins, by design),
+  `{type:"zones.config",kinds,boostMs}` (hot-zone boost config, full replace:
+  `kinds` ⊆ AIR_KINDS (hub validator drops any bad member), `boostMs` finite
+  here, clamped [10 s, 120 s] by the poller; no reply frame; the client
+  re-sends on every socket open — server state is memory-only, last-writer-
+  wins like `ais.tile`);
   server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`
   (craft objects carry an optional `icon` — air shape family / sea kind /
   absent in pre-icon snapshots),
-  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs},ais:{connected,enabled,lastError,lastMessageAt,flushMs,secondary:{enabled,connected,lastError,lastMessageAt,attributions}}},settings:{storageCapGb,ramCacheGb,cacheUsedBytes,homeRegion},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},serverTime}`
+  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs,boost?},ais:{connected,enabled,lastError,lastMessageAt,flushMs,secondary:{enabled,connected,lastError,lastMessageAt,attributions}}},settings:{storageCapGb,ramCacheGb,cacheUsedBytes,homeRegion},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},hotzone,serverTime}`
   (icons.state: ready|downloading|failed|absent; `secondary` is non-nullable —
   disabled = `enabled:false` zeroed, never null; `homeRegion` is
-  `{lat,lon}|null`),
+  `{lat,lon}|null`; `boost` = poller BoostStatus
+  `{active,count,intervalMs,paused:"credits"|null}` — null/absent = legacy or
+  no zones config (every client read optional-chained); `hotzone` =
+  broadcast-geometry copy `{center,halfW,halfH,count,kind}` (the poller's
+  `dominantKind` ships as `kind`) or null),
   `{type:"timeline.state",time,craft,seq?}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
   `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`),
@@ -421,5 +446,5 @@ Recolor limit: `recolorPixels`
   `{type:"flight.context",id,seq?,route}` (`route:null` = none; else
   `{airline,dep,arr,source}` with server-resolved `{icao,iata,name,city,
   country,lat,lon}` airport refs — the client never looks airports up).
-- `test/` — 46 files, 880 tests. Node-environment Vitest; browser-only code
+- `test/` — 50 files, 956 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

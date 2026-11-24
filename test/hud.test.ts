@@ -160,3 +160,44 @@ describe("hud ais-fill line", () => {
     expect(feeds.textContent).toContain("AIS: ok");
   });
 });
+
+describe("hud boost segment", () => {
+  type Boost = NonNullable<FeedStatus["opensky"]["boost"]>;
+
+  function withBoost(boost?: Boost | null) {
+    const { setFeeds, feeds } = setup();
+    const f = makeFeeds({}) as FeedStatus;
+    const os = f.opensky as { boost?: Boost | null };
+    if (boost === undefined) delete os.boost;
+    else os.boost = boost;
+    setFeeds(f, 1000);
+    return feeds.textContent;
+  }
+
+  it("appends count + effective interval when active with an interval", () => {
+    const t = withBoost({ active: true, count: 4, intervalMs: 30000, paused: null });
+    expect(t).toMatch(/^OpenSky: ok · AIS: ok · Boost: 4 @30s$/);
+  });
+
+  it("shows a stretched interval verbatim (65s)", () => {
+    const t = withBoost({ active: true, count: 2, intervalMs: 65000, paused: null });
+    expect(t).toContain(" · Boost: 2 @65s");
+  });
+
+  it("shows paused (no count) when active and paused, even if an interval lingers", () => {
+    expect(withBoost({ active: true, count: 4, intervalMs: null, paused: "credits" })).toContain(" · Boost paused");
+    expect(withBoost({ active: true, count: 4, intervalMs: 30000, paused: "credits" })).toContain(" · Boost paused");
+  });
+
+  it("shows nothing while active but not yet ticking (no interval, no pause)", () => {
+    const t = withBoost({ active: true, count: 0, intervalMs: null, paused: null });
+    expect(t).not.toContain("Boost");
+  });
+
+  it("shows nothing for inactive, null, or a legacy frame without the field", () => {
+    expect(withBoost({ active: false, count: 0, intervalMs: null, paused: null })).not.toContain("Boost");
+    expect(withBoost(null)).not.toContain("Boost");
+    const t = withBoost(undefined);
+    expect(t).toBe("OpenSky: ok · AIS: ok");
+  });
+});

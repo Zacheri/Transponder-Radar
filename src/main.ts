@@ -11,6 +11,7 @@ import {
   setDestMarker,
   clearDestMarker,
 } from "./map/trackLayers.js";
+import { addHotzoneLayer, setHotzone } from "./map/hotzone.js";
 import { ClientStore } from "./data/store.js";
 import { RadarSocket } from "./data/ws.js";
 import type { AircraftInfo, FlightRoute, TrackPoint } from "./data/ws.js";
@@ -24,6 +25,13 @@ import type { AirKind, Craft, CraftKind } from "../shared/craft.js";
 import { greatCircle, destinationPoint } from "../shared/geo.js";
 import type { LonLat } from "../shared/geo.js";
 import { effectiveColor, loadIconColors, saveIconColors, setKindColor, type IconColorState } from "./data/icon-colors.js";
+import {
+  parseZonesCfg,
+  serializeZonesCfg,
+  ZONES_BOOST_DEFAULT_MS,
+  ZONES_CFG_KEY,
+  type ZonesCfg,
+} from "./ui/zones-cfg.js";
 import { RAM_CACHE_GB_DEFAULT, STORAGE_CAP_GB_DEFAULT } from "../shared/limits.js";
 import { createPanel, type TrailBudget } from "./ui/panel.js";
 import { createFilters } from "./ui/filters.js";
@@ -99,6 +107,20 @@ let histTo: number | null = null;
 // with histFrom/histTo on every call, so status frames refresh it for free.
 let viewSel: ViewSel = parseViewSel(localStorage.getItem("radar.viewSel")) ?? DEFAULT_VIEW_SEL;
 const viewWindow = () => computeViewWindow(histFrom, histTo, viewSel);
+// Hot-zone boost config (spec R3): restored at boot, before the socket
+// exists, so the first open can send it. main owns persistence; the drawer
+// only edits the value, keeping the config's single source here.
+let zonesCfg: ZonesCfg =
+  parseZonesCfg(localStorage.getItem(ZONES_CFG_KEY)) ?? { kinds: [], boostMs: ZONES_BOOST_DEFAULT_MS };
+function applyZonesCfg(cfg: ZonesCfg): void {
+  zonesCfg = cfg;
+  try {
+    localStorage.setItem(ZONES_CFG_KEY, serializeZonesCfg(cfg));
+  } catch {
+    // storage unavailable
+  }
+  socket?.sendZonesConfig(cfg.kinds, cfg.boostMs);
+}
 let lastSeekT: number | null = null;
 // Monotonic seek seq echoed on timeline.state replies: a reply whose seq is
 // below the last applied one comes from a superseded seek and is dropped.
@@ -432,6 +454,7 @@ map.on("load", async () => {
   addCraftSource(map);
   addCraftLayers(map, buildIconFilter(visible));
   addTrackLayers(map);
+  addHotzoneLayer(map);
   void refresh();
 
   socket = new RadarSocket(wsUrl, {
@@ -452,6 +475,9 @@ map.on("load", async () => {
     },
     onConnection: (s) => {
       hud.setStatus(s);
+      // The server keeps the zones config in memory only: re-send the local
+      // config on every open (first, reconnect, server restart).
+      if (s === "open") socket?.sendZonesConfig(zonesCfg.kinds, zonesCfg.boostMs);
       if (s === "open" && replay.rewound) {
         replay.exitReplay();
         hud.setReplay(null);
@@ -468,6 +494,10 @@ map.on("load", async () => {
     onStatus: (s) => {
       hud.setFeeds(s.feeds, s.serverTime);
       hud.setIcons(s.icons ?? null); // ?? — legacy frames carry no icons
+      // Hot-zone rect in the dominant kind's icon color; absent/null (legacy
+      // or no zone) clears it. Color is unused on the null path.
+      const hz = s.hotzone ?? null;
+      setHotzone(map, hz, hz ? iconColorFor(hz.kind) : "");
       aiscastEnabled = s.feeds.ais.secondary?.enabled === true;
       pollRate.setMs(s.feeds.opensky.pollMs);
       shipRate.setMs(s.feeds.ais.flushMs ?? 120000); // ?? — legacy frames carry no flushMs
@@ -615,6 +645,7 @@ map.on("load", async () => {
         void refresh();
       },
     },
+    { initial: zonesCfg, onZonesChange: applyZonesCfg },
   );
 
   map.on("click", "craft-icons", (e) => {

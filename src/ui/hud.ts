@@ -76,7 +76,13 @@ export function createHud(root: HTMLElement): {
       const age = serverTime - feeds.ais.lastMessageAt;
       ai = age <= AIS_STALE_MS ? "AIS: ok" : `AIS: stale ${Math.max(1, Math.round(age / 60000))}m`;
     }
-    feedsEl.textContent = `${os} · ${ai}`;
+    let boostSeg = "";
+    const boost = feeds.opensky.boost;
+    if (boost?.active) {
+      if (boost.paused != null) boostSeg = " · Boost paused";
+      else if (boost.intervalMs != null) boostSeg = ` · Boost: ${boost.count} @${Math.round(boost.intervalMs / 1000)}s`;
+    }
+    feedsEl.textContent = `${os} · ${ai}${boostSeg}`;
     // Attribution credit line (below the pill via CSS); hidden while the
     // fill feed is off or down. ?. guards legacy frames without secondary.
     const sec = feeds.ais.secondary;

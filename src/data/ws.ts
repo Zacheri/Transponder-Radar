@@ -1,7 +1,15 @@
-import type { Craft } from "../../shared/craft.js";
+import type { AirKind, Craft, CraftKind } from "../../shared/craft.js";
+import type { LonLat } from "../../shared/geo.js";
 
 export interface FeedStatus {
-  opensky: { lastOkAt: number | null; lastError: string | null; pollMs: number };
+  opensky: {
+    lastOkAt: number | null;
+    lastError: string | null;
+    pollMs: number;
+    // Mirror of server FeedStatus.boost; null = no zones config live, absent
+    // on legacy frames — every read optional-chained.
+    boost?: { active: boolean; count: number; intervalMs: number | null; paused: "credits" | null } | null;
+  };
   ais: {
     connected: boolean;
     enabled: boolean;
@@ -109,6 +117,9 @@ export interface StatusMessage {
   settings?: { storageCapGb: number; ramCacheGb: number; cacheUsedBytes: number; homeRegion?: { lat: number; lon: number } | null };
   pins?: Pin[];
   staleMs?: number;
+  // Broadcast-geometry hot zone copy (mirror of server StatusPayload.hotzone);
+  // absent on legacy frames, null = configured but no zone formed.
+  hotzone?: { center: LonLat; halfW: number; halfH: number; count: number; kind: AirKind } | null;
 }
 
 export type RadarMessage =
@@ -230,6 +241,11 @@ export class RadarSocket {
   // Viewport center for the aiscast follow tile (fire-and-forget).
   sendAisTile(lat: number, lon: number): void {
     this.send({ type: "ais.tile", lat, lon });
+  }
+
+  // Hot-zone boost config: full replace, no reply frame (ais.tile posture).
+  sendZonesConfig(kinds: CraftKind[], boostMs: number): void {
+    this.send({ type: "zones.config", kinds, boostMs });
   }
 
   sendPinAdd(from: number, to: number): void {
