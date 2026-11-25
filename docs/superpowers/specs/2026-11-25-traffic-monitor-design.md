@@ -73,7 +73,9 @@ honesty fixes.
 - R7 — Honesty fixes: (a) AIS fill tile outlines (home + follow) as a
   dashed blue (kind-independent `#4fc3f7`-family line layer from
   `status.feeds.ais.secondary` tile info — server piggybacks
-  `boxes:[{lat,lon}|null ×2]` on the secondary status block) inserted
+  `boxes: [[minLat,minLon],[maxLat,maxLon]][]` (≤2; `[]` when disabled —
+  ruled at plan time, superseding the draft's `[{lat,lon}|null ×2]`) on the
+  secondary status block) inserted
   above hotzone layers, below `craft-icons`; (b) park button renders
   disabled with text "Needs AISCAST_API_KEY" while
   `status.feeds.ais.secondary.enabled === false` (server-sourced truth);
