@@ -141,6 +141,7 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
   const upRadar = line("traffic-up-radar", "↑ radar —");
   const dnDev = line("traffic-down-device", "↓ device —");
   const dnRadar = line("traffic-down-radar", "↓ radar —");
+  dnRadar.title = "Browser downloads are counted only when resource timing is exact (exact or 0)";
   bands.append(upDev, upRadar, dnDev, dnRadar);
 
   const totals = document.createElement("div");
@@ -333,7 +334,7 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
     ro?.disconnect();
     head.removeEventListener("click", toggle);
     head.removeEventListener("keydown", onKey);
-    root.remove();
+    el.remove();
   }
 
   return { update, destroy };

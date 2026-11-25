@@ -309,6 +309,7 @@ export function createTrafficMonitor(opts: TrafficMonitorOpts): TrafficMonitor {
   return {
     count(dir, bytes) {
       if (!Number.isFinite(bytes) || bytes < 0) return;
+      rollIfNeeded(dayStamp(now()));
       if (dir === "out") {
         dayRec.radarUp += bytes;
         dUp += bytes;
@@ -319,6 +320,7 @@ export function createTrafficMonitor(opts: TrafficMonitorOpts): TrafficMonitor {
     },
     addBrowserDown(bytes) {
       if (!Number.isFinite(bytes) || bytes < 0) return;
+      rollIfNeeded(dayStamp(now()));
       dayRec.radarDown += bytes;
       dBrowser += bytes;
     },

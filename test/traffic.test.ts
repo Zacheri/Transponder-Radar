@@ -484,6 +484,23 @@ describe("createTrafficMonitor", () => {
     expect(dayFile.day).toBe("2026-11-25");
   });
 
+  it("rolls at midnight inside count() when no sample ran for a day (unwatched panel)", async () => {
+    const m = monitor({ spawnImpl: okSpawn() });
+    m.start();
+    await settle();
+    m.count("out", 700); // day1
+    clock = Date.parse("2026-11-25T12:00:00.000Z"); // never sampled around midnight
+    m.count("out", 300); // day2 — roll must fire HERE, not batch day1+day2 later
+    m.addBrowserDown(100);
+    await settle();
+    const history = JSON.parse(await readFile(join(dir, "history.json"), "utf8"));
+    expect(history).toEqual([{ day: "2026-11-24", radarUp: 700, radarDown: 0, devUp: 0, devDown: 0 }]);
+    const s = m.sample();
+    await settle();
+    expect(s.radar.upTotal).toBe(300);
+    expect(s.radar.downTotal).toBe(100);
+  });
+
   it("caps history at 30 entries, dropping the oldest", async () => {
     const seeded = Array.from({ length: 30 }, (_, i) => ({
       day: `2026-10-${String(i + 1).padStart(2, "0")}`,

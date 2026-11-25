@@ -491,7 +491,8 @@ Counting caveats (verified Nov 2026):
   the watcher set is per-socket and the panel re-sends on every open while
   expanded — `ais.tile` lifecycle),
   `{type:"traffic.report",down}` (delta browser WAN-down bytes since the
-  last report; finite ≥ 0, clamped ≤ 50 MB/report; folds into radar DOWN);
+  last report; finite ≥ 0, ≤ 50 MB/report — larger frames die at the hub
+  validator, index re-clamps as defense-in-depth; folds into radar DOWN);
   server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`
   (craft objects carry an optional `icon` — air shape family / sea kind /
   absent in pre-icon snapshots),

@@ -73,6 +73,11 @@ class FakeEl {
     l.push(fn);
     this.listeners.set(t, l);
   }
+  remove(): void {
+    if (!this.parent) return;
+    this.parent.children = this.parent.children.filter((c) => c !== this);
+    this.parent = null;
+  }
   removeEventListener(t: string, fn: Listener): void {
     this.listeners.set(t, (this.listeners.get(t) ?? []).filter((f) => f !== fn));
   }
@@ -300,5 +305,13 @@ describe("traffic panel canvas", () => {
     ui.update(SAMPLE);
     expect(canvas.width).toBe(480);
     expect(canvas.height).toBe(128);
+  });
+  it("destroy removes the panel element and leaves the root intact", () => {
+    const { ui, root } = setup({ collapsed: false });
+    const sibling = new FakeEl("div");
+    root.appendChild(sibling);
+    ui.destroy();
+    expect(root.children).toEqual([sibling]);
+    ui.update(SAMPLE); // post-destroy updates are inert, must not throw
   });
 });
