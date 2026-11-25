@@ -47,7 +47,7 @@ export function parseNetstat(out: string): NetstatObs | null {
   let rows = 0;
   for (const line of lines) {
     const t = line.trim().split(/\s+/);
-    if (t.length < 10 || !t[0].replace(/\*+$/, "").startsWith("en")) continue;
+    if (t.length < 10 || !/^en\d/.test(t[0].replace(/\*+$/, ""))) continue;
     if (!t[2].startsWith("<Link#")) continue; // extended row only
     const nums = t.slice(-7); // Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
     if (!nums.every((n) => /^\d+$/.test(n))) continue;
@@ -189,6 +189,9 @@ export function createTrafficMonitor(opts: TrafficMonitorOpts): {
   // monitor's first sample sees the totals. Bytes counted while the read is
   // in flight merge into a same-day file; with a stale file they are kept
   // (today stays fresh — the rollover on the next sample archives the file).
+  // Stale-day window (crash restart after midnight): the kept bytes win and
+  // the stale file's totals are DROPPED — the next rollover archives the
+  // in-memory day, never the discarded file.
   const loadDay = (): void => {
     const counted = { ...dayRec };
     void (async () => {
@@ -354,6 +357,8 @@ export function createTrafficMonitor(opts: TrafficMonitorOpts): {
     },
     stop() {
       stopped = true;
+      // Clear `started` too so a later start() re-arms the monitor.
+      started = false;
       for (const child of live) child.kill("SIGKILL");
       live.clear();
     },

@@ -51,6 +51,16 @@ describe("parseNetstat", () => {
     expect(parseNetstat(noEn)).toBeNull();
   });
 
+  it("excludes enc* (application-specific Ethernet) rows despite the en prefix", () => {
+    // Real macOS output carries enc0 with extended counters; /^en\d/ keeps it out.
+    const withEnc = NETSTAT_FIXTURE.replace(
+      "lo0        16384 <Link#1>",
+      "enc0       1500  <Link#2>   aa:bb:cc:dd:ee:ff     10     0       5555       10     0       6666     0\nlo0        16384 <Link#1>",
+    );
+    expect(parseNetstat(NETSTAT_FIXTURE)).toEqual({ in: 47986448939, out: 3557239547 }); // sanity: the guard moved nothing
+    expect(parseNetstat(withEnc)).toEqual({ in: 47986448939, out: 3557239547 });
+  });
+
   it("null on empty/garbage/non-billing output", () => {
     expect(parseNetstat("")).toBeNull();
     expect(parseNetstat("garbage\nrows\n")).toBeNull();
@@ -382,6 +392,30 @@ describe("createTrafficMonitor", () => {
     m.watch(false);
     m.watch(false);
     expect(m.watchers()).toBe(0);
+  });
+
+  it("restart after stop(): spawns resume", async () => {
+    const seen: string[] = [];
+    const m = monitor({
+      spawnImpl: async (cmd) => {
+        seen.push(cmd);
+        return cmd === "netstat" ? NETSTAT_FIXTURE : NETTOP_FIXTURE;
+      },
+    });
+    m.start();
+    await settle();
+    expect(seen.filter((c) => c === "netstat")).toHaveLength(1); // start seed
+    m.stop();
+    m.sample();
+    await settle();
+    expect(seen.filter((c) => c === "netstat")).toHaveLength(1); // stopped: nothing fires
+    m.start(); // restart: stop() cleared `started`
+    await settle();
+    expect(seen.filter((c) => c === "netstat")).toHaveLength(2); // seed again
+    m.sample();
+    await settle();
+    expect(seen.filter((c) => c === "netstat")).toHaveLength(3); // sample ticks again
+    m.stop();
   });
 
   it("stops spawning after stop(), and stop() is idempotent", async () => {
