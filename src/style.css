@@ -658,10 +658,10 @@ body {
 }
 
 /* Traffic panel (spec 2026-11-25-traffic-monitor R6): left-docked beside the
-   settings drawer (12 + 260 + 12 = 284). The collapsed header height is
-   pinned to match the drawer-head's computed height (10 + 13 + 10 + 1 border
-   = 34 px content-box, 38 px border-box) so the two collapsed drawers sit
-   flush at the bottom edge. Keep in sync with .drawer-head. */
+   settings drawer (12 + 260 + 12 = 284). Flush bottom alignment comes from
+   both drawers anchoring bottom: 60px; the collapsed header is a plain
+   padding-box (no height pin) — keep its padding in sync with .drawer-head
+   if either ever changes. */
 .traffic-panel {
   top: auto;
   left: 284px;

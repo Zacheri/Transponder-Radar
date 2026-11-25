@@ -31,7 +31,13 @@ export function humanize(n: number): string {
     v /= 1000;
     i += 1;
   }
-  const s = v >= 100 ? String(Math.round(v)) : v.toFixed(2).replace(/\.?0+$/, "");
+  let s = v >= 100 ? String(Math.round(v)) : v.toFixed(2).replace(/\.?0+$/, "");
+  // Rounding can push a value to 1000 of the current unit (999.6 KB -> "1000
+  // KB"); escalate once so the unit always matches the magnitude.
+  if (Number(s) >= 1000 && i < UNITS.length - 1) {
+    s = String(Number(s) / 1000);
+    i += 1;
+  }
   return `${s} ${UNITS[i]}`;
 }
 
@@ -327,6 +333,7 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
     ro?.disconnect();
     head.removeEventListener("click", toggle);
     head.removeEventListener("keydown", onKey);
+    root.remove();
   }
 
   return { update, destroy };

@@ -61,7 +61,9 @@ honesty fixes.
   `{type:"traffic", at, radar:{up,down,upTotal,downTotal},
   device:{up,down,upTotal,downTotal}, top:[{proc,bytes}]|null}` at 1 Hz
   while any client watches. Additive validator idiom; hub union mirrors.
-- R6 — Panel: right-docked beside the settings drawer, collapsed height
+- R6 — Panel: docked beside the settings drawer (implemented left of it at
+  `left: 284px`, same bottom anchor — user's drawer row, ruling 2),
+  collapsed height
   matches the drawer's collapsed header; expand/collapse persisted
   `radar.trafficPanel`; while expanded, sends `traffic.watch true`,
   collapse/reconnect lifecycle mirrors the ais.tile sender (re-send on

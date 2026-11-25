@@ -154,6 +154,7 @@ describe("humanize (ruling-2 pinned strings)", () => {
     expect(humanize(1500)).toBe("1.5 KB");
     expect(humanize(2_300_000)).toBe("2.3 MB");
     expect(humanize(1_020_000_000)).toBe("1.02 GB");
+    expect(humanize(999_600)).toBe("1 MB");
   });
   it("stays consistent around the edges: 1000 base, trailing zeros trimmed", () => {
     expect(humanize(0)).toBe("0 B");
