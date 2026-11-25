@@ -1063,6 +1063,7 @@ describe("aiscast fill wiring", () => {
       lastError: null,
       lastMessageAt: 123,
       attributions: ["AISHub"],
+      boxes: [], // wave 9: tiles always on the wire, [] with no tiles
     });
     ws.close();
   });
@@ -1182,6 +1183,7 @@ describe("aiscast fill wiring", () => {
       lastError: null,
       lastMessageAt: null,
       attributions: [],
+      boxes: [], // disabled: present and empty
     });
 
     // Frames are processed (no crash) but change nothing observable.
@@ -1192,12 +1194,28 @@ describe("aiscast fill wiring", () => {
       3000,
     );
     const last = frames.filter((f) => f.type === "status").at(-1)!;
-    expect(last.feeds.ais.secondary).toEqual({ enabled: false, connected: false, lastError: null, lastMessageAt: null, attributions: [] }); // …without touching the feed
+    expect(last.feeds.ais.secondary).toEqual({ enabled: false, connected: false, lastError: null, lastMessageAt: null, attributions: [], boxes: [] }); // …without touching the feed
     const health = await app2.app.inject({ url: "/health" });
     expect(health.statusCode).toBe(200);
     ws.close();
     await app2.stop();
     await rm(dir2, { recursive: true, force: true });
+  });
+
+  it("secondary status carries the composed tile boxes as edge pairs", async () => {
+    const { ws, frames } = await connect();
+    const home = { lat: 35, lon: 139 };
+    const follow = { lat: 51.5, lon: -0.12 };
+    ws.send(JSON.stringify({ type: "settings.update", patch: { homeRegion: home } }));
+    ws.send(JSON.stringify({ type: "ais.tile", ...follow }));
+    await waitFor(
+      () => frames.some((m) => m.type === "status" && (m.feeds?.ais?.secondary?.boxes?.length ?? 0) === 2),
+      3000,
+    );
+    const boxes = frames.filter((m) => m.type === "status").at(-1)!.feeds.ais.secondary.boxes;
+    // Same composition pushAisTiles sends: [home, follow], each as edge pairs.
+    expect(boxes).toEqual([boxesFor(home), boxesFor(follow)]);
+    ws.close();
   });
 });
 

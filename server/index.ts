@@ -10,8 +10,8 @@ import { CraftStore } from "./store.js";
 import { OpenSkyPoller } from "./opensky.js";
 import { createTokenProvider } from "./opensky-auth.js";
 import { AisClient } from "./ais.js";
-import { boxesFor, clampCenter, composeTiles, type TileCenter } from "./ais-tiles.js";
-import { Hub, parseClientMessage, type FeedId, type StatusPayload } from "./hub.js";
+import { boxesFor, boxEdges, clampCenter, composeTiles, type TileCenter } from "./ais-tiles.js";
+import { Hub, parseClientMessage, TRAFFIC_REPORT_MAX_BYTES, type FeedId, type StatusPayload } from "./hub.js";
 import { HistoryRecorder } from "./history.js";
 import { PinStore } from "./pins.js";
 import { SnapshotCache } from "./snapshot-cache.js";
@@ -32,6 +32,7 @@ import { AUTO_DAILY_CAP, createTracks } from "./tracks.js";
 import { resolveAirIcon } from "./icons.js";
 import { IconPack } from "./iconpack.js";
 import { loadIconSources } from "./iconpack-sources.js";
+import { createTrafficMonitor, type TrafficMonitor } from "./traffic.js";
 import { coveredDesignators, packColor, renderCatalog, type CatalogCell } from "./icons-catalog.js";
 import type { AirKind, Craft } from "../shared/craft.js";
 
@@ -50,6 +51,10 @@ export interface ServerDeps {
   // Defaults point at the live data/ dir; tests pass tmp paths (hermetic).
   settingsFile?: string;
   pinFile?: string;
+  // Traffic monitor: undefined → default construction (dataBase/traffic);
+  // tests inject stubs (recorders/broadcast under test without spawning
+  // netstat/nettop). Always created — feed byte accounting is never off.
+  traffic?: TrafficMonitor;
   // Test seam for the airports/routes/tracks services' downloads (they
   // otherwise reach GitHub/adsbdb/OpenSky); default is the global fetch.
   fetchImpl?: typeof fetch;
@@ -70,9 +75,15 @@ function validCenter(v: unknown): TileCenter | null {
 
 export async function buildApp(deps: ServerDeps = {}) {
   const log = deps.log ?? ((m: string) => console.log(`[radar] ${m}`));
+  // settings/pins paths and the traffic monitor resolve first so every
+  // WAN-edge service (icon pack, FAA, poller, AIS, routes…) shares one count() sink.
+  const settingsFile = deps.settingsFile ?? resolve(process.cwd(), "data/settings.json");
+  const pinFile = deps.pinFile ?? resolve(process.cwd(), "data/history/pins.json");
+  const traffic =
+    deps.traffic ?? createTrafficMonitor({ dir: join(dirname(settingsFile), "traffic"), log });
   let iconPack: IconPack | null;
   if (deps.iconPack === undefined) {
-    iconPack = new IconPack({ dir: resolve(process.cwd(), "data/icons"), sources: loadIconSources(), log });
+    iconPack = new IconPack({ dir: resolve(process.cwd(), "data/icons"), sources: loadIconSources(), log, traffic });
     // init() itself never throws (the catch below is defensive). Note that
     // loadIconSources() on the line above is intentionally NOT guarded: a
     // corrupt committed manifest fails the boot on purpose (fail-loud — the
@@ -85,7 +96,7 @@ export async function buildApp(deps: ServerDeps = {}) {
   const faaDir = resolve(process.cwd(), "data/faa");
   const faa: FaaProvider | null =
     deps.faa === undefined
-      ? new FaaLoader({ dir: faaDir, refreshMs: config.FAA_REFRESH_MS, log })
+      ? new FaaLoader({ dir: faaDir, refreshMs: config.FAA_REFRESH_MS, log, traffic })
       : deps.faa;
   const resolveCraftIcon = (c: Craft): string => {
     const rec = faa?.lookup(c.id) ?? null;
@@ -134,10 +145,9 @@ export async function buildApp(deps: ServerDeps = {}) {
       log,
       tokenProvider: openskyToken,
       resolveIcon: faa ? resolveCraftIcon : undefined,
+      traffic,
     });
-  const ais = deps.ais ?? new AisClient({ apiKey: config.AISSTREAM_API_KEY, store, log });
-  const settingsFile = deps.settingsFile ?? resolve(process.cwd(), "data/settings.json");
-  const pinFile = deps.pinFile ?? resolve(process.cwd(), "data/history/pins.json");
+  const ais = deps.ais ?? new AisClient({ apiKey: config.AISSTREAM_API_KEY, store, log, traffic });
   const settingsOpts = {
     file: settingsFile,
     envDefaults: {
@@ -164,6 +174,7 @@ export async function buildApp(deps: ServerDeps = {}) {
       trackAttribution: true,
       boxesProvider: () => composeTiles(aisHome(), aisFollow).map(boxesFor),
       log,
+      traffic,
     });
   // Same idiom as the aisstream start guard: an injected client (tests)
   // enables the feed even without a key.
@@ -206,13 +217,13 @@ export async function buildApp(deps: ServerDeps = {}) {
   }
   if (faa) void faa.init().catch((e) => log(`faa: init failed — enrichment disabled (${e instanceof Error ? e.message : String(e)})`));
   const faaLookup = faa
-    ? new FaaLookup(faa, { cacheFile: join(faaDir, "enrichment.json"), log })
+    ? new FaaLookup(faa, { cacheFile: join(faaDir, "enrichment.json"), log, traffic })
     : null;
   if (faaLookup) await faaLookup.init();
   // Flight-context services live beside settings.json so tests that pass a
   // tmp settingsFile never touch the live data/ dir.
   const dataBase = dirname(settingsFile);
-  const airports = createAirports({ dir: join(dataBase, "airports"), fetchImpl, log });
+  const airports = createAirports({ dir: join(dataBase, "airports"), fetchImpl, log, traffic });
   void airports.init().catch((e) => log(`airports: init failed — code-only airport refs (${e instanceof Error ? e.message : String(e)})`));
   const routes = createRoutes({
     airports,
@@ -220,6 +231,7 @@ export async function buildApp(deps: ServerDeps = {}) {
     tokenProvider: openskyToken,
     fetchImpl,
     log,
+    traffic,
   });
   const tracks = createTracks({
     recorder,
@@ -227,6 +239,7 @@ export async function buildApp(deps: ServerDeps = {}) {
     tokenProvider: openskyToken,
     fetchImpl,
     log,
+    traffic,
   });
   // Wire copy of the live hot zone (design §D): dominantKind renamed `kind`,
   // null passthrough; injected stubs without the getter read as null.
@@ -254,7 +267,13 @@ export async function buildApp(deps: ServerDeps = {}) {
             lastError: ais.feedStatus.lastError,
             lastMessageAt: ais.feedStatus.lastMessageAt,
             flushMs: hub.aisFlushMs,
-            secondary: { enabled: Boolean(config.AISCAST_API_KEY), ...aiscast.secondaryStatus },
+            secondary: {
+              enabled: Boolean(config.AISCAST_API_KEY),
+              ...aiscast.secondaryStatus,
+              // Same inputs pushAisTiles subscribes with (home + follow),
+              // recomputed at status time — single source of truth per ruling.
+              boxes: aiscastEnabled ? composeTiles(aisHome(), aisFollow).map(boxesFor).map(boxEdges) : [],
+            },
           },
         },
         history: recorder
@@ -279,12 +298,22 @@ export async function buildApp(deps: ServerDeps = {}) {
     ais: (ms) => hub.setAisFlushMs(ms),
   };
 
+  // traffic.watch bookkeeping: a socket counts at most once (watch(true) is
+  // idempotent per connection); close decrements only if it was watching.
+  const trafficWatchers = new WeakSet<object>();
+
   const app = Fastify({ logger: false });
   await app.register(websocket);
 
   app.get("/ws", { websocket: true }, (socket) => {
     const ws = socket as any;
     hub.attach(ws);
+    ws.on("close", () => {
+      if (trafficWatchers.has(ws)) {
+        trafficWatchers.delete(ws);
+        traffic.watch(false);
+      }
+    });
     ws.on("message", (data: Buffer | string) => {
       const msg = parseClientMessage(data.toString());
       if (!msg) return;
@@ -300,6 +329,23 @@ export async function buildApp(deps: ServerDeps = {}) {
         case "feed.rate":
           feedRate[msg.feed]?.(msg.ms);
           break;
+        case "traffic.watch":
+          if (msg.on) {
+            if (!trafficWatchers.has(ws)) {
+              trafficWatchers.add(ws);
+              traffic.watch(true);
+            }
+          } else if (trafficWatchers.delete(ws)) {
+            traffic.watch(false);
+          }
+          if (traffic.watchers() > 0) startTrafficTick();
+          break;
+        case "traffic.report": {
+          // Validator caps the frame; clamp again so the monitor sink stays total.
+          const down = Number.isFinite(msg.down) && msg.down > 0 ? Math.min(msg.down, TRAFFIC_REPORT_MAX_BYTES) : 0;
+          if (down > 0) traffic.addBrowserDown(down);
+          break;
+        }
         case "ais.tile": {
           if (!aiscastEnabled) break;
           aisFollow = { lat: msg.lat, lon: msg.lon };
@@ -560,6 +606,19 @@ export async function buildApp(deps: ServerDeps = {}) {
   }, 5000);
 
   hub.start();
+  // Traffic: sample + broadcast at a fixed 1 Hz, but only while at least
+  // one client watches: zero work (and zero /ws egress) otherwise.
+  let trafficTick: NodeJS.Timeout | null = null;
+  const startTrafficTick = (): void => {
+    if (trafficTick || traffic.watchers() === 0) return;
+    trafficTick = setInterval(() => {
+      if (traffic.watchers() === 0) return; // belt: no watchers, no sample
+      hub.broadcast({ type: "traffic", ...traffic.sample() });
+    }, 1000);
+    trafficTick.unref(); // the 1 Hz timer must not hold the process open
+  };
+  traffic.start();
+  startTrafficTick();
   recorder?.start(() => store.all());
   // Compaction pass: once at boot (init succeeded), then hourly; errors logged only.
   const runCompact = () =>
@@ -577,7 +636,9 @@ export async function buildApp(deps: ServerDeps = {}) {
   const stop = async () => {
     clearInterval(sweeper);
     if (compactTimer) clearInterval(compactTimer);
+    if (trafficTick) clearInterval(trafficTick);
     hub.stop();
+    traffic.stop();
     recorder?.stop();
     faa?.stop();
     faaLookup?.stop();

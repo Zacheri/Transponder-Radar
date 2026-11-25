@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { HistoryRecorder } from "./history.js";
 import type { TokenProvider } from "./opensky-auth.js";
+import type { TrafficCounter } from "./traffic.js";
 
 export interface TrackPoint {
   t: number; // epoch ms (server clock)
@@ -33,6 +34,7 @@ export interface TracksOpts {
   cacheMs?: number;
   autoDailyCap?: number;
   hardDailyCap?: number;
+  traffic?: TrafficCounter;
 }
 
 export const AUTO_DAILY_CAP = 300;
@@ -133,7 +135,10 @@ export function createTracks(opts: TracksOpts): TracksService {
       if (res.status === 429) log(`tracks: opensky 429 (retry-after: ${res.headers.get("retry-after") ?? "none"})`);
       throw new Error(`tracks/all HTTP ${res.status}`);
     }
-    const rec = firstRecord(await res.json());
+    // text capture (was inline in firstRecord): raw bytes + identical throw.
+    const text = await res.text();
+    opts.traffic?.count("in", Buffer.byteLength(text));
+    const rec = firstRecord(JSON.parse(text));
     const path: TrackPoint[] = [];
     for (const row of Array.isArray(rec?.path) ? (rec.path as unknown[]) : []) {
       if (!Array.isArray(row)) continue;

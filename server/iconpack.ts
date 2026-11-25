@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import type { TrafficCounter } from "./traffic.js";
 import {
   cpSync,
   existsSync,
@@ -50,7 +51,9 @@ export interface PackIconEntry {
 
 export interface IconPackTransport {
   cloneRepo(repo: string, sha: string, destDir: string): Promise<void>;
-  fetchFile(url: string, destPath: string, sha256: string): Promise<void>;
+  // Optional 4th arg: verified byte count hook (traffic accounting). Custom
+  // transports may ignore it; fakes stay assignable (fewer params).
+  fetchFile(url: string, destPath: string, sha256: string, onBytes?: (n: number) => void): Promise<void>;
 }
 
 // Built-in MapLibre image names the pack must never collide with: the 13 air
@@ -119,7 +122,7 @@ async function cloneRepo(repo: string, sha: string, destDir: string): Promise<vo
 }
 
 /** Fetch `url` with global fetch; verify sha256 before writing; mismatch throws. */
-async function fetchFile(url: string, destPath: string, sha256: string): Promise<void> {
+async function fetchFile(url: string, destPath: string, sha256: string, onBytes?: (n: number) => void): Promise<void> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`fetchFile ${url}: HTTP ${res.status}`);
   const bytes = Buffer.from(await res.arrayBuffer());
@@ -127,6 +130,7 @@ async function fetchFile(url: string, destPath: string, sha256: string): Promise
   if (got !== sha256) {
     throw new Error(`fetchFile ${url}: sha256 mismatch: expected ${sha256}, got ${got}`);
   }
+  onBytes?.(bytes.length); // only accepted bytes count
   mkdirSync(dirname(destPath), { recursive: true });
   writeFileSync(destPath, bytes);
 }
@@ -176,6 +180,7 @@ export class IconPack {
       log?: (m: string) => void;
       transport?: IconPackTransport; // default = real git+fetch transport; tests inject fakes
       now?: () => number;
+      traffic?: TrafficCounter;
     },
   ) {
     this.now = opts.now ?? Date.now;
@@ -197,7 +202,12 @@ export class IconPack {
       this.state = "downloading";
       try {
         for (const e of this.opts.sources.pd) {
-          await this.transport.fetchFile(e.url, join(this.opts.dir, e.file), e.sha256);
+          await this.transport.fetchFile(
+            e.url,
+            join(this.opts.dir, e.file),
+            e.sha256,
+            this.opts.traffic ? (n) => this.opts.traffic?.count("in", n) : undefined,
+          );
         }
         await this.transport.cloneRepo(this.opts.sources.pw.repo, this.opts.sources.pw.sha, join(this.opts.dir, "plane-watch"));
         await this.transport.cloneRepo(this.opts.sources.rk.repo, this.opts.sources.rk.sha, join(this.opts.dir, "rk"));

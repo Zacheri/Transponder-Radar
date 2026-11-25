@@ -101,15 +101,21 @@ export function topDelta(
   return { top: deltas.slice(0, Math.max(0, n)), seen: totals };
 }
 
-export function createTrafficMonitor(opts: TrafficMonitorOpts): {
+/** The minimal surface every WAN-edge wrapper needs: one count() per body. */
+export interface TrafficCounter {
   count(dir: "in" | "out", bytes: number): void;
+}
+
+export interface TrafficMonitor extends TrafficCounter {
   addBrowserDown(bytes: number): void;
   sample(): TrafficSample;
   watch(on: boolean): void;
   watchers(): number;
   start(): void;
   stop(): void;
-} {
+}
+
+export function createTrafficMonitor(opts: TrafficMonitorOpts): TrafficMonitor {
   const now = opts.now ?? (() => Date.now());
   const log = opts.log ?? (() => {});
   const live = new Set<ChildProcess>();

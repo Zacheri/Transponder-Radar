@@ -7,6 +7,7 @@ import {
   pickMmsi,
   type AisStatic,
 } from "./normalize.js";
+import type { TrafficCounter } from "./traffic.js";
 
 export const PING_INTERVAL_MS = 20000;
 export const PING_TIMEOUT_MS = 40000;
@@ -36,6 +37,8 @@ export interface AisClientOpts {
   boxesProvider?: () => BoundingBoxes[];
   trackAttribution?: boolean;
   resubscribeMs?: number;
+  /** Egress accounting (WAN bytes; see server/traffic.ts). */
+  traffic?: TrafficCounter;
 }
 
 export interface AisSecondaryStatus {
@@ -167,13 +170,13 @@ export class AisClient {
     }
     this.lastSubscribeAt = this.now();
     this.lastSentBoxes = boxes.slice();
-    ws.send(
-      JSON.stringify({
-        APIKey: this.opts.apiKey,
-        BoundingBoxes: boxes,
-        FilterMessageTypes: ["PositionReport", "ShipStaticData"],
-      }),
-    );
+    const subscribe = JSON.stringify({
+      APIKey: this.opts.apiKey,
+      BoundingBoxes: boxes,
+      FilterMessageTypes: ["PositionReport", "ShipStaticData"],
+    });
+    this.opts.traffic?.count("out", Buffer.byteLength(subscribe));
+    ws.send(subscribe);
   }
 
   private connect(): void {
@@ -192,7 +195,11 @@ export class AisClient {
       this.sendSubscribe();
     });
     ws.on("message", (data: WebSocket.RawData) => {
-      this.handleMessage(data.toString());
+      // permessage-deflate is on: the link bills compressed bytes, this is the
+      // inflated payload size — an upper bound, accepted for v1 (spec R7).
+      const s = data.toString();
+      this.opts.traffic?.count("in", Buffer.byteLength(s));
+      this.handleMessage(s);
     });
     ws.on("pong", () => {
       this.lastPongAt = this.now();

@@ -598,4 +598,22 @@ describe("OpenSkyPoller start() re-establishes boost enablement", () => {
     expect(cold.feedStatus.boost).toBeNull();
     cold.stop();
   });
+
+  it("counts response bytes into the traffic monitor (before parsing)", async () => {
+    const counted: Array<{ dir: "in" | "out"; bytes: number }> = [];
+    const body = JSON.stringify({ time: 0, states: [] });
+    const poller = new OpenSkyPoller({
+      pollMs: 1000,
+      graceMs: 30000,
+      store: new CraftStore(),
+      traffic: { count: (dir, bytes) => counted.push({ dir, bytes }) },
+      fetchImpl: (async () => new Response(body)) as typeof fetch,
+    });
+    expect((await poller.pollOnce()).upserted).toBe(0);
+    expect(counted).toEqual([{ dir: "in", bytes: Buffer.byteLength(body) }]);
+    // Malformed body still counted — the bytes did cross the wire.
+    await poller.pollOnce();
+    expect(counted).toHaveLength(2);
+    expect(counted[1]).toEqual({ dir: "in", bytes: Buffer.byteLength(body) });
+  });
 });

@@ -365,4 +365,19 @@ describe("FaaLoader", () => {
     expect(loader.lookup("a00560")).toBeNull();
     loader.stop();
   });
+
+  it("counts the downloaded zip bytes into the traffic monitor", async () => {
+    const counted: Array<{ dir: "in" | "out"; bytes: number }> = [];
+    const loader = new FaaLoader({
+      dir,
+      refreshMs: 3600000,
+      now: () => t,
+      fetchImpl: fakeFetch(() => zipV1),
+      traffic: { count: (dirName, bytes) => counted.push({ dir: dirName, bytes }) },
+    });
+    await loader.init(); // no disk files → the download path runs
+    expect(loader.status().state).toBe("ready");
+    expect(counted).toEqual([{ dir: "in", bytes: zipV1.length }]);
+    loader.stop();
+  });
 });

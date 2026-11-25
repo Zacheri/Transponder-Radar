@@ -3,12 +3,19 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
+import { buildApp, type ServerDeps } from "../server/index.js";
+import { CraftStore } from "../server/store.js";
+import { OpenSkyPoller } from "../server/opensky.js";
+import { AisClient } from "../server/ais.js";
+import { sleep, waitFor } from "./util.js";
 import {
   createTrafficMonitor,
   dayStamp,
   parseNetstat,
   parseNettop,
   topDelta,
+  type TrafficMonitor,
   type TrafficMonitorOpts,
 } from "../server/traffic.js";
 
@@ -520,5 +527,144 @@ describe("createTrafficMonitor", () => {
     m2.start();
     await settle();
     expect(m2.sample().radar.upTotal).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------- wire (buildApp)
+
+/** Full-surface stub: records every call, returns a fixed sample. */
+function stubMonitor() {
+  const m: TrafficMonitor & {
+    counted: Array<{ dir: string; bytes: number }>;
+    browser: number[];
+    samples: number;
+    watchCount: number;
+    stopped: number;
+  } = {
+    counted: [],
+    browser: [],
+    samples: 0,
+    watchCount: 0,
+    stopped: 0,
+    count(dir, bytes) {
+      this.counted.push({ dir, bytes });
+    },
+    addBrowserDown(bytes) {
+      this.browser.push(bytes);
+    },
+    sample() {
+      this.samples += 1;
+      return {
+        at: Date.now(),
+        radar: { up: 1, down: 2, upTotal: 10, downTotal: 20 },
+        device: null,
+        top: null,
+      };
+    },
+    watch(on) {
+      this.watchCount = Math.max(0, this.watchCount + (on ? 1 : -1));
+    },
+    watchers() {
+      return this.watchCount;
+    },
+    start() {},
+    stop() {
+      this.stopped += 1;
+    },
+  };
+  return m;
+}
+
+const noPoller = {
+  feedStatus: { lastOkAt: null, lastError: null, pollMs: 120000 },
+  setPollInterval: () => {},
+  start: () => {},
+  stop: () => {},
+} as unknown as OpenSkyPoller;
+const noAis = {
+  isConnected: false,
+  feedStatus: { lastError: null, lastMessageAt: null },
+  start: () => {},
+  stop: () => {},
+} as unknown as AisClient;
+
+async function bootTrafficApp(traffic: TrafficMonitor) {
+  const tmp = await mkdtemp(join(tmpdir(), "radar-traffic-it-"));
+  const deps: ServerDeps = {
+    store: new CraftStore(),
+    traffic,
+    opensky: noPoller,
+    ais: noAis,
+    recorder: null,
+    faa: null,
+    iconPack: null,
+    fetchImpl: async () => {
+      throw new Error("offline test");
+    },
+    settingsFile: join(tmp, "settings.json"),
+    pinFile: join(tmp, "pins.json"),
+    log: () => {},
+  };
+  const server = await buildApp(deps);
+  await server.app.listen({ port: 0, host: "127.0.0.1" });
+  const port = (server.app.server.address() as { port: number }).port;
+  return { server, tmp, port };
+}
+
+describe("traffic wire (buildApp)", () => {
+  it("broadcasts nothing and samples zero times while no client watches", async () => {
+    const m = stubMonitor();
+    const { server, tmp } = await bootTrafficApp(m);
+    await sleep(1300);
+    expect(m.samples).toBe(0);
+    await server.stop();
+    expect(m.stopped).toBe(1); // buildApp's stop() stops the monitor
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("watch gates the 1 Hz frames; duplicate watches count once; close drops the watcher", async () => {
+    const m = stubMonitor();
+    const { server, tmp, port } = await bootTrafficApp(m);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const frames: any[] = [];
+    ws.on("message", (d) => frames.push(JSON.parse(d.toString())));
+    await waitFor(() => ws.readyState === WebSocket.OPEN, 3000);
+    ws.send(JSON.stringify({ type: "traffic.watch", on: true }));
+    await waitFor(() => frames.some((f) => f.type === "traffic"), 3000);
+    const f = frames.find((fr) => fr.type === "traffic")!;
+    expect(f).toMatchObject({
+      at: expect.any(Number),
+      radar: { up: 1, down: 2, upTotal: 10, downTotal: 20 },
+      device: null,
+      top: null,
+    });
+    expect(m.watchCount).toBe(1);
+    ws.send(JSON.stringify({ type: "traffic.watch", on: true })); // duplicate: no double count
+    await waitFor(() => frames.filter((fr) => fr.type === "traffic").length >= 2, 3000);
+    expect(m.watchCount).toBe(1);
+    ws.close();
+    await waitFor(() => m.watchCount === 0, 3000);
+    const seen = frames.filter((fr) => fr.type === "traffic").length;
+    await sleep(1300);
+    expect(frames.filter((fr) => fr.type === "traffic").length).toBe(seen); // nothing after the close
+    await server.stop();
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("traffic.report folds browser bytes into the monitor; over-cap frames die at the validator", async () => {
+    const m = stubMonitor();
+    const { server, tmp, port } = await bootTrafficApp(m);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    await waitFor(() => ws.readyState === WebSocket.OPEN, 3000);
+    ws.send(JSON.stringify({ type: "traffic.report", down: 4242 }));
+    await waitFor(() => m.browser.length >= 1, 3000);
+    expect(m.browser).toEqual([4242]);
+    ws.send(JSON.stringify({ type: "traffic.report", down: 60_000_000 })); // > 50 MB cap
+    ws.send(JSON.stringify({ type: "traffic.report", down: -5 }));
+    await sleep(1200);
+    expect(m.browser).toEqual([4242]);
+    ws.close();
+    await server.stop();
+    await rm(tmp, { recursive: true, force: true });
   });
 });

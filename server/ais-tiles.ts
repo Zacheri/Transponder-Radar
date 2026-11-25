@@ -18,6 +18,15 @@ export function boxesFor(center: TileCenter): BoundingBoxes {
   ];
 }
 
+/** A box as the status wire shape: [[minLat,minLon],[maxLat,maxLon]] (copied). */
+export function boxEdges(box: BoundingBoxes): BoundingBoxes {
+  const [[aLat, aLon], [bLat, bLon]] = box;
+  return [
+    [Math.min(aLat, bLat), Math.min(aLon, bLon)],
+    [Math.max(aLat, bLat), Math.max(aLon, bLon)],
+  ];
+}
+
 export function composeTiles(
   home: TileCenter | null,
   follow: TileCenter | null,

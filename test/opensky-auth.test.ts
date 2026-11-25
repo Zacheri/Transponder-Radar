@@ -5,7 +5,9 @@ function tokenResponse(token = "tok123", expiresIn = 1800) {
   return {
     ok: true,
     status: 200,
-    json: async () => ({ access_token: token, expires_in: expiresIn, token_type: "Bearer" }),
+    // The provider reads the body as text (byte-counting egress wrapper);
+    // mirrors a real fetch Response, which always carries .text().
+    text: async () => JSON.stringify({ access_token: token, expires_in: expiresIn, token_type: "Bearer" }),
   };
 }
 
@@ -76,9 +78,23 @@ describe("createTokenProvider", () => {
     const fetchImpl = (async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ token_type: "Bearer" }),
+      text: async () => JSON.stringify({ token_type: "Bearer" }),
     })) as unknown as typeof fetch;
     const p = createTokenProvider({ clientId: "id", clientSecret: "sec", fetchImpl });
     await expect(p.getToken()).rejects.toThrow("missing access_token");
+  });
+
+  it("counts the token response bytes into the traffic monitor", async () => {
+    const counted: Array<{ dir: "in" | "out"; bytes: number }> = [];
+    const body = JSON.stringify({ access_token: "tok123", expires_in: 1800, token_type: "Bearer" });
+    const fetchImpl = (async () => ({ ok: true, status: 200, text: async () => body })) as unknown as typeof fetch;
+    const p = createTokenProvider({
+      clientId: "id",
+      clientSecret: "sec",
+      fetchImpl,
+      traffic: { count: (dir, bytes) => counted.push({ dir, bytes }) },
+    });
+    expect(await p.getToken()).toBe("tok123");
+    expect(counted).toEqual([{ dir: "in", bytes: Buffer.byteLength(body) }]);
   });
 });

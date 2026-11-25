@@ -1,3 +1,5 @@
+import type { TrafficCounter } from "./traffic.js";
+
 const DEFAULT_TOKEN_URL =
   "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token";
 
@@ -15,6 +17,7 @@ export interface TokenProviderOpts {
   fetchImpl?: typeof fetch;
   now?: () => number;
   refreshMarginMs?: number;
+  traffic?: TrafficCounter;
 }
 
 // OAuth2 client-credentials flow (OpenSky dropped Basic auth in March 2026).
@@ -40,7 +43,11 @@ export function createTokenProvider(opts: TokenProviderOpts): TokenProvider {
       body,
     });
     if (!res.ok) throw new Error(`token endpoint HTTP ${res.status}`);
-    const data = (await res.json()) as { access_token?: string; expires_in?: number };
+    // text+parse so the response bytes can be counted; throws identically on
+    // a malformed body (res.json() also threw).
+    const text = await res.text();
+    opts.traffic?.count("in", Buffer.byteLength(text));
+    const data = JSON.parse(text) as { access_token?: string; expires_in?: number };
     if (!data.access_token) throw new Error("token response missing access_token");
     token = data.access_token;
     expiresAt = now() + (data.expires_in ?? 1800) * 1000;

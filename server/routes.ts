@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Airports } from "./airports.js";
 import type { TokenProvider } from "./opensky-auth.js";
+import type { TrafficCounter } from "./traffic.js";
 
 export interface AirportRef {
   code: string; // display code: IATA when known, else ICAO, else the raw code
@@ -36,6 +37,7 @@ export interface RoutesOpts {
   log?: (m: string) => void;
   positiveTtlMs?: number;
   negativeTtlMs?: number;
+  traffic?: TrafficCounter;
 }
 
 const ADSBDB_URL = "https://api.adsbdb.com/v0/callsign/";
@@ -190,7 +192,11 @@ export function createRoutes(opts: RoutesOpts): RoutesService {
     if (!res.ok) return { route: null, negativeTtlMs: negativeTtl };
     let body: { response?: { flightroute?: AdsbdbFlightroute } | string };
     try {
-      body = (await res.json()) as typeof body;
+      // text+parse (not res.json()) to count raw bytes; a malformed body
+      // throws here exactly as res.json() did and is swallowed the same way.
+      const text = await res.text();
+      opts.traffic?.count("in", Buffer.byteLength(text));
+      body = JSON.parse(text) as typeof body;
     } catch {
       return { route: null, negativeTtlMs: negativeTtl };
     }
@@ -217,7 +223,10 @@ export function createRoutes(opts: RoutesOpts): RoutesService {
     const remaining = res.headers.get("x-rate-limit-remaining");
     if (remaining !== null && remaining !== "" && Number.isFinite(Number(remaining))) flightsRemaining = Number(remaining);
     if (!res.ok) throw new Error(`flights/all HTTP ${res.status}`);
-    const body = (await res.json()) as OpenSkyFlight[] | { data?: OpenSkyFlight[] };
+    // text capture: byte count + identical throw behavior on a bad body.
+    const text = await res.text();
+    opts.traffic?.count("in", Buffer.byteLength(text));
+    const body = JSON.parse(text) as OpenSkyFlight[] | { data?: OpenSkyFlight[] };
     const records = Array.isArray(body) ? body : body.data ?? [];
     const hex = id.trim().toLowerCase();
     let pool = records.filter((r) => r.icao24 !== null && r.icao24 !== undefined && r.icao24.toLowerCase() === hex);

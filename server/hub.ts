@@ -2,7 +2,7 @@ import { AIR_KINDS } from "../shared/craft.js";
 import type { AirKind, Craft, CraftKind } from "../shared/craft.js";
 import type { LonLat } from "../shared/geo.js";
 import type { AisSecondaryStatus } from "./ais.js";
-import type { TileCenter } from "./ais-tiles.js";
+import type { BoundingBoxes, TileCenter } from "./ais-tiles.js";
 import type { CraftStore } from "./store.js";
 import type { HistoryStatus } from "./history.js";
 import type { FaaStatus } from "./faa.js";
@@ -32,7 +32,11 @@ export interface FeedStatus {
     flushMs: number;
     // aiscast fill feed. Non-nullable by design: disabled = enabled:false
     // zeroed block, never null (kills a client-branch class).
-    secondary: { enabled: boolean } & AisSecondaryStatus;
+    // boxes: the server-composed aiscast tiles as [[minLat,minLon],[maxLat,maxLon]]
+    // edge pairs ([] when disabled/no tiles). Present on every server frame
+    // since wave 9; typed optional for legacy readers (the boost idiom).
+    // Mirror in src/data/ws.ts lands with Task 3.
+    secondary: { enabled: boolean; boxes?: BoundingBoxes[] } & AisSecondaryStatus;
   };
 }
 
@@ -44,6 +48,10 @@ export type FeedId = (typeof FEED_IDS)[number];
 export const AIS_FLUSH_MIN_MS = 60000;
 export const AIS_FLUSH_MAX_MS = 600000;
 export const AIS_FLUSH_DEFAULT_MS = 120000;
+
+// Ceiling for one traffic.report frame (client harvests WAN-down deltas every
+// 5 s; anything above this is a bug or an attack, so the frame dies at the hub).
+export const TRAFFIC_REPORT_MAX_BYTES = 50_000_000;
 
 // Fixed internal tick; per-feed windows decide when a domain drains.
 const TICK_MS = 250;
@@ -60,6 +68,8 @@ export type ClientMessage =
   | { type: "pin.remove"; id: string }
   | { type: "flight.track"; id: string; seq?: number; auto?: boolean }
   | { type: "flight.context"; id: string; seq?: number }
+  | { type: "traffic.watch"; on: boolean }
+  | { type: "traffic.report"; down: number }
   | { type: "timeline.window"; seq: number; from: number; to: number; stride: number; maxBytes: number };
 
 export function parseClientMessage(raw: string): ClientMessage | null {
@@ -127,6 +137,15 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       typeof m.id === "string" &&
       m.id.length > 0 &&
       (m.seq === undefined || (Number.isInteger(m.seq) && m.seq >= 0))
+    )
+      return m;
+    if (m.type === "traffic.watch" && typeof m.on === "boolean") return m;
+    if (
+      m.type === "traffic.report" &&
+      typeof m.down === "number" &&
+      Number.isFinite(m.down) &&
+      m.down >= 0 &&
+      m.down <= TRAFFIC_REPORT_MAX_BYTES
     )
       return m;
     if (
@@ -209,6 +228,19 @@ export class Hub {
 
   private detach(socket: WsLike): void {
     this.clients.delete(socket);
+  }
+
+  /** Server-originated frame to every client (traffic sampler): serialize
+   * once, per-socket guarded send — the tick's send idiom. */
+  broadcast(frame: unknown): void {
+    const data = JSON.stringify(frame);
+    for (const c of this.clients) {
+      try {
+        c.send(data);
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   start(): void {

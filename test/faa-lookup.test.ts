@@ -180,4 +180,20 @@ describe("FaaLookup", () => {
     expect(b?.nNumber).toBe("N100GX");
     expect(calls.current).toBe(2);
   });
+
+  it("counts both FAA page bodies into the traffic monitor", async () => {
+    const counted: number[] = [];
+    const provider = fakeProvider();
+    const { fetchImpl } = seqFetchImpl([inquiryResponse, () => new Response(POSITIVE_HTML, { status: 200 })]);
+    const lookup = new FaaLookup(provider, {
+      cacheFile: cacheFile(),
+      fetchImpl,
+      now: () => t,
+      traffic: { count: (_dir, bytes) => counted.push(bytes) },
+    });
+    await lookup.init();
+    await lookup.lookup(craft());
+    lookup.stop();
+    expect(counted).toEqual([Buffer.byteLength(INQUIRY_HTML), Buffer.byteLength(POSITIVE_HTML)]);
+  });
 });

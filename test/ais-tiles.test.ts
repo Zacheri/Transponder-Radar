@@ -3,6 +3,7 @@ import {
   TILE_HALF,
   clampCenter,
   boxesFor,
+  boxEdges,
   composeTiles,
 } from "../server/ais-tiles.js";
 
@@ -85,5 +86,18 @@ describe("composeTiles", () => {
     expect(composeTiles({ lat: 89, lon: 0 }, { lat: 85, lon: 0 })).toEqual([
       { lat: 80, lon: 0 },
     ]);
+  });
+});
+
+describe("boxEdges", () => {
+  it("is the [[minLat,minLon],[maxLat,maxLon]] wire shape of a boxesFor box", () => {
+    expect(boxEdges(boxesFor({ lat: 35, lon: 139 }))).toEqual([[25, 129], [45, 149]]);
+  });
+
+  it("normalizes flipped corners and copies (no shared refs)", () => {
+    const box = [[45, 149], [25, 129]] as [[number, number], [number, number]];
+    const edges = boxEdges(box);
+    expect(edges).toEqual([[25, 129], [45, 149]]);
+    expect(edges[0]).not.toBe(box[0]);
   });
 });

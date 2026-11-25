@@ -264,4 +264,17 @@ describe("createTracks — daily ledger", () => {
     await svc2.get("a3feee", true); // other day's 9999 must not count
     expect(calls.length).toBe(2);
   });
+
+  it("counts OpenSky track response bytes into the traffic monitor", async () => {
+    const body = osBody([[1_795_000_100, 1, 2, 3, 0, false]]);
+    const counted: Array<{ dir: "in" | "out"; bytes: number }> = [];
+    always = jsonRes(body);
+    const svc = make({
+      recorder: null,
+      traffic: { count: (dir, bytes) => counted.push({ dir, bytes }) },
+    });
+    const reply = await svc.get("abc123", true);
+    expect(reply.source).toBe("opensky");
+    expect(counted).toEqual([{ dir: "in", bytes: Buffer.byteLength(body) }]);
+  });
 });

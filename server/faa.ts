@@ -2,6 +2,7 @@ import yauzl from "yauzl";
 import { mkdir, readFile, readdir, rename, stat, unlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Buffer } from "node:buffer";
+import type { TrafficCounter } from "./traffic.js";
 
 export interface FaaRecord {
   nNumber: string;
@@ -171,6 +172,7 @@ export interface FaaLoaderOpts {
   fetchImpl?: typeof fetch;
   now?: () => number;
   log?: (msg: string) => void;
+  traffic?: TrafficCounter;
 }
 
 export class FaaLoader implements FaaProvider {
@@ -279,6 +281,7 @@ export class FaaLoader implements FaaProvider {
     const res = await fetchImpl(this.opts.zipUrl ?? DEFAULT_ZIP_URL);
     if (!res.ok) throw new Error(`FAA download HTTP ${res.status}`);
     const buf = Buffer.from(await res.arrayBuffer());
+    this.opts.traffic?.count("in", buf.length);
     const zipPath = join(this.opts.dir, "ReleasableAircraft.zip");
     await writeFile(zipPath, buf);
     await this.snapshot(buf);

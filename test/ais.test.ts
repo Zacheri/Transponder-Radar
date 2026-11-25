@@ -493,3 +493,41 @@ describe("AisClient empty-box guard", () => {
     client.stop();
   });
 });
+
+describe("AisClient — traffic counting", () => {
+  it("counts received frame bytes (in) and the subscribe frame (out)", async () => {
+    const counted: Array<{ dir: "in" | "out"; bytes: number }> = [];
+    const wss = new WebSocketServer({ port: 0 });
+    servers.push(wss);
+    await new Promise<void>((r) => wss.once("listening", () => r()));
+    const port = (wss.address() as { port: number }).port;
+    let subscribeBytes = 0;
+    const frame = JSON.stringify({
+      MessageType: "PositionReport",
+      MMSI: 42,
+      Message: { PositionReport: { Latitude: 1, Longitude: 2, Sog: 3, Cog: 4 } },
+    });
+    wss.on("connection", (socket) => {
+      socket.on("message", (d) => {
+        subscribeBytes = Buffer.byteLength(d.toString());
+      });
+      socket.send(frame);
+    });
+    const store = new CraftStore();
+    const client = new AisClient({
+      url: `ws://127.0.0.1:${port}`,
+      apiKey: "k",
+      store,
+      traffic: { count: (dir, bytes) => counted.push({ dir, bytes }) },
+    });
+    client.start();
+    await waitFor(() => store.size === 1, 3000);
+    client.stop();
+    const out = counted.filter((c) => c.dir === "out");
+    expect(out).toHaveLength(1); // one subscribe frame
+    expect(out[0].bytes).toBe(subscribeBytes); // the exact JSON string sent
+    const inn = counted.filter((c) => c.dir === "in");
+    expect(inn).toHaveLength(1);
+    expect(inn[0].bytes).toBe(Buffer.byteLength(frame)); // uncompressed link: exact
+  });
+});

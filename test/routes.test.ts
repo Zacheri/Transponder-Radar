@@ -388,4 +388,18 @@ describe("routes service", () => {
     expect(route).toEqual(JBU_ROUTE);
     expect(fetch.calls).toHaveLength(0);
   });
+
+  it("counts response bodies into the traffic monitor", async () => {
+    const counted: Array<{ dir: "in" | "out"; bytes: number }> = [];
+    const fetch = stubFetch();
+    fetch.add(jsonRes(ADSBDB_HIT));
+    const svc = makeRoutes({
+      fetchImpl: fetch.fetchImpl,
+      airports: fakeAirports({}).airports,
+      traffic: { count: (dir, bytes) => counted.push({ dir, bytes }) },
+    });
+    await settle(svc.get({ id: "a20c31", callsign: "JBU2064" }));
+    svc.stop();
+    expect(counted).toEqual([{ dir: "in", bytes: Buffer.byteLength(ADSBDB_HIT) }]);
+  });
 });

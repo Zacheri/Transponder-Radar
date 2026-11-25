@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseCsv } from "./faa.js";
+import type { TrafficCounter } from "./traffic.js";
 
 export interface Airport {
   icao: string | null;
@@ -31,6 +32,7 @@ export interface AirportsOpts {
   log?: (m: string) => void;
   url?: string;
   sha256?: string;
+  traffic?: TrafficCounter;
 }
 
 // Pin: OpenFlights airports.dat (GitHub raw, master), fetched 2026-11-21;
@@ -111,6 +113,8 @@ export function createAirports(opts: AirportsOpts): Airports {
     const bytes = Buffer.from(await res.arrayBuffer());
     const got = createHash("sha256").update(bytes).digest("hex");
     if (got !== sha256) throw new Error(`airports: sha256 mismatch: expected ${sha256}, got ${got}`);
+    // Count only after verification: unaccepted bytes are not radar traffic.
+    opts.traffic?.count("in", bytes.length);
     await mkdir(opts.dir, { recursive: true });
     const tmp = join(opts.dir, `${FILE_NAME}.tmp`);
     await writeFile(tmp, bytes);

@@ -213,3 +213,31 @@ describe("createAirports — first-start download", () => {
     expect(a.status()).toEqual({ loaded: false, count: 0, lastError: null });
   });
 });
+
+describe("createAirports — traffic counting", () => {
+  it("counts download bytes once sha256 verification passes", async () => {
+    const bytes = await readFile(FIXTURE_URL);
+    const counted: number[] = [];
+    const a = createAirports({
+      dir,
+      sha256: sha256(bytes),
+      fetchImpl: fetcher(async () => new Response(bytes)),
+      traffic: { count: (_dir, n) => counted.push(n) },
+    });
+    await a.init();
+    expect(counted).toEqual([bytes.length]);
+  });
+
+  it("counts nothing when the sha256 check fails", async () => {
+    const counted: number[] = [];
+    const a = createAirports({
+      dir,
+      sha256: "0".repeat(64),
+      fetchImpl: fetcher(async () => new Response(await readFile(FIXTURE_URL))),
+      traffic: { count: (_dir, n) => counted.push(n) },
+    });
+    await a.init();
+    expect(a.status().loaded).toBe(false);
+    expect(counted).toEqual([]);
+  });
+});

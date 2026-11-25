@@ -429,4 +429,36 @@ describe("default transport", () => {
     expect(pack2.status().state).toBe("ready");
     expect(existsSync(join(dir, "ATTRIBUTION.md"))).toBe(false);
   });
+
+  it("counts verified pd bytes; a sha mismatch counts nothing", async () => {
+    const counted: number[] = [];
+    const sources: IconSources = {
+      pw: { repo: "file:///does-not-exist-pw", sha: PW_SHA, license: "pw license", attribution: "pw attribution" },
+      rk: { repo: "file:///does-not-exist-rk", sha: RK_SHA, license: "rk license", attribution: "rk attribution" },
+      pd: [
+        {
+          name: "pd:E3",
+          file: "pd/e3.png",
+          url: fixture.url("/pd/E3.png"),
+          sha256: PD_SHA,
+          title: "E3",
+          license: "Public Domain (test)",
+          attribution: "Test Author",
+          cropTopRatio: 0.5,
+        },
+      ],
+      gapTargets: [],
+    };
+    const pack = new IconPack({ dir, sources, traffic: { count: (_d, n) => counted.push(n) } });
+    await pack.init(); // fails at the pw clone AFTER the pd file downloaded + verified
+    expect(counted).toEqual([PD_BYTES.length]);
+
+    const bad: IconSources = { ...sources, pd: [{ ...sources.pd[0], sha256: "0".repeat(64) }] };
+    const dir2 = mkdtempSync(join(tmpdir(), "radar-iconpack-dt-"));
+    const counted2: number[] = [];
+    const pack2 = new IconPack({ dir: dir2, sources: bad, traffic: { count: (_d, n) => counted2.push(n) } });
+    await pack2.init();
+    expect(counted2).toEqual([]); // unverified bytes are not counted
+    rmSync(dir2, { recursive: true, force: true });
+  });
 });

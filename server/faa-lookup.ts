@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import type { Craft } from "../shared/craft.js";
 import { N_NUMBER_RE } from "./classify.js";
 import type { FaaProvider, FaaRecord } from "./faa.js";
+import type { TrafficCounter } from "./traffic.js";
 
 const DEFAULT_INQUIRY_URL = "https://registry.faa.gov/aircraftinquiry/Search/NNumberInquiry";
 const DEFAULT_RESULT_URL = "https://registry.faa.gov/aircraftinquiry/Search/NNumberResult";
@@ -62,6 +63,7 @@ export interface FaaLookupOpts {
   negativeTtlMs?: number;
   inquiryUrl?: string;
   resultUrl?: string;
+  traffic?: TrafficCounter;
 }
 
 export class FaaLookup {
@@ -133,6 +135,7 @@ export class FaaLookup {
     });
     if (!page.ok) throw new Error(`FAA inquiry page HTTP ${page.status}`);
     const pageHtml = await page.text();
+    this.opts.traffic?.count("in", Buffer.byteLength(pageHtml));
     const token = pageHtml.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/)?.[1];
     if (!token) throw new Error("FAA inquiry page: CSRF token not found");
     const cookie = (page.headers.get("set-cookie") ?? "").split(";")[0];
@@ -148,7 +151,10 @@ export class FaaLookup {
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error(`FAA result HTTP ${res.status}`);
-    const rec = parseNResult(await res.text());
+    // text capture (was inline in parseNResult): raw bytes + identical throw.
+    const resultHtml = await res.text();
+    this.opts.traffic?.count("in", Buffer.byteLength(resultHtml));
+    const rec = parseNResult(resultHtml);
     if (!rec) return null;
     rec.nNumber = n.toUpperCase();
     return rec;

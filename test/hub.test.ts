@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { Hub, AIS_FLUSH_DEFAULT_MS, parseClientMessage, type FeedStatus, type StatusPayload } from "../server/hub.js";
+import { Hub, AIS_FLUSH_DEFAULT_MS, TRAFFIC_REPORT_MAX_BYTES, parseClientMessage, type FeedStatus, type StatusPayload } from "../server/hub.js";
 import type { HistoryStatus } from "../server/history.js";
 import type { Pin } from "../server/pins.js";
 import type { IconStatus } from "../server/iconpack.js";
@@ -501,5 +501,30 @@ describe("Hub (legacy status shape)", () => {
       expect(raw.feeds.opensky.pollMs).toBe(120000);
     }
     hub.stop();
+  });
+});
+
+describe("parseClientMessage — traffic frames", () => {
+  it("traffic.watch: boolean on only", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.watch", on: true }))).toEqual({ type: "traffic.watch", on: true });
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.watch", on: false }))).toEqual({ type: "traffic.watch", on: false });
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.watch" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.watch", on: "yes" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.watch", on: null }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.watch", on: 1 }))).toBeNull();
+  });
+
+  it("traffic.report: finite, ≥ 0, ≤ 50 MB", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.report", down: 0 }))).toEqual({ type: "traffic.report", down: 0 });
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.report", down: 123456 }))).toEqual({ type: "traffic.report", down: 123456 });
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.report", down: TRAFFIC_REPORT_MAX_BYTES }))).toEqual({
+      type: "traffic.report",
+      down: TRAFFIC_REPORT_MAX_BYTES,
+    });
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.report", down: TRAFFIC_REPORT_MAX_BYTES + 1 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.report", down: -1 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.report", down: "1000" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "traffic.report" }))).toBeNull();
+    expect(parseClientMessage('{"type":"traffic.report","down":1e999}')).toBeNull(); // Infinity literal
   });
 });

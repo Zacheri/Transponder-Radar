@@ -2,6 +2,7 @@ import type { CraftStore } from "./store.js";
 import { normalizeOpenSky } from "./normalize.js";
 import type { Craft, AirKind } from "../shared/craft.js";
 import type { TokenProvider } from "./opensky-auth.js";
+import type { TrafficCounter } from "./traffic.js";
 import type { HotZone, ZoneMember, ZoneState } from "./hotzones.js";
 import { planZone, surplusCredits, zoneIntervalFor } from "./hotzones.js";
 
@@ -25,6 +26,7 @@ export interface OpenSkyPollerOpts {
   timeoutMs?: number;
   tokenProvider?: TokenProvider;
   resolveIcon?: (c: Craft) => string;
+  traffic?: TrafficCounter;
 }
 
 export interface PollResult {
@@ -187,7 +189,11 @@ export class OpenSkyPoller {
   private async readStates(res: Response, now: number): Promise<Craft[] | null> {
     let body: { states?: unknown };
     try {
-      body = (await res.json()) as { states?: unknown };
+      // text+parse (not res.json()) so the raw bytes can be counted; a
+      // malformed body throws here exactly as res.json() did.
+      const text = await res.text();
+      this.opts.traffic?.count("in", Buffer.byteLength(text));
+      body = JSON.parse(text) as { states?: unknown };
     } catch {
       return null;
     }
