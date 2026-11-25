@@ -517,8 +517,47 @@ describe("zones.config client protocol mirror", () => {
     }
   });
 
-  it("parses a status frame carrying boost + hotzone (additive fields)", () => {
-    const raw = JSON.stringify({
+  it("drops traffic reports sent while the socket is not OPEN (never queued)", () => {
+    const frames: string[] = [];
+    class FakeWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      readyState = FakeWebSocket.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((ev: { data: unknown }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(public url: string) {}
+      send(data: string) {
+        frames.push(data);
+      }
+      close() {}
+    }
+    const original = globalThis.WebSocket;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    try {
+      const socket = new RadarSocket("ws://127.0.0.1:2001/ws", { onSnapshot: () => {}, onUpdate: () => {} });
+      socket.connect();
+      const ws = (socket as any).ws;
+      socket.sendTrafficReport(100);
+      ws.readyState = FakeWebSocket.CLOSED;
+      socket.sendTrafficReport(50);
+      socket.sendTrafficWatch(true);
+      ws.readyState = FakeWebSocket.OPEN;
+      socket.sendTrafficReport(25);
+      socket.close();
+      expect(frames.map((f) => JSON.parse(f))).toEqual([
+        { type: "traffic.report", down: 100 },
+        { type: "traffic.report", down: 25 },
+      ]);
+    } finally {
+      globalThis.WebSocket = original;
+    }
+  });
+
+  it("parses a status frame carrying boost + hotzone (additive fields)", () => {    const raw = JSON.stringify({
       type: "status",
       feeds: {
         opensky: { lastOkAt: 1000, lastError: null, pollMs: 90000, boost: { active: true, count: 4, intervalMs: 30000, paused: null } },
