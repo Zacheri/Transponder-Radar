@@ -522,5 +522,5 @@ Counting caveats (verified Nov 2026):
   upTotal,downTotal}|null,top:[{proc,bytes}]|null}` (1 Hz, only while
   watchers exist; `device`/`top` null on non-mac/degraded — see Traffic
   monitor).
-- `test/` — 55 files, 1086 tests. Node-environment Vitest; browser-only code
+- `test/` — 55 files, 1088 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.
