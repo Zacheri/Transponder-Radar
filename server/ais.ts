@@ -196,7 +196,7 @@ export class AisClient {
     });
     ws.on("message", (data: WebSocket.RawData) => {
       // permessage-deflate is on: the link bills compressed bytes, this is the
-      // inflated payload size — an upper bound, accepted for v1 (spec R7).
+      // inflated payload size — an upper bound, accepted for v1 (spec R1).
       const s = data.toString();
       this.opts.traffic?.count("in", Buffer.byteLength(s));
       this.handleMessage(s);

@@ -97,4 +97,18 @@ describe("createTokenProvider", () => {
     expect(await p.getToken()).toBe("tok123");
     expect(counted).toEqual([{ dir: "in", bytes: Buffer.byteLength(body) }]);
   });
+
+  it("malformed token body: JSON.parse throws where res.json() threw, bytes counted", async () => {
+    const counted: Array<{ dir: "in" | "out"; bytes: number }> = [];
+    const body = "{oops";
+    const fetchImpl = (async () => ({ ok: true, status: 200, text: async () => body })) as unknown as typeof fetch;
+    const p = createTokenProvider({
+      clientId: "id",
+      clientSecret: "sec",
+      fetchImpl,
+      traffic: { count: (dir, bytes) => counted.push({ dir, bytes }) },
+    });
+    await expect(p.getToken()).rejects.toThrow();
+    expect(counted).toEqual([{ dir: "in", bytes: Buffer.byteLength(body) }]);
+  });
 });

@@ -651,6 +651,28 @@ describe("traffic wire (buildApp)", () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
+  it("traffic frames go to watchers only (second attached client sees none)", async () => {
+    const m = stubMonitor();
+    const { server, tmp, port } = await bootTrafficApp(m);
+    const watcher = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const plain = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const wframes: any[] = [];
+    const pframes: any[] = [];
+    watcher.on("message", (d) => wframes.push(JSON.parse(d.toString())));
+    plain.on("message", (d) => pframes.push(JSON.parse(d.toString())));
+    await waitFor(() => watcher.readyState === WebSocket.OPEN && plain.readyState === WebSocket.OPEN, 3000);
+    plain.send(JSON.stringify({ type: "traffic.watch", on: false })); // attached, not watching
+    watcher.send(JSON.stringify({ type: "traffic.watch", on: true }));
+    await waitFor(() => wframes.some((f) => f.type === "traffic"), 3000);
+    await sleep(1300); // ≥1 more tick lands
+    expect(wframes.filter((f) => f.type === "traffic").length).toBeGreaterThanOrEqual(2);
+    expect(pframes.some((f) => f.type === "traffic")).toBe(false); // hub broadcast never carries it
+    watcher.close();
+    plain.close();
+    await server.stop();
+    await rm(tmp, { recursive: true, force: true });
+  });
+
   it("traffic.report folds browser bytes into the monitor; over-cap frames die at the validator", async () => {
     const m = stubMonitor();
     const { server, tmp, port } = await bootTrafficApp(m);

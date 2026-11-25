@@ -298,9 +298,12 @@ export async function buildApp(deps: ServerDeps = {}) {
     ais: (ms) => hub.setAisFlushMs(ms),
   };
 
-  // traffic.watch bookkeeping: a socket counts at most once (watch(true) is
-  // idempotent per connection); close decrements only if it was watching.
-  const trafficWatchers = new WeakSet<object>();
+  // traffic.watch bookkeeping: sockets that asked for traffic frames. A
+  // socket counts at most once (watch(true) idempotent per connection);
+  // close/watch(false) remove it and decrement the monitor. The Set drives
+  // the 1 Hz sends — frames go to WATCHERS ONLY (spec ruling 3), never to
+  // the whole hub client set.
+  const trafficWatchers = new Set<any>();
 
   const app = Fastify({ logger: false });
   await app.register(websocket);
@@ -606,14 +609,23 @@ export async function buildApp(deps: ServerDeps = {}) {
   }, 5000);
 
   hub.start();
-  // Traffic: sample + broadcast at a fixed 1 Hz, but only while at least
-  // one client watches: zero work (and zero /ws egress) otherwise.
+  // Traffic: sample + send at a fixed 1 Hz to the WATCHER SET only (spec
+  // ruling 3 — never a hub-wide broadcast), and only while at least one
+  // client watches: zero work (and zero /ws egress) otherwise.
   let trafficTick: NodeJS.Timeout | null = null;
   const startTrafficTick = (): void => {
     if (trafficTick || traffic.watchers() === 0) return;
     trafficTick = setInterval(() => {
       if (traffic.watchers() === 0) return; // belt: no watchers, no sample
-      hub.broadcast({ type: "traffic", ...traffic.sample() });
+      const data = JSON.stringify({ type: "traffic", ...traffic.sample() });
+      for (const w of trafficWatchers) {
+        if (w.readyState !== w.OPEN) continue;
+        try {
+          w.send(data);
+        } catch {
+          /* socket closed mid-send; the close listener unregisters it */
+        }
+      }
     }, 1000);
     trafficTick.unref(); // the 1 Hz timer must not hold the process open
   };

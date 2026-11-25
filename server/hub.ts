@@ -68,6 +68,8 @@ export type ClientMessage =
   | { type: "pin.remove"; id: string }
   | { type: "flight.track"; id: string; seq?: number; auto?: boolean }
   | { type: "flight.context"; id: string; seq?: number }
+  // traffic.*: client → server egress-reporting frames (spec §A). Mirror in
+  // src/data/ws.ts lands with Task 3.
   | { type: "traffic.watch"; on: boolean }
   | { type: "traffic.report"; down: number }
   | { type: "timeline.window"; seq: number; from: number; to: number; stride: number; maxBytes: number };
@@ -228,19 +230,6 @@ export class Hub {
 
   private detach(socket: WsLike): void {
     this.clients.delete(socket);
-  }
-
-  /** Server-originated frame to every client (traffic sampler): serialize
-   * once, per-socket guarded send — the tick's send idiom. */
-  broadcast(frame: unknown): void {
-    const data = JSON.stringify(frame);
-    for (const c of this.clients) {
-      try {
-        c.send(data);
-      } catch {
-        /* ignore */
-      }
-    }
   }
 
   start(): void {

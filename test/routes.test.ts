@@ -402,4 +402,19 @@ describe("routes service", () => {
     svc.stop();
     expect(counted).toEqual([{ dir: "in", bytes: Buffer.byteLength(ADSBDB_HIT) }]);
   });
+
+  it("malformed adsbdb body: swallowed to null exactly as res.json() threw, bytes still counted", async () => {
+    const counted: Array<{ dir: "in" | "out"; bytes: number }> = [];
+    const fetch = stubFetch();
+    fetch.add(jsonRes("{ not json at all"));
+    const svc = makeRoutes({
+      fetchImpl: fetch.fetchImpl,
+      airports: fakeAirports({}).airports,
+      traffic: { count: (dir, bytes) => counted.push({ dir, bytes }) },
+    });
+    // No throw escapes; the ladder falls to the (tokenless) opensky step → null.
+    await expect(settle(svc.get({ id: "a20c31", callsign: "JBU2064" }))).resolves.toBeNull();
+    svc.stop();
+    expect(counted).toEqual([{ dir: "in", bytes: Buffer.byteLength("{ not json at all") }]);
+  });
 });
