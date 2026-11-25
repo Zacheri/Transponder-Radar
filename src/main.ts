@@ -45,6 +45,7 @@ import { DEFAULT_VIEW_SEL, computeViewWindow, parseViewSel } from "./ui/format.j
 import type { ViewSel } from "./ui/format.js";
 import { createSettings, type SettingsStats } from "./ui/settings.js";
 import { ReplayGate } from "./data/replay.js";
+import { createBrowserTx } from "./data/browser-tx.js";
 
 const container = document.getElementById("map");
 if (!container) throw new Error("#map missing");
@@ -260,6 +261,12 @@ function onFrame(crafts: Craft[], t: number): void {
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 
 let socket: RadarSocket | null = null;
+// Browser WAN-down harvest: one instance for the page life, created at the
+// first socket open and kept across reconnects (the send closure resolves
+// the current socket like every other sender). Always on regardless of
+// panel visibility — 5 s cadence, cheap; watch-gating the server frames is
+// the panel's concern.
+let browserTx: { start(): void; stop(): void } | null = null;
 const pollRate = createFeedRate(settingsUi.feedRates, {
   label: "Aircraft poll",
   ariaLabel: "Aircraft poll interval",
@@ -519,6 +526,10 @@ map.on("load", async () => {
       // The server keeps the zones config in memory only: re-send the local
       // config on every open (first, reconnect, server restart).
       if (s === "open") socket?.sendZonesConfig(zonesCfg.kinds, zonesCfg.boostMs);
+      if (s === "open" && !browserTx) {
+        browserTx = createBrowserTx({ send: (down) => socket?.sendTrafficReport(down) });
+        browserTx.start();
+      }
       if (s === "open" && replay.rewound) {
         replay.exitReplay();
         hud.setReplay(null);

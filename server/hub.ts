@@ -35,7 +35,7 @@ export interface FeedStatus {
     // boxes: the server-composed aiscast tiles as [[minLat,minLon],[maxLat,maxLon]]
     // edge pairs ([] when disabled/no tiles). Present on every server frame
     // since wave 9; typed optional for legacy readers (the boost idiom).
-    // Mirror in src/data/ws.ts lands with Task 3.
+    // Mirrored in src/data/ws.ts.
     secondary: { enabled: boolean; boxes?: BoundingBoxes[] } & AisSecondaryStatus;
   };
 }
@@ -68,8 +68,8 @@ export type ClientMessage =
   | { type: "pin.remove"; id: string }
   | { type: "flight.track"; id: string; seq?: number; auto?: boolean }
   | { type: "flight.context"; id: string; seq?: number }
-  // traffic.*: client → server egress-reporting frames (spec §A). Mirror in
-  // src/data/ws.ts lands with Task 3.
+  // traffic.*: client → server egress-reporting frames (spec §A); mirrored
+  // in src/data/ws.ts.
   | { type: "traffic.watch"; on: boolean }
   | { type: "traffic.report"; down: number }
   | { type: "timeline.window"; seq: number; from: number; to: number; stride: number; maxBytes: number };

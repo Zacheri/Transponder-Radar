@@ -18,7 +18,9 @@ export interface FeedStatus {
     flushMs: number;
     // aiscast fill feed. Non-nullable by design: disabled = enabled:false
     // zeroed block, never null (mirror of server/hub.ts FeedStatus).
-    secondary: { enabled: boolean; connected: boolean; lastError: string | null; lastMessageAt: number | null; attributions: string[] };
+    // boxes: server-composed aiscast tiles as [[minLat,minLon],[maxLat,maxLon]]
+    // edge pairs; optional-typed legacy idiom (mirror of server FeedStatus).
+    secondary: { enabled: boolean; connected: boolean; lastError: string | null; lastMessageAt: number | null; attributions: string[]; boxes?: [[number, number], [number, number]][] };
   };
 }
 
@@ -107,6 +109,22 @@ export interface FlightRoute {
   source: "adsbdb" | "opensky";
 }
 
+// Mirror of server/traffic.ts TrafficSample — redeclared (client never
+// imports server code); keep in sync by hand.
+export interface TrafficRates {
+  up: number;
+  down: number;
+  upTotal: number;
+  downTotal: number;
+}
+
+export interface TrafficSample {
+  at: number;
+  radar: TrafficRates;
+  device: TrafficRates | null;
+  top: { proc: string; bytes: number }[] | null;
+}
+
 export interface StatusMessage {
   type: "status";
   feeds: FeedStatus;
@@ -131,7 +149,13 @@ export type RadarMessage =
   | { type: "pins"; pins: Pin[] }
   | { type: "timeline.window.chunk" } & WindowChunk
   | { type: "flight.track"; id: string; seq?: number } & TrackReply
-  | { type: "flight.context"; id: string; seq?: number; route: FlightRoute | null };
+  | { type: "flight.context"; id: string; seq?: number; route: FlightRoute | null }
+  | ({ type: "traffic" } & TrafficSample);
+
+const trafficRatesOk = (r: unknown): boolean =>
+  r != null &&
+  typeof r === "object" &&
+  ["up", "down", "upTotal", "downTotal"].every((k) => typeof (r as TrafficRates)[k as keyof TrafficRates] === "number");
 
 export function parseRadarMessage(raw: string): RadarMessage | null {
   try {
@@ -181,6 +205,17 @@ export function parseRadarMessage(raw: string): RadarMessage | null {
     ) {
       return msg;
     }
+    // traffic: at/radar required-shape (rates numeric); device/top may be
+    // null (server degrade), absent treated like null.
+    if (
+      msg.type === "traffic" &&
+      typeof msg.at === "number" &&
+      trafficRatesOk(msg.radar) &&
+      (msg.device == null || trafficRatesOk(msg.device)) &&
+      (msg.top == null || Array.isArray(msg.top))
+    ) {
+      return msg;
+    }
     return null;
   } catch {
     return null;
@@ -200,6 +235,7 @@ export interface RadarSocketHandlers {
   // replies from superseded selections, same as onTimelineState.
   onFlightTrack?: (id: string, reply: TrackReply, seq?: number) => void;
   onFlightContext?: (id: string, route: FlightRoute | null, seq?: number) => void;
+  onTraffic?: (sample: TrafficSample) => void;
 }
 
 export class RadarSocket {
@@ -271,6 +307,17 @@ export class RadarSocket {
     this.send({ type: "flight.context", id, seq });
   }
 
+  // Traffic panel (spec §B): watch gates the server's 1 Hz traffic frames;
+  // report carries the browser WAN-down delta (fire-and-forget, ais.tile
+  // posture).
+  sendTrafficWatch(on: boolean): void {
+    this.send({ type: "traffic.watch", on });
+  }
+
+  sendTrafficReport(down: number): void {
+    this.send({ type: "traffic.report", down });
+  }
+
   connect(): void {
     this.closed = false;
     this.open();
@@ -307,6 +354,7 @@ export class RadarSocket {
       else if (msg.type === "flight.track")
         this.handlers.onFlightTrack?.(msg.id, { path: msg.path, fetchedAt: msg.fetchedAt, source: msg.source, budget: msg.budget }, msg.seq);
       else if (msg.type === "flight.context") this.handlers.onFlightContext?.(msg.id, msg.route, msg.seq);
+      else if (msg.type === "traffic") this.handlers.onTraffic?.(msg);
       else this.handlers.onTimelineState?.(msg.time, msg.craft, msg.seq);
     };
     ws.onclose = () => {

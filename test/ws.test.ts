@@ -545,3 +545,93 @@ describe("zones.config client protocol mirror", () => {
     expect(msg.feeds.opensky.boost ?? null).toBeNull();
   });
 });
+
+describe("traffic client protocol mirror", () => {
+  const trafficSample = {
+    type: "traffic",
+    at: 1000,
+    radar: { up: 1, down: 2, upTotal: 3, downTotal: 4 },
+    device: { up: 5, down: 6, upTotal: 7, downTotal: 8 },
+    top: [{ proc: "Safari", bytes: 9 }],
+  };
+
+  function withFakeSocket(): { frames: string[]; restore: () => void } {
+    const frames: string[] = [];
+    class FakeWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      readyState = FakeWebSocket.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((ev: { data: unknown }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(public url: string) {}
+      send(data: string) {
+        frames.push(data);
+      }
+      close() {}
+    }
+    const original = globalThis.WebSocket;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    return { frames, restore: () => (globalThis.WebSocket = original) };
+  }
+
+  it("sendTrafficWatch / sendTrafficReport emit byte-exact JSON that the server validator accepts", () => {
+    const { frames, restore } = withFakeSocket();
+    try {
+      const socket = new RadarSocket("ws://127.0.0.1:2001/ws", { onSnapshot: () => {}, onUpdate: () => {} });
+      socket.connect();
+      socket.sendTrafficWatch(true);
+      expect(frames[0]).toBe('{"type":"traffic.watch","on":true}');
+      socket.sendTrafficWatch(false);
+      expect(frames[1]).toBe('{"type":"traffic.watch","on":false}');
+      socket.sendTrafficReport(123456);
+      expect(frames[2]).toBe('{"type":"traffic.report","down":123456}');
+      // The sender-side frames must survive the server validator untouched.
+      expect(frames.map((f) => parseClientMessage(f)?.type)).toEqual([
+        "traffic.watch",
+        "traffic.watch",
+        "traffic.report",
+      ]);
+      socket.close();
+    } finally {
+      restore();
+    }
+  });
+
+  it("parseRadarMessage traffic gate: server-shaped sample (incl. null device/top) in, malformed out", () => {
+    expect(parseRadarMessage(JSON.stringify(trafficSample))?.type).toBe("traffic");
+    expect(parseRadarMessage(JSON.stringify({ ...trafficSample, device: null, top: null }))?.type).toBe("traffic");
+    expect(parseRadarMessage(JSON.stringify({ type: "traffic", radar: trafficSample.radar }))).toBeNull(); // no at
+    expect(parseRadarMessage(JSON.stringify({ type: "traffic", at: 1 }))).toBeNull(); // no radar
+    expect(
+      parseRadarMessage(JSON.stringify({ ...trafficSample, radar: { ...trafficSample.radar, down: "x" } })),
+    ).toBeNull();
+    expect(
+      parseRadarMessage(JSON.stringify({ ...trafficSample, device: { ...trafficSample.device, upTotal: "x" } })),
+    ).toBeNull();
+    expect(parseRadarMessage(JSON.stringify({ ...trafficSample, top: 5 }))).toBeNull();
+  });
+
+  it("onTraffic fires once per frame with the parsed sample", () => {
+    const { restore } = withFakeSocket();
+    try {
+      const got: unknown[] = [];
+      const socket = new RadarSocket("ws://127.0.0.1:2001/ws", {
+        onSnapshot: () => {},
+        onUpdate: () => {},
+        onTraffic: (s) => got.push(s),
+      });
+      socket.connect();
+      const ws = (socket as any).ws;
+      ws.onmessage!({ data: JSON.stringify(trafficSample) });
+      expect(got).toHaveLength(1);
+      expect(got[0]).toMatchObject({ at: 1000, radar: trafficSample.radar, top: [{ proc: "Safari", bytes: 9 }] });
+      socket.close();
+    } finally {
+      restore();
+    }
+  });
+});
