@@ -6,7 +6,6 @@ export interface ResourceEntryLike {
   name: string;
   startTime: number;
   transferSize?: number;
-  encodedBodySize?: number;
 }
 
 const SEEN_CAP = 5000; // dedupe LRU, Map insertion order
@@ -21,18 +20,20 @@ const entryOrigin = (name: string): string | null => {
 
 /**
  * Sum WAN-down bytes for cross-origin entries not yet in `seen`, marking
- * them. Same-origin is strict origin-string equality (127.0.0.1 ≠ localhost).
- * Per-entry bytes are `transferSize || encodedBodySize || 0` — exact-or-0 per
- * spec (cross-origin responses without Timing-Allow-Origin hide both sizes;
- * honest undercount). `seen` is a bounded LRU keyed `name|startTime`: entries
- * outliving their key's eviction re-count once — documented tolerance, the
- * alternative is unbounded memory.
+ * them. Same-origin is strict origin-string equality (127.0.0.1 ≠
+ * localhost); an origin serializing to "null" (opaque: data:/blob:/sandboxed)
+ * never carries WAN info and is skipped. Bytes are `transferSize || 0` —
+ * WAN-exact (spec R2 R-A: an encodedBodySize fallback would bill cache hits
+ * as downloads; hidden/0 sizes count 0, the sanctioned honest undercount).
+ * `seen` is a bounded LRU keyed `name|startTime`; start() caps the timing
+ * buffer at SEEN_CAP and clears it on overflow, so a caller feeding
+ * `performance` can never surface an entry whose key was evicted.
  */
 export function harvest(entries: ResourceEntryLike[], seen: Map<string, true>, origin: string): number {
   let down = 0;
   for (const e of entries) {
     const src = entryOrigin(e.name);
-    if (src !== null && src === origin) continue;
+    if ((src !== null && src === origin) || src === "null") continue;
     const key = `${e.name}|${e.startTime}`;
     if (seen.has(key)) continue;
     seen.set(key, true);
@@ -40,15 +41,12 @@ export function harvest(entries: ResourceEntryLike[], seen: Map<string, true>, o
       const oldest = seen.keys().next();
       if (!oldest.done) seen.delete(oldest.value);
     }
-    down += e.transferSize || e.encodedBodySize || 0;
+    down += e.transferSize || 0;
   }
   return down;
 }
 
 export interface BrowserTxOpts {
-  // Accepted for interface symmetry with the tick-driven factories; unused —
-  // dedupe keys carry the entry's own startTime.
-  now?: () => number;
   getEntries?: () => ResourceEntryLike[];
   send: (down: number) => void;
   intervalMs?: number;
@@ -64,18 +62,43 @@ export function createBrowserTx(opts: BrowserTxOpts): { start(): void; stop(): v
   const origin = opts.origin ?? (typeof location !== "undefined" ? location.origin : "");
   const seen = new Map<string, true>();
   let timer: ReturnType<typeof setInterval> | null = null;
+
+  // Buffer starvation guard: a full resource-timing buffer stops accepting
+  // entries SILENTLY, so an uncleared full buffer starves the harvest blind.
+  // Cap the buffer at SEEN_CAP and clear on the full event — while started,
+  // the visible set never exceeds the dedupe LRU (the no-resurface invariant
+  // the harvest tests pin). Feature-existence-guarded for non-browser hosts.
+  const onBufferFull = (): void => {
+    if (typeof performance !== "undefined" && typeof performance.clearResourceTimings === "function") {
+      performance.clearResourceTimings();
+    }
+  };
+  const armBuffer = (): void => {
+    if (typeof performance === "undefined") return;
+    if (typeof performance.setResourceTimingBufferSize === "function") {
+      performance.setResourceTimingBufferSize(SEEN_CAP);
+    }
+    performance.addEventListener?.("resourcetimingbufferfull", onBufferFull);
+  };
+
   return {
     start() {
       if (timer) return;
+      armBuffer();
       timer = setInterval(() => {
         const down = harvest(getEntries(), seen, origin);
-        if (down > 0) opts.send(down); // zero-delta ticks stay silent
+        if (down > 0) opts.send(down); // zero-delta ticks stay silent; a delta
+        // whose send no-ops (socket closed — RadarSocket.send drops it) is
+        // ruled dropped, not accumulated: undercount ethos, R-B.
       }, intervalMs);
     },
     stop() {
       if (timer) {
         clearInterval(timer);
         timer = null;
+      }
+      if (typeof performance !== "undefined") {
+        performance.removeEventListener?.("resourcetimingbufferfull", onBufferFull);
       }
     },
   };

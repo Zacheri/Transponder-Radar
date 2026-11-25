@@ -39,7 +39,8 @@ honesty fixes.
   OpenSky routes/tracks, icon-pack downloads, airports download, Carto
   probe. Counters must not change fetch semantics (wrap, don't restructure).
 - R2 — Radar-browser counter: periodic (5 s) resource-timing harvest of
-  external-origin entries (transferSize ?? encodedBodySize fallback) —
+  external-origin entries (transferSize only — an encodedBodySize fallback
+  would inflate WAN counts with cache hits, ruled out 2026-11-25) —
   these are browser WAN DOWNLOADS — sent up via `traffic.report`; server
   folds them into the radar DOWN series (dedupe repeated entries by
   entry name+startTime set).
@@ -119,10 +120,10 @@ status block, additive). (b) settings.ts park button: read the flag from
 - Interface counter reset (sleep/Wi-Fi flap): negative delta → 0, log once
   per 10 min; totals unaffected (totals only ever add positive deltas).
 - Browser reports double-count risk (entries overlap reports): dedupe by
-  name+startTime keys; entries missing transferSize (cross-origin without
-  Timing-Allow-Origin — Carto's header status may vary) fall back to
-  encodedBodySize, and if BOTH absent the entry counts 0 (honest
-  undercount; documented on the panel as "browser tiles: exact or 0").
+  name+startTime keys; the count is `transferSize || 0` — entries whose
+  transferSize is hidden or 0 (cross-origin without Timing-Allow-Origin,
+  and cache hits) count 0 (honest undercount; documented on the panel as
+  "browser tiles: exact or 0").
 - Watcher leak (client tab crash): watcher state is per-socket; the hub's
   existing disconnect handling clears it, so streaming stops with the
   socket — no separate heartbeat needed.
