@@ -129,6 +129,13 @@ function byClass(root: FakeEl, cls: string): FakeEl {
   return must(find(root, (el) => el.className.split(" ").includes(cls)), cls);
 }
 
+/** The value cell (right span) of a two-cell traffic row. */
+function val(root: FakeEl, cls: string): string {
+  const row = byClass(root, cls);
+  const cell = must(find(row, (el) => el.className.split(" ").includes("traffic-v")), "traffic-v");
+  return cell.textContent;
+}
+
 function setup(o: { storage?: ReturnType<typeof makeStorage>; collapsed?: boolean; dpr?: number } = {}) {
   const root = new FakeEl("div");
   recorder.calls = [];
@@ -190,18 +197,18 @@ describe("ring buffer", () => {
 });
 
 describe("traffic panel persistence (radar.trafficPanel)", () => {
-  it("absent storage starts collapsed and never fires watch", () => {
+  it("absent storage starts collapsed; the watch still fires (compact readout)", () => {
     const s = makeStorage();
     const { root, watch } = setup({ storage: s });
     expect(byClass(root, "traffic-panel").classList.contains("collapsed")).toBe(true);
     expect(byClass(root, "drawer-head").attr("aria-expanded")).toBe("false");
-    expect(watch).not.toHaveBeenCalled();
+    expect(watch).toHaveBeenCalledTimes(1);
+    expect(watch).toHaveBeenCalledWith(true);
   });
   it('"0" and corrupt values are collapsed too', () => {
     for (const v of ["0", "garbage", "true"]) {
-      const { root, watch } = setup({ storage: makeStorage({ "radar.trafficPanel": v }) });
+      const { root } = setup({ storage: makeStorage({ "radar.trafficPanel": v }) });
       expect(byClass(root, "traffic-panel").classList.contains("collapsed")).toBe(true);
-      expect(watch).not.toHaveBeenCalled();
     }
   });
   it('"1" restores expanded and fires watch(true) at boot', () => {
@@ -221,47 +228,60 @@ describe("traffic panel persistence (radar.trafficPanel)", () => {
   });
 });
 
-describe("traffic panel watch lifecycle", () => {
-  it("expand, collapse, expand fires true/false/true", () => {
+describe("traffic panel watch lifecycle (panel-lifetime, 2026-11-26 ruling)", () => {
+  it("creation fires watch(true) once; toggling never re-fires", () => {
     const { head, watch } = setup();
+    expect(watch).toHaveBeenCalledTimes(1);
     head.fire("click");
-    expect(watch).toHaveBeenNthCalledWith(1, true);
     head.fire("click");
-    expect(watch).toHaveBeenNthCalledWith(2, false);
     head.fire("click");
-    expect(watch).toHaveBeenNthCalledWith(3, true);
-    expect(watch).toHaveBeenCalledTimes(3);
+    expect(watch).toHaveBeenCalledTimes(1);
+    expect(watch).toHaveBeenCalledWith(true);
   });
-  it("a panel never expanded fires nothing, ever", () => {
+  it("a collapsed panel still holds the watch (feeds the compact readout)", () => {
     const { watch, ui } = setup();
     ui.update(SAMPLE);
     ui.update(SAMPLE);
-    expect(watch).not.toHaveBeenCalled();
+    expect(watch).toHaveBeenCalledTimes(1);
+  });
+  it("destroy releases the watch", () => {
+    const { watch, ui } = setup();
+    ui.destroy();
+    expect(watch).toHaveBeenCalledTimes(2);
+    expect(watch).toHaveBeenLastCalledWith(false);
   });
 });
 
 describe("traffic panel rendering", () => {
-  it("bands render rate + today total per source and direction", () => {
+  it("bands render rate + today total per source and direction (value cells)", () => {
     const { ui, root } = setup({ collapsed: false });
     ui.update(SAMPLE);
-    expect(byClass(root, "traffic-up-device").textContent).toBe("↑ device 1.5 KB/s · 2.3 MB");
-    expect(byClass(root, "traffic-up-radar").textContent).toBe("↑ radar 200 B/s · 999 B");
-    expect(byClass(root, "traffic-down-device").textContent).toBe("↓ device 2.3 MB/s · 1.02 GB");
-    expect(byClass(root, "traffic-down-radar").textContent).toBe("↓ radar 100 KB/s · 40 MB");
+    expect(val(root, "traffic-up-device")).toBe("1.5 KB/s · 2.3 MB");
+    expect(val(root, "traffic-up-radar")).toBe("200 B/s · 999 B");
+    expect(val(root, "traffic-down-device")).toBe("2.3 MB/s · 1.02 GB");
+    expect(val(root, "traffic-down-radar")).toBe("100 KB/s · 40 MB");
   });
-  it("totals column shows now/today/session rows from the device superset", () => {
+  it("totals rows show now/today/session from the device superset", () => {
     const { ui, root } = setup({ collapsed: false });
     ui.update(SAMPLE);
-    expect(byClass(root, "traffic-total-now").textContent).toBe("now ↑1.5 KB/s ↓2.3 MB/s");
-    expect(byClass(root, "traffic-total-today").textContent).toBe("today ↑2.3 MB ↓1.02 GB");
-    expect(byClass(root, "traffic-total-session").textContent).toMatch(/^session ↑.+ ↓.+/u);
+    expect(val(root, "traffic-total-now")).toBe("↑1.5 KB/s ↓2.3 MB/s");
+    expect(val(root, "traffic-total-today")).toBe("↑2.3 MB ↓1.02 GB");
+    expect(val(root, "traffic-total-session")).toMatch(/^↑.+ ↓.+/u);
   });
   it("null device degrades the device rows and switches totals to radar", () => {
     const { ui, root } = setup({ collapsed: false });
     ui.update({ ...SAMPLE, device: null });
-    expect(byClass(root, "traffic-up-device").textContent).toBe("↑ device —");
-    expect(byClass(root, "traffic-down-device").textContent).toBe("↓ device —");
-    expect(byClass(root, "traffic-total-today").textContent).toBe("today ↑999 B ↓40 MB");
+    expect(val(root, "traffic-up-device")).toBe("—");
+    expect(val(root, "traffic-down-device")).toBe("—");
+    expect(val(root, "traffic-total-today")).toBe("↑999 B ↓40 MB");
+  });
+  it("collapsed updates keep the canvas cold but refresh the compact readout", () => {
+    const { ui, root } = setup(); // collapsed at boot
+    ui.update(SAMPLE);
+    expect(recorder.calls.length).toBe(0);
+    expect(byClass(root, "traffic-compact").textContent).toBe("u:1.5 KB/s d:2.3 MB/s");
+    ui.update({ ...SAMPLE, device: null });
+    expect(byClass(root, "traffic-compact").textContent).toBe("u:200 B/s d:100 KB/s");
   });
   it("top rows truncate to 3 and a null/absent top renders nothing", () => {
     const { ui, root } = setup({ collapsed: false });
@@ -276,8 +296,9 @@ describe("traffic panel rendering", () => {
     const topEl = byClass(root, "traffic-top");
     const rows = topEl.children.filter((c) => c.className.split(" ").includes("traffic-top-row"));
     expect(rows.length).toBe(3);
-    expect(rows[0].textContent).toBe("alpha 1.2 MB");
-    expect(topEl.textContent + rows.map((r) => r.textContent).join("")).not.toContain("delta");
+    const cells = (row: FakeEl) => row.children.map((c) => c.textContent);
+    expect(cells(rows[0])).toEqual(["alpha", "1.2 MB"]);
+    expect(rows.map((r) => r.textContent).join("")).not.toContain("delta");
     ui.update({ ...SAMPLE, top: null });
     expect(byClass(root, "traffic-top").children.length).toBe(0);
   });
@@ -291,7 +312,8 @@ describe("traffic panel canvas", () => {
     expect(recorder.calls.length).toBe(0);
     head.fire("click");
     expect(recorder.calls.some((c) => c.m === "clearRect")).toBe(true);
-    expect(byClass(root, "traffic-up-device").textContent).toContain("device");
+    expect(byClass(root, "traffic-panel").classList.contains("collapsed")).toBe(false);
+    expect(val(root, "traffic-up-device")).toBe("1.5 KB/s · 2.3 MB");
   });
   it("the ring caps drawing at 600 points (601 samples → 599 segments per series)", () => {
     const { ui, head } = setup();

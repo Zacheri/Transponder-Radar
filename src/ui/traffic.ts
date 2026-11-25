@@ -5,7 +5,8 @@ import type { TrafficSample } from "../data/ws.js";
 // the settings drawer. Two-line canvas graph over a 10-min ring buffer
 // (device thin translucent behind, radar bold accent in front). The watch
 // lifecycle is delegated to opts.watch — main keeps the flag and re-sends it
-// on every socket open (zonesCfg idiom).
+// on every socket open (zonesCfg idiom). The watch spans the whole panel
+// life (2026-11-26 ruling): the collapsed header shows condensed live rates.
 
 const KEY = "radar.trafficPanel";
 
@@ -122,7 +123,6 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
   const chevron = document.createElement("span");
   chevron.className = "drawer-chevron";
   chevron.textContent = "▾";
-  head.append(title, chevron);
   const body = document.createElement("div");
   body.className = "drawer-body";
 
@@ -135,29 +135,49 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
     row.textContent = text;
     return row;
   };
+  // Two-cell rows (label left, value right) keep every number flush-right
+  // and make horizontal overflow structurally impossible in the narrow dock.
+  const row = (cls: string, key: string): { el: HTMLElement; val: HTMLElement } => {
+    const el = document.createElement("div");
+    el.className = `traffic-line ${cls}`;
+    const k = document.createElement("span");
+    k.className = "traffic-k";
+    k.textContent = key;
+    const v = document.createElement("span");
+    v.className = "traffic-v";
+    el.append(k, v);
+    return { el, val: v };
+  };
   const bands = document.createElement("div");
   bands.className = "traffic-bands";
-  const upDev = line("traffic-up-device", "↑ device —");
-  const upRadar = line("traffic-up-radar", "↑ radar —");
-  const dnDev = line("traffic-down-device", "↓ device —");
-  const dnRadar = line("traffic-down-radar", "↓ radar —");
-  dnRadar.title = "Browser downloads are counted only when resource timing is exact (exact or 0)";
-  bands.append(upDev, upRadar, dnDev, dnRadar);
+  const upDev = row("traffic-up-device", "↑ device");
+  const upRadar = row("traffic-up-radar", "↑ radar");
+  const dnDev = row("traffic-down-device", "↓ device");
+  const dnRadar = row("traffic-down-radar", "↓ radar");
+  dnRadar.el.title = "Browser downloads are counted only when resource timing is exact (exact or 0)";
+  bands.append(upDev.el, upRadar.el, dnDev.el, dnRadar.el);
 
   const totals = document.createElement("div");
   totals.className = "traffic-totals";
   const totSrc = line("traffic-totals-src", "");
-  const totNow = line("traffic-total-now", "now —");
-  const totToday = line("traffic-total-today", "today —");
-  const totSession = line("traffic-total-session", "session —");
+  const totNow = row("traffic-total-now", "now");
+  const totToday = row("traffic-total-today", "today");
+  const totSession = row("traffic-total-session", "session");
   const topEl = document.createElement("div");
   topEl.className = "traffic-top";
-  totals.append(totSrc, totNow, totToday, totSession, topEl);
+  totals.append(totSrc, totNow.el, totToday.el, totSession.el, topEl);
 
   const main = document.createElement("div");
   main.className = "traffic-main";
   main.append(bands, totals);
   body.append(canvas, main);
+  // Collapsed-header readout (user ruling 2026-11-26): condensed live rates,
+  // visible only while collapsed — which is why the watch now spans the
+  // whole panel life, not just the expanded state.
+  const compact = document.createElement("span");
+  compact.className = "traffic-compact";
+  compact.textContent = "u:— d:—";
+  head.append(title, compact, chevron);
   el.append(head, body);
   root.appendChild(el);
 
@@ -182,6 +202,7 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
   const ring = createRing<Pt>(RING_CAP);
   const session = { radar: { up: 0, down: 0 }, device: { up: 0, down: 0 } };
   let prevAt: number | null = null;
+  let lastSample: TrafficSample | null = null;
   let sized = false;
   let dead = false;
 
@@ -193,8 +214,12 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
     } catch {
       // storage unavailable
     }
-    opts.watch(!collapsed);
-    if (!collapsed) draw();
+    // No watch flip on toggle: the stream also feeds the collapsed-header
+    // compact readout, so the watch spans the whole panel life (2026-11-26).
+    if (!collapsed) {
+      if (lastSample) render(lastSample); // no blank rows before the next frame
+      draw();
+    }
   }
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === "Enter" || e.key === " ") {
@@ -205,9 +230,10 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
   head.addEventListener("click", toggle);
   head.addEventListener("keydown", onKey);
 
-  // Expanded at boot: flip main's watch flag now so the first (and every
-  // later) socket open re-sends watch(true); no call ever when collapsed.
-  if (!collapsed) opts.watch(true);
+  // The watch flag flips here in main and is re-sent on every socket open
+  // (zonesCfg re-send idiom); collapsed boot keeps it on for the compact
+  // readout, so it fires unconditionally at creation.
+  opts.watch(true);
 
   const RoCtor =
     opts.ResizeObserverCtor !== undefined
@@ -282,31 +308,39 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
   }
 
   function render(s: TrafficSample): void {
-    upDev.textContent = s.device ? `↑ device ${rate(s.device.up)} · ${humanize(s.device.upTotal)}` : "↑ device —";
-    dnDev.textContent = s.device ? `↓ device ${rate(s.device.down)} · ${humanize(s.device.downTotal)}` : "↓ device —";
-    upRadar.textContent = `↑ radar ${rate(s.radar.up)} · ${humanize(s.radar.upTotal)}`;
-    dnRadar.textContent = `↓ radar ${rate(s.radar.down)} · ${humanize(s.radar.downTotal)}`;
+    upDev.val.textContent = s.device ? `${rate(s.device.up)} · ${humanize(s.device.upTotal)}` : "—";
+    dnDev.val.textContent = s.device ? `${rate(s.device.down)} · ${humanize(s.device.downTotal)}` : "—";
+    upRadar.val.textContent = `${rate(s.radar.up)} · ${humanize(s.radar.upTotal)}`;
+    dnRadar.val.textContent = `${rate(s.radar.down)} · ${humanize(s.radar.downTotal)}`;
     // Totals follow the device superset (whole-machine attribution is the
     // point of the column); radar-only where the counters degraded away.
     const tot = s.device ?? s.radar;
     const ses = s.device ? session.device : session.radar;
     totSrc.textContent = s.device ? "device totals" : "radar totals (device n/a)";
-    totNow.textContent = `now ↑${rate(tot.up)} ↓${rate(tot.down)}`;
-    totToday.textContent = `today ↑${humanize(tot.upTotal)} ↓${humanize(tot.downTotal)}`;
-    totSession.textContent = `session ↑${humanize(ses.up)} ↓${humanize(ses.down)}`;
+    totNow.val.textContent = `↑${rate(tot.up)} ↓${rate(tot.down)}`;
+    totToday.val.textContent = `↑${humanize(tot.upTotal)} ↓${humanize(tot.downTotal)}`;
+    totSession.val.textContent = `↑${humanize(ses.up)} ↓${humanize(ses.down)}`;
     const rows = (s.top ?? []).slice(0, 3);
     topEl.replaceChildren(
       ...rows.map((r) => {
-        const row = document.createElement("div");
-        row.className = "traffic-top-row";
-        row.textContent = `${r.proc} ${humanize(r.bytes)}`;
-        return row;
+        const { el, val } = row("traffic-top-row", r.proc);
+        val.textContent = humanize(r.bytes);
+        return el;
       }),
     );
   }
 
+  /** Condensed rates for the collapsed header: the device superset where
+   * present, radar where the device counters degraded away. */
+  function renderCompact(s: TrafficSample): void {
+    const tot = s.device ?? s.radar;
+    compact.textContent = `u:${rate(tot.up)} d:${rate(tot.down)}`;
+    compact.title = s.device ? "device totals (whole machine)" : "radar totals (device n/a)";
+  }
+
   function update(sample: TrafficSample): void {
     if (dead) return;
+    lastSample = sample;
     const t = now();
     if (prevAt != null) {
       const dt = (t - prevAt) / 1000;
@@ -324,7 +358,8 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
       radar: sample.radar.up + sample.radar.down,
       device: sample.device ? sample.device.up + sample.device.down : null,
     });
-    if (collapsed) return; // cheap path: buffer fills, DOM and canvas untouched
+    renderCompact(sample);
+    if (collapsed) return; // cheap path: bands/canvas stay untouched, header updates
     render(sample);
     draw();
   }
@@ -334,6 +369,7 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
     ro?.disconnect();
     head.removeEventListener("click", toggle);
     head.removeEventListener("keydown", onKey);
+    opts.watch(false);
     el.remove();
   }
 

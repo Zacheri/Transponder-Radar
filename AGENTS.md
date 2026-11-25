@@ -329,8 +329,13 @@ by delta bytes, 5 s). Totals persist per UTC day (`data/traffic/day.json`,
 30-day `history.json`); failures on non-mac/restricted hosts degrade to
 `device`/`top` = null with the radar series unaffected. The panel docks left
 of the settings drawer (`left: 284px`), collapsed state persisted under
-`radar.trafficPanel`; while expanded it sends `traffic.watch true` (re-sent
-on every socket open, mirrors the `ais.tile` lifecycle) and draws a 10-min
+`radar.trafficPanel`; the collapsed header shows condensed live rates
+(`u:1.5 KB/s d:2.3 MB/s`, device-preferred, tooltip names the source) — so
+the watch spans the whole panel life: `traffic.watch true` fires at panel
+creation, is re-sent on every socket open (`ais.tile` lifecycle), and is
+never re-fired by expand/collapse. Rows are two-cell flex (label left,
+flush-right value) so nothing can overlap or scroll horizontally. While
+expanded it draws a 10-min
 two-line canvas graph (device = thin translucent, radar = bold accent) plus
 the top-5 process bands.
 
@@ -489,7 +494,8 @@ Counting caveats (verified Nov 2026):
   memory-only, last-writer-wins like `ais.tile`),
   `{type:"traffic.watch",on}` (gates the server's 1 Hz `traffic` frames;
   the watcher set is per-socket and the panel re-sends on every open while
-  expanded — `ais.tile` lifecycle),
+  watched — panel-lifecycle since 2026-11-26, never toggled by collapse —
+  `ais.tile` lifecycle),
   `{type:"traffic.report",down}` (delta browser WAN-down bytes since the
   last report; finite ≥ 0, ≤ 50 MB/report — larger frames die at the hub
   validator, index re-clamps as defense-in-depth; folds into radar DOWN);
@@ -522,5 +528,5 @@ Counting caveats (verified Nov 2026):
   upTotal,downTotal}|null,top:[{proc,bytes}]|null}` (1 Hz, only while
   watchers exist; `device`/`top` null on non-mac/degraded — see Traffic
   monitor).
-- `test/` — 55 files, 1088 tests. Node-environment Vitest; browser-only code
+- `test/` — 55 files, 1090 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

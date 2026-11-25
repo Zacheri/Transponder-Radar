@@ -669,10 +669,28 @@ body {
   top: auto;
   left: 284px;
   bottom: 60px;
-  width: 240px;
+  width: 260px;
 }
 .traffic-panel .drawer-head {
   height: 38px;
+}
+/* Collapsed-header readout: condensed live rates, collapsed state only. */
+.traffic-compact {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.traffic-panel.collapsed .traffic-compact {
+  display: block;
 }
 .traffic-canvas {
   display: block;
@@ -683,30 +701,39 @@ body {
   border-radius: 6px;
 }
 .traffic-main {
-  display: flex;
-  gap: 8px;
   margin-top: 6px;
 }
 .traffic-bands {
-  flex: 1;
-  min-width: 0;
+  margin-bottom: 2px;
 }
 .traffic-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--text);
   line-height: 1.6;
 }
+.traffic-k {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.traffic-v {
+  flex: none;
+  text-align: right;
+}
 .traffic-up-radar,
 .traffic-down-radar {
   color: var(--accent);
 }
 .traffic-totals {
-  flex: none;
-  width: 100px;
-  border-left: 1px solid var(--border);
-  padding-left: 8px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
@@ -715,6 +742,8 @@ body {
   color: var(--muted);
 }
 .traffic-totals-src {
+  display: block;
+  font-size: 10px;
   color: var(--text);
   margin-bottom: 2px;
 }
@@ -724,10 +753,6 @@ body {
   padding-top: 2px;
 }
 .traffic-top-row {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.5;
   color: var(--muted);
 }

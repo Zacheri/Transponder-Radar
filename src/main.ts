@@ -294,8 +294,8 @@ const replay = new ReplayGate();
 // Traffic panel (spec 2026-11-25 R6): drawer sibling docked beside settings.
 // The watch flag lives here, not in the panel — the server keeps watchers in
 // memory only, so every socket open re-sends the current flag (zonesCfg
-// re-send idiom). Created after the socket declaration so a boot-expanded
-// panel's initial watch(true) reads null instead of hitting the TDZ.
+// re-send idiom). Created after the socket declaration so the panel's
+// creation-time watch(true) reads null instead of hitting the TDZ.
 let trafficWatched = false;
 const trafficUi = createTrafficPanel(document.getElementById("app") as HTMLElement, {
   watch: (on) => {

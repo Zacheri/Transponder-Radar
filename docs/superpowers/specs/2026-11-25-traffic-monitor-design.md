@@ -23,6 +23,10 @@ honesty fixes.
    settings drawer at the drawer's collapsed height.
 3. Streaming is watch-gated (`traffic.watch`) — zero traffic data when the
    panel is hidden.
+   [2026-11-26 revision: the collapsed header shows condensed live rates, so
+   the watch spans the whole panel life — fired at creation, never toggled by
+   expand/collapse; frames are ~200 B of local JSON, the bandwidth ruling 3
+   protected is unaffected.]
 4. Rootless only: `netstat -ib` + `nettop -P` subprocesses, no privileged
    anything, macOS-only extras degrade to Radar-only series elsewhere.
 5. AIS fill tiles render as blue outline-only rectangles; the boost rect's
@@ -63,12 +67,14 @@ honesty fixes.
   while any client watches. Additive validator idiom; hub union mirrors.
 - R6 — Panel: docked beside the settings drawer (implemented left of it at
   `left: 284px`, same bottom anchor — user's drawer row, ruling 2),
-  collapsed height
-  matches the drawer's collapsed header; expand/collapse persisted
-  `radar.trafficPanel`; while expanded, sends `traffic.watch true`,
-  collapse/reconnect lifecycle mirrors the ais.tile sender (re-send on
+  collapsed height  matches the drawer's collapsed header; expand/collapse persisted
+  `radar.trafficPanel`; watch fires at panel creation and is never re-fired
+  by toggle; the collapsed header carries a condensed live readout
+  (`u:… d:…`, 2026-11-26 user ruling — supersedes "while expanded");
+  reconnect lifecycle mirrors the ais.tile sender (re-send on
   open); canvas two-line graph (device = thin translucent, radar = bold
-  accent) over a 10-min ring buffer; bands/columns per ruling 2; numbers
+  accent) over a 10-min ring buffer; bands/columns per ruling 2 (value cells
+  flush-right two-cell rows — overlap-proof); numbers
   humanized (KB/MB/GB, /s).
 - R7 — Honesty fixes: (a) AIS fill tile outlines (home + follow) as a
   dashed blue (kind-independent `#4fc3f7`-family line layer from
