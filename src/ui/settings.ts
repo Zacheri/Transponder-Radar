@@ -3,6 +3,8 @@ import type { Pin } from "../data/ws.js";
 import { formatBytes, formatPinRange } from "./format.js";
 
 const COLLAPSED_KEY = "radar.settingsCollapsed";
+const PARK_TEXT = "Park AIS fill tile here";
+const PARK_TEXT_NOKEY = "Needs AISCAST_API_KEY";
 
 export interface SettingsStats {
   storageCapGb: number;
@@ -12,6 +14,9 @@ export interface SettingsStats {
   pinnedBytes: number;
   pins: Pin[];
   homeRegion?: { lat: number; lon: number } | null;
+  // Server-sourced truth: false → the fill feed has no AISCAST key.
+  // Undefined (legacy status frames) is treated as enabled.
+  secondaryEnabled?: boolean;
 }
 
 export interface SettingsApi { setStats: (s: SettingsStats) => void; feedRates: HTMLElement }
@@ -135,7 +140,7 @@ export function createSettings(
   const parkBtn = document.createElement("button");
   parkBtn.type = "button";
   parkBtn.className = "settings-btn";
-  parkBtn.textContent = "Park AIS fill tile here";
+  parkBtn.textContent = PARK_TEXT;
   parkBtn.addEventListener("click", () => opts.parkHome());
   const clearBtn = document.createElement("button");
   clearBtn.type = "button";
@@ -239,6 +244,11 @@ export function createSettings(
     warnLine.classList.toggle("warn", over > 0);
     warnLine.textContent = over > 0 ? `⚠ pinned data exceeds cap by ${formatBytes(over)}` : "";
     homeVal.textContent = s.homeRegion ? `${s.homeRegion.lat.toFixed(2)}, ${s.homeRegion.lon.toFixed(2)}` : "not parked";
+    // No-key state is server-sourced (secondaryEnabled false), never guessed;
+    // re-applied on every setStats so a later key addition re-enables it.
+    const noKey = s.secondaryEnabled === false;
+    parkBtn.disabled = noKey;
+    parkBtn.textContent = noKey ? PARK_TEXT_NOKEY : PARK_TEXT;
     renderPins(s.pins);
   }
 

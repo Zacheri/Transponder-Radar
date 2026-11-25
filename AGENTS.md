@@ -10,8 +10,8 @@ Local, single-user web app: live world map of **aircraft** (OpenSky ADS-B) and
 **vessels** (aisstream.io AIS) on a dark MapLibre GL map, with per-kind icons,
 click-to-open detail panel (FAA type/year/owner for US-registered aircraft),
 model-driven aircraft shape-family icons (see Aircraft icons below),
-kind filter drawer, live aircraft poll-rate slider, timeline rewind, and a
-status HUD.
+kind filter drawer, live aircraft poll-rate slider, timeline rewind, a status
+HUD, and a live traffic monitor panel.
 
 ## Commands
 
@@ -316,6 +316,36 @@ Recolor limit: `recolorPixels`
   Offline-first (spec R10): same local-cache pattern as the icon pack —
   download once, serve from disk, keep serving the stale index on failure.
 
+## Traffic monitor (`server/traffic.ts`, `src/ui/traffic.ts`)
+
+Live byte-rate monitor (spec 2026-11-25-traffic-monitor): the server counts
+every WAN body at each egress (`count(dir, bytes)` wrappers at the
+poller/ais/faa/routes/iconpack/airports edges — counting wraps, never
+restructures fetch), the browser harvests its own WAN downloads via
+resource-timing (5 s, `transferSize` only, external origins) and folds them
+into the radar DOWN series via `traffic.report`, and macOS device-wide series
+come from `netstat -ib` (en* extended rows, 1 Hz) + `nettop` (top-5 processes
+by delta bytes, 5 s). Totals persist per UTC day (`data/traffic/day.json`,
+30-day `history.json`); failures on non-mac/restricted hosts degrade to
+`device`/`top` = null with the radar series unaffected. The panel docks left
+of the settings drawer (`left: 284px`), collapsed state persisted under
+`radar.trafficPanel`; while expanded it sends `traffic.watch true` (re-sent
+on every socket open, mirrors the `ais.tile` lifecycle) and draws a 10-min
+two-line canvas graph (device = thin translucent, radar = bold accent) plus
+the top-5 process bands.
+
+Counting caveats (verified Nov 2026):
+
+- **AIS socket bytes are inflated payload**: the aisstream/aiscast sockets
+  use permessage-deflate, so `count()` sees decompressed payload — radar
+  counts overstate those flows' actual WAN bytes (under-count on the wire).
+  Accepted; do not "fix" by reading TLS-level counters.
+- **git-clone downloads are device-only**: the icon-pack `git clone` transfer
+  is not visible at Node level — it shows up only in the device series (top
+  process `git`), never in the radar series.
+- The device series is machine-wide by construction: other apps' traffic
+  dilutes the radar-vs-device comparison (that is the point of the panel).
+
 ## Architecture at a glance
 
 - `shared/craft.ts` — `Craft` type, 14 `KINDS` (air: commercial, business,
@@ -359,6 +389,11 @@ Recolor limit: `recolorPixels`
   `tracks.ts` (TracksService: HistoryRecorder.trackFor + OpenSky `/tracks/all`
   merged per-icao24 trail; daily ledger `data/tracks/ledger.json` caps auto
   fetches at 300/day and all at 800/day — refusals answer cache + `budget`),
+  `traffic.ts` (createTrafficMonitor: WAN-edge counters, netstat/nettop device
+  series, per-day totals, watch-gated 1 Hz frames — see Traffic monitor),
+  `ais-tiles.ts` (pure: `clampCenter`/`boxesFor` (20° tiles) + `composeTiles`
+  home+follow dedup — single source for the aiscast subscription AND the
+  status `boxes`),
   `icon-tables.ts` (MILITARY_RULES/CIVIL_RULES — the resolver's
   callsign/model tables; a rule may carry a `pack` name),
   `icons.ts` (resolveAirIcon: military callsign table → FAA model table →
@@ -373,7 +408,10 @@ Recolor limit: `recolorPixels`
   replies, layers cleared on selection close/change; hot zone — restores
   `radar.zonesCfg` at boot, re-sends the config on every socket open
   (server-side state is memory-only), paints `status.hotzone` via
-  `setHotzone`; smooth motion — restores `radar.motion` at boot, `refresh()`
+  `setHotzone` and the aiscast tile rects via `setAisTileBoxes` (status
+  `secondary.boxes`, straight through — no client heuristics); traffic panel
+  — `createTrafficPanel` + watch re-send on open + `createBrowserTx` WAN-down
+  harvest started on first open; smooth motion — restores `radar.motion` at boot, `refresh()`
   passes the `motion` opt only while `motionOn && !replay.rewound` (playback
   frames never do), a 200 ms repaint tick (`startMotionTick`) armed/disposed
   around rewind via `syncMotionTick` at every gate flip, drawer toggle flips
@@ -386,31 +424,45 @@ Recolor limit: `recolorPixels`
   inserted below `craft-icons`, `hotzone.ts` =
   `hotzone-fill`/`hotzone-outline` rect (dominant-kind color at 18% fill +
   1 px stroke, feature `color`/`count` props) inserted below `craft-icons`,
+  `aisTiles.ts` = `ais-tile-outline` dashed `#4fc3f7` line layer
+  (source `ais-tile-src`) stroking the aiscast `secondary.boxes` rects,
+  added after hotzone with the same before-id (lands above it, below
+  `craft-icons`),
   `motion.ts` = dead-reckoning `effectivePosition` (air-only, 150 s cap,
   exclusions pass the raw fix) + `startMotionTick` throw-giving loop), `data/`
   (socket client, client store, feature building (live frames take a
   `motion: {nowMs}` opt that rewrites coordinates only), icon filter,
   `replay.ts` =
   client-side update suppression gate for rewind, `motion-cfg.ts` =
-  `radar.motion` load/save ("1"/"0"; absent/corrupt/throw → on)), `ui/` (panel (FAA info
+  `radar.motion` load/save ("1"/"0"; absent/corrupt/throw → on),
+  `browser-tx.ts` = 5 s resource-timing harvest of external-origin WAN
+  downloads (transferSize only, name+startTime dedupe) reported via
+  `traffic.report`), `ui/` (panel (FAA info
   rows; air: dep/arr route chips `IATA · city` → fly-to + dest marker,
   trail refresh button, R2 budget note), filters (+ the "Boost zones"
   section: air-kind checkboxes tinted via the color api + a 10–120 s slider,
   `ZonesControlOpts` 5th arg → `zones.config`), `zones-cfg.ts` (pure
   parse/serialize of `radar.zonesCfg`; corrupt → null, caller defaults
   `{kinds:[], 30000}`), HUD (` · Boost: <count> @<s>s` / ` · Boost paused`
-  appended to the feeds line from `feeds.opensky.boost`), `timeline.ts` (scrubber + REPLAY badge + LIVE +
+  appended to the feeds line from `feeds.opensky.boost`; the paused segment
+  is a titled span — tooltip "Slow the Aircraft-poll slider to fund zone
+  polling", paused-only), `timeline.ts` (scrubber + REPLAY badge + LIVE +
   view-window row — preset/custom range select over `ViewSel` (`format.ts`),
   persisted to the `radar.viewSel` localStorage key; scrubber and playback
   follow the view, no protocol change),
   `pollrate.ts` (`createFeedRate` factory — one slider per feed; the opensky
   instance shows credit warnings; the ais instance is the "Ship updates"
-  slider (no credits)); the HUD adds an aiscast fill credit line under the
+  slider (no credits)), `traffic.ts` (`createTrafficPanel` — see Traffic
+  monitor; `radar.trafficPanel` persistence, canvas graph + top-5 bands);
+  the HUD adds an aiscast fill credit line under the
   pill (`AIS fill: ≤3 attributions joined " · " (+N)`, or `AIS fill: waiting`
   while connected with none seen yet; visible only while
   `secondary.enabled && connected`); the settings drawer has an "AIS fill"
   home-tile park/clear control (posts `settings.update {homeRegion}`) and a
-  "Smooth motion" checkbox (Display group → `opts.setMotion`).
+  "Smooth motion" checkbox (Display group → `opts.setMotion`); the park
+  button renders disabled as "Needs AISCAST_API_KEY" while status
+  `secondary.enabled === false` — server-sourced truth re-applied on every
+  `setStats`, legacy frames without the field treated as enabled.
 - WS protocol (both ends mirror it, no shared file):
   client → server: `{type:"feed.rate",feed,ms}` (`feed` ∈ hub `FEED_IDS` =
   `["opensky", "ais"]`; the server clamps `feed.rate`/`ais` to [60000, 600000]
@@ -434,16 +486,25 @@ Recolor limit: `recolorPixels`
   `kinds` ⊆ AIR_KINDS — the hub validator drops the WHOLE frame on any bad
   member; `boostMs` finite here, clamped [10 s, 120 s] by the poller; no
   reply frame; the client re-sends on every socket open — server state is
-  memory-only, last-writer-wins like `ais.tile`);
+  memory-only, last-writer-wins like `ais.tile`),
+  `{type:"traffic.watch",on}` (gates the server's 1 Hz `traffic` frames;
+  the watcher set is per-socket and the panel re-sends on every open while
+  expanded — `ais.tile` lifecycle),
+  `{type:"traffic.report",down}` (delta browser WAN-down bytes since the
+  last report; finite ≥ 0, clamped ≤ 50 MB/report; folds into radar DOWN);
   server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`
   (craft objects carry an optional `icon` — air shape family / sea kind /
   absent in pre-icon snapshots),
-  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs,boost?},ais:{connected,enabled,lastError,lastMessageAt,flushMs,secondary:{enabled,connected,lastError,lastMessageAt,attributions}}},settings:{storageCapGb,ramCacheGb,cacheUsedBytes,homeRegion},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},hotzone,serverTime}`
+  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs,boost?},ais:{connected,enabled,lastError,lastMessageAt,flushMs,secondary:{enabled,connected,lastError,lastMessageAt,attributions,boxes?}}},settings:{storageCapGb,ramCacheGb,cacheUsedBytes,homeRegion},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},hotzone,serverTime}`
   (icons.state: ready|downloading|failed|absent; `secondary` is non-nullable —
   disabled = `enabled:false` zeroed, never null; `homeRegion` is
   `{lat,lon}|null`; `boost` = poller BoostStatus
   `{active,count,intervalMs,paused:"credits"|null}` — null/absent = legacy or
-  no zones config (every client read optional-chained); `hotzone` =
+  no zones config (every client read optional-chained); `boxes` =
+  `[[minLat,minLon],[maxLat,maxLon]][]` (≤2, the composed aiscast home+follow
+  tiles recomputed at status time — single source with the AIS subscription;
+  `[]` when disabled; the client strokes them as `ais-tile-outline`);
+  `hotzone` =
   broadcast-geometry copy `{center,halfW,halfH,count,kind}` (the poller's
   `dominantKind` ships as `kind`) or null),
   `{type:"timeline.state",time,craft,seq?}` (`time:null` = return to live / seek
@@ -455,6 +516,10 @@ Recolor limit: `recolorPixels`
   ledger remaining — note row in the panel, no HUD item),
   `{type:"flight.context",id,seq?,route}` (`route:null` = none; else
   `{airline,dep,arr,source}` with server-resolved `{icao,iata,name,city,
-  country,lat,lon}` airport refs — the client never looks airports up).
-- `test/` — 52 files, 992 tests. Node-environment Vitest; browser-only code
+  country,lat,lon}` airport refs — the client never looks airports up),
+  `{type:"traffic",at,radar:{up,down,upTotal,downTotal},device:{up,down,
+  upTotal,downTotal}|null,top:[{proc,bytes}]|null}` (1 Hz, only while
+  watchers exist; `device`/`top` null on non-mac/degraded — see Traffic
+  monitor).
+- `test/` — 55 files, 1086 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

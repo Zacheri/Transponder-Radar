@@ -77,12 +77,26 @@ export function createHud(root: HTMLElement): {
       ai = age <= AIS_STALE_MS ? "AIS: ok" : `AIS: stale ${Math.max(1, Math.round(age / 60000))}m`;
     }
     let boostSeg = "";
+    let paused = false;
     const boost = feeds.opensky.boost;
     if (boost?.active) {
-      if (boost.paused != null) boostSeg = " · Boost paused";
-      else if (boost.intervalMs != null) boostSeg = ` · Boost: ${boost.count} @${Math.round(boost.intervalMs / 1000)}s`;
+      if (boost.paused != null) {
+        boostSeg = " · Boost paused";
+        paused = true;
+      } else if (boost.intervalMs != null) boostSeg = ` · Boost: ${boost.count} @${Math.round(boost.intervalMs / 1000)}s`;
     }
-    feedsEl.textContent = `${os} · ${ai}${boostSeg}`;
+    feedsEl.textContent = `${os} · ${ai}`;
+    if (paused) {
+      // The paused segment is a titled span so the hover tooltip explains
+      // the fix; the rendered feeds line stays byte-identical to the plain
+      // string it used to be.
+      const seg = document.createElement("span");
+      seg.textContent = boostSeg;
+      seg.setAttribute("title", "Slow the Aircraft-poll slider to fund zone polling");
+      feedsEl.appendChild(seg);
+    } else if (boostSeg) {
+      feedsEl.textContent += boostSeg;
+    }
     // Attribution credit line (below the pill via CSS); hidden while the
     // fill feed is off or down. ?. guards legacy frames without secondary.
     const sec = feeds.ais.secondary;

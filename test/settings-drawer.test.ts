@@ -176,3 +176,33 @@ describe("settings drawer smooth-motion row", () => {
     expect(opts.setMotion).toHaveBeenLastCalledWith(true);
   });
 });
+
+describe("settings drawer park-button no-key state", () => {
+  // createSettings sets `disabled` on a real HTMLButtonElement; the shim
+  // carries it as a plain property.
+  const disabledOf = (el: FakeEl) => (el as unknown as { disabled?: boolean }).disabled;
+
+  it("disables and relabels the park button when secondaryEnabled is false", () => {
+    const { ui, park } = setup();
+    expect(disabledOf(park)).toBeFalsy();
+    ui.setStats({ ...STATS, secondaryEnabled: false });
+    expect(disabledOf(park)).toBe(true);
+    expect(park.textContent).toBe("Needs AISCAST_API_KEY");
+  });
+
+  it("restores enabled + text when secondaryEnabled flips true", () => {
+    const { ui, park } = setup();
+    ui.setStats({ ...STATS, secondaryEnabled: false });
+    ui.setStats({ ...STATS, secondaryEnabled: true });
+    expect(disabledOf(park)).toBe(false);
+    expect(park.textContent).toBe("Park AIS fill tile here");
+  });
+
+  it("treats a legacy frame without secondaryEnabled as enabled", () => {
+    const { ui, park } = setup();
+    ui.setStats({ ...STATS, secondaryEnabled: false });
+    ui.setStats(STATS);
+    expect(disabledOf(park)).toBe(false);
+    expect(park.textContent).toBe("Park AIS fill tile here");
+  });
+});

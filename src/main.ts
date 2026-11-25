@@ -12,6 +12,7 @@ import {
   clearDestMarker,
 } from "./map/trackLayers.js";
 import { addHotzoneLayer, setHotzone } from "./map/hotzone.js";
+import { addAisTileLayers, setAisTileBoxes } from "./map/aisTiles.js";
 import { startMotionTick } from "./map/motion.js";
 import { ClientStore } from "./data/store.js";
 import { RadarSocket } from "./data/ws.js";
@@ -516,6 +517,7 @@ map.on("load", async () => {
   addCraftLayers(map, buildIconFilter(visible));
   addTrackLayers(map);
   addHotzoneLayer(map);
+  addAisTileLayers(map); // after hotzone: lands above it, below craft-icons
   void refresh();
 
   socket = new RadarSocket(wsUrl, {
@@ -566,6 +568,9 @@ map.on("load", async () => {
       // or no zone) clears it. Color is unused on the null path.
       const hz = s.hotzone ?? null;
       setHotzone(map, hz, hz ? iconColorFor(hz.kind) : "");
+      // AIS fill tile outlines; boxes: [] (disabled fill) clears from status,
+      // and legacy frames without boxes clear via the ?? null.
+      setAisTileBoxes(map, s.feeds?.ais?.secondary?.boxes ?? null);
       aiscastEnabled = s.feeds.ais.secondary?.enabled === true;
       pollRate.setMs(s.feeds.opensky.pollMs);
       shipRate.setMs(s.feeds.ais.flushMs ?? 120000); // ?? — legacy frames carry no flushMs
@@ -600,6 +605,7 @@ map.on("load", async () => {
         pinnedBytes: s.history.pinnedBytes ?? 0,
         pins: s.pins ?? [],
         homeRegion: s.settings?.homeRegion ?? null,
+        secondaryEnabled: s.feeds.ais.secondary?.enabled ?? true, // legacy absent → enabled
       };
       settingsUi.setStats(lastStats);
     },

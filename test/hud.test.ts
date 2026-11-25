@@ -19,7 +19,9 @@ class FakeEl {
   private readonly classes = new Set<string>();
   constructor(readonly tag: string) {}
   get textContent(): string {
-    return this._textContent;
+    // Like the real DOM, a parent's text is its own text plus descendants'
+    // (the boost-paused segment is a titled child span).
+    return this._textContent + this.children.map((c) => c.textContent).join("");
   }
   set textContent(v: string) {
     this._textContent = v;
@@ -199,5 +201,38 @@ describe("hud boost segment", () => {
     expect(withBoost(null)).not.toContain("Boost");
     const t = withBoost(undefined);
     expect(t).toBe("OpenSky: ok · AIS: ok");
+  });
+});
+
+describe("hud boost-paused tooltip", () => {
+  const PAUSE_TITLE = "Slow the Aircraft-poll slider to fund zone polling";
+  type Boost = NonNullable<FeedStatus["opensky"]["boost"]>;
+
+  function withBoost(boost: Boost) {
+    const { setFeeds, feeds } = setup();
+    const f = makeFeeds({}) as FeedStatus;
+    (f.opensky as { boost?: Boost }).boost = boost;
+    setFeeds(f, 1000);
+    return feeds;
+  }
+
+  const titled = (el: FakeEl) =>
+    find(el, (e) => (e as unknown as Record<string, unknown>)["attr:title"] != null);
+
+  it("carries the guidance title on the paused segment, text unchanged", () => {
+    const feeds = withBoost({ active: true, count: 4, intervalMs: 30000, paused: "credits" });
+    expect(feeds.textContent).toBe("OpenSky: ok · AIS: ok · Boost paused");
+    const seg = must(titled(feeds), "titled paused segment");
+    expect((seg as unknown as Record<string, unknown>)["attr:title"]).toBe(PAUSE_TITLE);
+    expect(seg.textContent).toContain("Boost paused");
+  });
+
+  it("adds no title while boosting on a real interval, or with no boost", () => {
+    const running = withBoost({ active: true, count: 4, intervalMs: 30000, paused: null });
+    expect(running.textContent).toBe("OpenSky: ok · AIS: ok · Boost: 4 @30s");
+    expect(titled(running)).toBeUndefined();
+    const idle = withBoost({ active: false, count: 0, intervalMs: null, paused: null });
+    expect(idle.textContent).toBe("OpenSky: ok · AIS: ok");
+    expect(titled(idle)).toBeUndefined();
   });
 });
