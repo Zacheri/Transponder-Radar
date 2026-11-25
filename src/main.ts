@@ -44,6 +44,7 @@ import { createTimeline } from "./ui/timeline.js";
 import { DEFAULT_VIEW_SEL, computeViewWindow, parseViewSel } from "./ui/format.js";
 import type { ViewSel } from "./ui/format.js";
 import { createSettings, type SettingsStats } from "./ui/settings.js";
+import { createTrafficPanel } from "./ui/traffic.js";
 import { ReplayGate } from "./data/replay.js";
 import { createBrowserTx } from "./data/browser-tx.js";
 
@@ -289,6 +290,19 @@ const shipRate = createFeedRate(settingsUi.feedRates, {
 });
 const replay = new ReplayGate();
 
+// Traffic panel (spec 2026-11-25 R6): drawer sibling docked beside settings.
+// The watch flag lives here, not in the panel — the server keeps watchers in
+// memory only, so every socket open re-sends the current flag (zonesCfg
+// re-send idiom). Created after the socket declaration so a boot-expanded
+// panel's initial watch(true) reads null instead of hitting the TDZ.
+let trafficWatched = false;
+const trafficUi = createTrafficPanel(document.getElementById("app") as HTMLElement, {
+  watch: (on) => {
+    trafficWatched = on;
+    socket?.sendTrafficWatch(on);
+  },
+});
+
 // Trail auto-refresh cadence: half the aircraft poll, clamped to
 // [30 s, 300 s] (user ruling), re-read on every (re)start.
 const trailCadence = (): number => Math.min(300_000, Math.max(30_000, openSkyPollMs / 2));
@@ -526,6 +540,7 @@ map.on("load", async () => {
       // The server keeps the zones config in memory only: re-send the local
       // config on every open (first, reconnect, server restart).
       if (s === "open") socket?.sendZonesConfig(zonesCfg.kinds, zonesCfg.boostMs);
+      if (s === "open" && trafficWatched) socket?.sendTrafficWatch(true);
       if (s === "open" && !browserTx) {
         browserTx = createBrowserTx({ send: (down) => socket?.sendTrafficReport(down) });
         browserTx.start();
@@ -655,6 +670,7 @@ map.on("load", async () => {
       const eng = engine;
       if (eng) eng.feed(chunk);
     },
+    onTraffic: (sample) => trafficUi.update(sample),
   });
   socket.connect();
 

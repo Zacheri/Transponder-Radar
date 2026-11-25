@@ -656,3 +656,75 @@ body {
   color: var(--text);
   border-color: var(--muted);
 }
+
+/* Traffic panel (spec 2026-11-25-traffic-monitor R6): left-docked beside the
+   settings drawer (12 + 260 + 12 = 284). The collapsed header height is
+   pinned to match the drawer-head's computed height (10 + 13 + 10 + 1 border
+   = 34 px content-box, 38 px border-box) so the two collapsed drawers sit
+   flush at the bottom edge. Keep in sync with .drawer-head. */
+.traffic-panel {
+  top: auto;
+  left: 284px;
+  bottom: 60px;
+  width: 240px;
+}
+.traffic-panel .drawer-head {
+  height: 38px;
+}
+.traffic-canvas {
+  display: block;
+  width: 100%;
+  height: 56px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.traffic-main {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.traffic-bands {
+  flex: 1;
+  min-width: 0;
+}
+.traffic-line {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text);
+  line-height: 1.6;
+}
+.traffic-up-radar,
+.traffic-down-radar {
+  color: var(--accent);
+}
+.traffic-totals {
+  flex: none;
+  width: 100px;
+  border-left: 1px solid var(--border);
+  padding-left: 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.traffic-totals .traffic-line {
+  color: var(--muted);
+}
+.traffic-totals-src {
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.traffic-top {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 2px;
+}
+.traffic-top-row {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
