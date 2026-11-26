@@ -107,6 +107,19 @@ body {
   background-color: rgba(255, 255, 255, 0.08);
 }
 
+/* Below ~900px the timeline wraps to a second row (~78 px tall: bottom 12
+   → top ~90). Lift the compact attribution past that band: bottom 96 px
+   clears the wrapped timeline (z 9), and it also clears the HUD row
+   (bottom 60 px + ~30 px tall → top ~90) vertically, so even a wide
+   centered HUD can never meet the pill. Bottom band layout: timeline
+   12–90, HUD 60–90 (centered, never beside a lifted pill vertically),
+   attribution 96+. */
+@media (max-width: 900px) {
+  .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib.maplibregl-compact {
+    margin-bottom: 96px;
+  }
+}
+
 .panel {
   position: absolute;
   top: 56px;

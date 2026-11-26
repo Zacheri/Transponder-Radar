@@ -53,9 +53,10 @@ export function commitRegion(
   return res;
 }
 
-/** Remove by id; unknown ids leave the list content unchanged. */
+/** Remove by id; an unknown id returns the input list and writes nothing. */
 export function dropRegion(state: Region[], id: string, storage: StorageLike): Region[] {
   const list = removeRegion(state, id);
+  if (list.length === state.length) return state;
   persist(list, storage);
   return list;
 }

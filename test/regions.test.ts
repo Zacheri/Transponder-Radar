@@ -33,6 +33,16 @@ describe("parseRegions / serializeRegions", () => {
     }
   });
 
+  it("drops boxes with |lon| > 180 on either corner", () => {
+    const raw = JSON.stringify([
+      { id: "w", kind: "adsb", b: [[0, 181], [1, 185]] },
+      { id: "x", kind: "adsb", b: [[0, -190], [1, -185]] },
+      { id: "y", kind: "adsb", b: [[0, 175], [1, 190]] },
+      { id: "ok", kind: "adsb", b: [[0, -180], [1, 180]] },
+    ]);
+    expect(parseRegions(raw).map((r) => r.id)).toEqual(["ok"]);
+  });
+
   it("drops bad entries and keeps the valid ones", () => {
     const raw = JSON.stringify([
       region("ok"),
@@ -96,6 +106,8 @@ describe("addRegion", () => {
       ["sub-MIN_DEG lon", { lat: 40, lon: 40 }, { lat: 41, lon: 40 + tiny }],
       ["lat > 90", { lat: 40, lon: 40 }, { lat: 95, lon: 41 }],
       ["lat < −90", { lat: -91, lon: 40 }, { lat: 0, lon: 41 }],
+      ["lon > 180 (corner b)", { lat: 40, lon: 40 }, { lat: 41, lon: 185 }],
+      ["lon < −180 (corner a)", { lat: -40, lon: -181 }, { lat: 0, lon: 0 }],
       ["NaN corner", { lat: NaN, lon: 40 }, { lat: 41, lon: 41 }],
     ];
     for (const [what, a, b] of cases) {

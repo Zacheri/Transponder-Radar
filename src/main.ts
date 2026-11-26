@@ -1,6 +1,6 @@
 import { createMap } from "./map/map.js";
-import { createKindIconRegistrar, type KindIconRegistrar } from "./map/icons.js";
-import { createPackIconLoader, type PackIconLoader } from "./map/pack-icons.js";
+import { createKindIconRegistrar } from "./map/icons.js";
+import { createPackIconLoader } from "./map/pack-icons.js";
 import { addCraftSource, addCraftLayers, setCraftData, setPlaybackMode } from "./map/layers.js";
 import {
   addTrackLayers,
@@ -20,7 +20,7 @@ import type { AircraftInfo, FlightRoute, TrackPoint } from "./data/ws.js";
 import { buildFeatureCollection, type FeatureBuildOpts } from "./data/features.js";
 import { buildIconFilter } from "./data/filter.js";
 import { createCoalescedRun } from "./data/coalesce.js";
-import { decodeSupported, createDecodePool, type DecodePool } from "./data/decode.js";
+import { decodeSupported, createDecodePool } from "./data/decode.js";
 import { createPlaybackEngine, type PlaybackApi } from "./data/playback.js";
 import { AIR_KINDS, SEA_KINDS, KIND_FALLBACK_ICON, colorKey } from "../shared/craft.js";
 import type { AirKind, Craft, CraftKind } from "../shared/craft.js";
@@ -148,9 +148,11 @@ const settingsUi = createSettings(document.getElementById("app") as HTMLElement,
 });
 settingsUi.setRegions(regions);
 
-// Set after the map.load flow; null until then.
-let packLoader: PackIconLoader | null = null;
-let kindRegistrar: KindIconRegistrar | null = null;
+// Both registrars are created once and survive style rebuilds: each holds
+// its registered-key set and re-adds every image on style.load, so the
+// projection toggle's full rebuild never loses craft art.
+const kindRegistrar = createKindIconRegistrar(map);
+const packLoader = createPackIconLoader(map);
 // Color-keyed names registered on the map by the last refresh(); playback
 // frames reuse it instead of touching the store.
 let lastRegistered: ReadonlySet<string> | undefined;
@@ -158,9 +160,8 @@ let lastRegistered: ReadonlySet<string> | undefined;
 // defaults (KINDS[].color).
 let iconColorState: IconColorState = loadIconColors(localStorage);
 const iconColorFor = (kind: CraftKind): string => effectiveColor(kind, iconColorState);
-// Playback wiring, created in the map.load flow; null until then.
-// pool != null ⇔ decodeSupported() (checked once at timeline creation).
-let pool: DecodePool | null = null;
+// Playback engine, created at module scope after the timeline; the rewind
+// gates read it as null until then.
 let engine: PlaybackApi | null = null;
 // Latest rendered playback frame (id → craft); playback frames never
 // touch the store, so click/click-fallback and panel updates read this.
@@ -226,22 +227,15 @@ async function refresh(): Promise<void> {
   // names fall back to the family silhouette inside buildFeatureCollection.
   // Both registrars get the same color-keyed set (each ignores the other's
   // names); the combined ok-set is the registered set for feature building.
-  let registered: ReadonlySet<string> | undefined;
-  if (packLoader && kindRegistrar) {
-    const keys = new Set<string>();
-    for (const c of crafts) {
-      const base = c.icon ?? (c.domain === "air" ? KIND_FALLBACK_ICON[c.kind as AirKind] : c.kind);
-      keys.add(colorKey(base, iconColorFor(c.kind)));
-    }
-    const [packKeys, kindKeys] = await Promise.all([packLoader.ensure(keys), kindRegistrar.ensure(keys)]);
-    registered = new Set([...packKeys, ...kindKeys]);
+  const keys = new Set<string>();
+  for (const c of crafts) {
+    const base = c.icon ?? (c.domain === "air" ? KIND_FALLBACK_ICON[c.kind as AirKind] : c.kind);
+    keys.add(colorKey(base, iconColorFor(c.kind)));
   }
+  const [packKeys, kindKeys] = await Promise.all([packLoader.ensure(keys), kindRegistrar.ensure(keys)]);
+  const registered = new Set([...packKeys, ...kindKeys]);
   lastRegistered = registered;
-  const opts: FeatureBuildOpts = {};
-  if (registered !== undefined) {
-    opts.iconRegistered = registered;
-    opts.colorFor = iconColorFor;
-  }
+  const opts: FeatureBuildOpts = { iconRegistered: registered, colorFor: iconColorFor };
   // Motion on live frames only (gated in rewind); one shared nowMs per pass.
   if (motionOn && !replay.rewound) opts.motion = { nowMs: Date.now() };
   setCraftData(map, buildFeatureCollection(crafts, opts));
@@ -555,11 +549,13 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-map.on("load", async () => {
-  // Family/sea icons are lazy color-keyed registrations (the first refresh
-  // registers the keys in use) — no start-up registration anymore.
-  kindRegistrar = createKindIconRegistrar(map);
-  packLoader = createPackIconLoader(map);
+// Style-scoped setup: runs on the first load AND on every style rebuild —
+// the projection toggle is a full setStyle rebuild, and style.load fires
+// each time it finishes. Every adder below guards existing source/layer
+// ids, so the double call on the first boot (style.load then load) is
+// idempotent. Registered before the socket connects so no rebuild can
+// race past it.
+function setupStyleLayers(): void {
   addCraftSource(map);
   addCraftLayers(map, buildIconFilter(visible));
   addTrackLayers(map);
@@ -567,254 +563,276 @@ map.on("load", async () => {
   addAisTileLayers(map); // after hotzone: lands above it, below craft-icons
   addRegionLayers(map); // after the ais-tile outlines: on top of them, below craft-icons
   paintRegions(); // boot-restored sections (spec §B restore)
+  if (engine != null && engine.state !== "idle") setPlaybackMode(map, true);
+  if (trailId) {
+    // Selected craft: re-anchor trail, prediction and dest marker from the
+    // state already held — a style rebuild never re-fetches.
+    applyTrailLayers();
+    const arr = trailRoute?.arr;
+    if (arr && arr.lat != null && arr.lon != null) {
+      setDestMarker(map, { lon: arr.lon, lat: arr.lat, name: arr.name ?? arr.icao ?? arr.code });
+    }
+  }
   void refresh();
+}
+map.on("style.load", setupStyleLayers);
+map.on("load", setupStyleLayers);
 
-  socket = new RadarSocket(wsUrl, {
-    onSnapshot: (crafts) => {
-      replay.onSnapshot();
-      if (!replay.rewound) timeline.setLive();
-      store.applySnapshot(crafts);
-      // LIVE restored (snapshot answering requestLive, or reconnect): the
-      // trail interval and the unsliced trail come back with it.
+// The socket is created once, at module scope: a style rebuild (the
+// projection toggle) must never skip or duplicate the connection.
+socket = new RadarSocket(wsUrl, {
+  onSnapshot: (crafts) => {
+    replay.onSnapshot();
+    if (!replay.rewound) timeline.setLive();
+    store.applySnapshot(crafts);
+    // LIVE restored (snapshot answering requestLive, or reconnect): the
+    // trail interval and the unsliced trail come back with it.
+    syncTrailTimer();
+    syncMotionTick(); // motion resumes on LIVE restore, if toggled on
+    if (trailId) {
+      applyTrailLayers();
+      sendTrail(true);
+    }
+  },
+  onUpdate: (upsert, remove) => {
+    if (replay.onUpdate()) store.applyUpdate(upsert, remove);
+  },
+  onConnection: (s) => {
+    hud.setStatus(s);
+    // The server keeps the zones config in memory only: re-send the local
+    // config on every open (first, reconnect, server restart).
+    if (s === "open") socket?.sendZonesConfig(zonesCfg.kinds, zonesCfg.boostMs);
+    if (s === "open" && trafficWatched) socket?.sendTrafficWatch(true);
+    if (s === "open" && !browserTx) {
+      browserTx = createBrowserTx({ send: (down) => socket?.sendTrafficReport(down) });
+      browserTx.start();
+    }
+    if (s === "open" && replay.rewound) {
+      replay.exitReplay();
+      hud.setReplay(null);
+      timeline.setLive();
+      lastPlayFrame = null;
+      const eng = engine;
+      if (eng && eng.state !== "idle") {
+        eng.stop();
+        setPlaybackMode(map, false);
+      }
       syncTrailTimer();
-      syncMotionTick(); // motion resumes on LIVE restore, if toggled on
-      if (trailId) {
-        applyTrailLayers();
-        sendTrail(true);
-      }
-    },
-    onUpdate: (upsert, remove) => {
-      if (replay.onUpdate()) store.applyUpdate(upsert, remove);
-    },
-    onConnection: (s) => {
-      hud.setStatus(s);
-      // The server keeps the zones config in memory only: re-send the local
-      // config on every open (first, reconnect, server restart).
-      if (s === "open") socket?.sendZonesConfig(zonesCfg.kinds, zonesCfg.boostMs);
-      if (s === "open" && trafficWatched) socket?.sendTrafficWatch(true);
-      if (s === "open" && !browserTx) {
-        browserTx = createBrowserTx({ send: (down) => socket?.sendTrafficReport(down) });
-        browserTx.start();
-      }
-      if (s === "open" && replay.rewound) {
-        replay.exitReplay();
-        hud.setReplay(null);
-        timeline.setLive();
-        lastPlayFrame = null;
-        const eng = engine;
-        if (eng && eng.state !== "idle") {
-          eng.stop();
-          setPlaybackMode(map, false);
-        }
-        syncTrailTimer();
-        syncMotionTick();
-      }
-    },
-    onStatus: (s) => {
-      hud.setFeeds(s.feeds, s.serverTime);
-      hud.setIcons(s.icons ?? null); // ?? — legacy frames carry no icons
-      // One rect per hot zone, each in its own dominant kind's icon color
-      // (<= 2, slot-stable order); empty/legacy clears them.
-      setHotzones(
-        map,
-        (s.hotzones ?? []).map((z) => ({
-          center: z.center,
-          halfW: z.halfW,
-          halfH: z.halfH,
-          count: z.count,
-          color: iconColorFor(z.kind),
-        })),
-      );
-      // AIS fill tile outlines; boxes: [] (disabled fill) clears from status,
-      // and legacy frames without boxes clear via the ?? null.
-      setAisTileBoxes(map, s.feeds?.ais?.secondary?.boxes ?? null);
-      aiscastEnabled = s.feeds.ais.secondary?.enabled === true;
-      pollRate.setMs(s.feeds.opensky.pollMs);
-      shipRate.setMs(s.feeds.ais.flushMs ?? 120000); // ?? — legacy frames carry no flushMs
-      if (s.feeds.opensky.pollMs !== openSkyPollMs) {
-        openSkyPollMs = s.feeds.opensky.pollMs;
-        stopTrailTimer();
-        syncTrailTimer(); // re-create the refresh interval at the new cadence
-      }
-      if (s.faa.state === "ready" && lastFaaState !== "ready") {
-        const purged: string[] = [];
-        for (const [id, v] of infoCache) {
-          if (v === null) {
-            infoCache.delete(id);
-            purged.push(id);
-          }
-        }
-        if (purged.length) panel.resetInfoRequests(purged);
-      }
-      lastFaaState = s.faa.state;
-      metaSnapshotMs = s.history.snapshotMs ?? 60000;
-      metaStaleMs = s.staleMs ?? 120000;
-      histFrom = s.history.from;
-      histTo = s.history.to;
-      // Re-intersect the view with history on every status frame.
-      const v = viewWindow();
-      timeline.setRange(v?.from ?? null, v?.to ?? null);
-      lastStats = {
-        storageCapGb: s.settings?.storageCapGb ?? STORAGE_CAP_GB_DEFAULT,
-        ramCacheGb: s.settings?.ramCacheGb ?? RAM_CACHE_GB_DEFAULT,
-        cacheUsedBytes: s.settings?.cacheUsedBytes ?? 0,
-        usedBytes: s.history.usedBytes ?? 0,
-        pinnedBytes: s.history.pinnedBytes ?? 0,
-        pins: s.pins ?? [],
-        homeRegion: s.settings?.homeRegion ?? null,
-        secondaryEnabled: s.feeds.ais.secondary?.enabled ?? true, // legacy absent → enabled
-      };
-      settingsUi.setStats(lastStats);
-    },
-    onTimelineState: (time, crafts, seq) => {
-      const eng = engine;
-      if (time === null) {
-        // Seek failed: leave rewind and ask for a fresh live snapshot, as LIVE does.
-        replay.exitReplay();
-        hud.setReplay(null);
-        timeline.setLive();
-        lastPlayFrame = null;
-        if (eng && eng.state !== "idle") {
-          eng.stop();
-          setPlaybackMode(map, false);
-        }
-        replay.requestLive();
-        socket?.sendTimelineLive();
-        syncTrailTimer(); // rewind exited immediately: trail traffic resumes
-        syncMotionTick();
-        return;
-      }
-      const s = seq ?? 0;
-      if (s < appliedSeekSeq) return;
-      appliedSeekSeq = s;
-      lastSeekT = time;
-      store.applySnapshot(crafts);
-      hud.setReplay(time);
-      applyTrailLayers(); // trail/prediction slice to the seek cursor
-    },
-    onAircraftInfo: (id, info) => {
-      infoCache.set(id, info);
-      panel.setInfo(id, info);
-    },
-    onFlightContext: (id, route, seq) => {
-      const s = seq ?? 0;
-      if (s < appliedContextSeq) return;
-      appliedContextSeq = s;
-      routeCache.set(id, route);
-      if (id === trailId) {
-        trailRoute = route;
-        const arr = route?.arr;
-        if (arr && arr.lat != null && arr.lon != null) {
-          setDestMarker(map, { lon: arr.lon, lat: arr.lat, name: arr.name ?? arr.icao ?? arr.code });
-        } else {
-          clearDestMarker(map);
-        }
-        applyTrailLayers(); // prediction may switch stub → great circle
-      }
-      panel.showContext(id, route);
-    },
-    onFlightTrack: (id, reply, seq) => {
-      const s = seq ?? 0;
-      if (s < appliedTrackSeq) return;
-      appliedTrackSeq = s;
-      budgetCache.set(id, reply.budget);
-      if (id === trailId) {
-        trailPath = reply.path;
-        applyTrailLayers();
-      }
-      panel.showTrack(id, reply.budget);
-    },
-    onPins: (pins) => {
-      timeline.setPins(pins);
-      lastStats.pins = pins;
-      settingsUi.setStats(lastStats);
-    },
-    onWindowChunk: (chunk) => {
-      const eng = engine;
-      if (eng) eng.feed(chunk);
-    },
-    onTraffic: (sample) => trafficUi.update(sample),
-  });
-  socket.connect();
-
-  // Engine + pool after the socket is assigned: requestWindow fires only
-  // from user-initiated play, so the socket is always ready by then.
-  pool = decodeSupported() ? createDecodePool() : null;
-  const pl = pool; // const copy: narrowing survives into the decode closure
-  engine = createPlaybackEngine({
-    snapshotMs: () => metaSnapshotMs,
-    staleMs: () => metaStaleMs,
-    historyFrom: () => viewWindow()?.from ?? null,
-    historyTo: () => viewWindow()?.to ?? null,
-    requestWindow: (r) => socket?.sendTimelineWindow(r.seq, r.from, r.to, r.stride, r.maxBytes),
-    decode: pl ? (b) => pl.decode(b) : () => Promise.reject(new Error("decode unsupported")),
-    onFrame,
-    onState: (s) => {
-      timeline.setPlaying(s === "playing" || s === "buffering");
-      if (s === "playing" || s === "buffering") startPlaybackLoop();
-    },
-    now: () => performance.now(),
-  });
-
-  store.subscribe(() => refreshRun.request());
-
-  filters = createFilters(
-    document.getElementById("app") as HTMLElement,
-    visible,
-    (v) => {
-      visible = v;
-      const f = buildIconFilter(v);
-      map.setFilter("craft-icons", f);
-      map.setFilter("craft-labels", f);
-      map.setFilter("craft-sublabels", f);
-    },
-    {
-      getColor: (k) => effectiveColor(k, iconColorState),
-      setColor: (k, hex) => {
-        iconColorState = setKindColor(iconColorState, k, hex);
-        saveIconColors(iconColorState, localStorage);
-        // immediate (not coalesced): closes the window where playback frames
-        // would reference a color key that is not registered yet
-        void refresh();
-      },
-    },
-    { initial: zonesCfg, onZonesChange: applyZonesCfg },
-  );
-
-  map.on("click", "craft-icons", (e) => {
-    const f = e.features?.[0];
-    if (!f) return;
-    const id = f.properties.id as string;
-    const craft = lastPlayFrame?.get(id) ?? store.get(id);
-    if (craft) {
-      panel.show(craft);
-      beginTrail(craft);
+      syncMotionTick();
     }
-  });
-  map.on("click", (e) => {
-    const features = map.queryRenderedFeatures(e.point, { layers: ["craft-icons"] });
-    if (!features.length) {
-      panel.hide();
-      clearTrail();
+  },
+  onStatus: (s) => {
+    hud.setFeeds(s.feeds, s.serverTime);
+    hud.setIcons(s.icons ?? null); // ?? — legacy frames carry no icons
+    // One rect per hot zone, each in its own dominant kind's icon color
+    // (<= 2, slot-stable order); empty/legacy clears them.
+    setHotzones(
+      map,
+      (s.hotzones ?? []).map((z) => ({
+        center: z.center,
+        halfW: z.halfW,
+        halfH: z.halfH,
+        count: z.count,
+        color: iconColorFor(z.kind),
+      })),
+    );
+    // AIS fill tile outlines; boxes: [] (disabled fill) clears from status,
+    // and legacy frames without boxes clear via the ?? null.
+    setAisTileBoxes(map, s.feeds?.ais?.secondary?.boxes ?? null);
+    aiscastEnabled = s.feeds.ais.secondary?.enabled === true;
+    pollRate.setMs(s.feeds.opensky.pollMs);
+    shipRate.setMs(s.feeds.ais.flushMs ?? 120000); // ?? — legacy frames carry no flushMs
+    if (s.feeds.opensky.pollMs !== openSkyPollMs) {
+      openSkyPollMs = s.feeds.opensky.pollMs;
+      stopTrailTimer();
+      syncTrailTimer(); // re-create the refresh interval at the new cadence
     }
-  });
-  map.on("mouseenter", "craft-icons", () => {
-    map.getCanvas().style.cursor = "pointer";
-  });
-  map.on("mouseleave", "craft-icons", () => {
-    map.getCanvas().style.cursor = "";
-  });
+    if (s.faa.state === "ready" && lastFaaState !== "ready") {
+      const purged: string[] = [];
+      for (const [id, v] of infoCache) {
+        if (v === null) {
+          infoCache.delete(id);
+          purged.push(id);
+        }
+      }
+      if (purged.length) panel.resetInfoRequests(purged);
+    }
+    lastFaaState = s.faa.state;
+    metaSnapshotMs = s.history.snapshotMs ?? 60000;
+    metaStaleMs = s.staleMs ?? 120000;
+    histFrom = s.history.from;
+    histTo = s.history.to;
+    // Re-intersect the view with history on every status frame.
+    const v = viewWindow();
+    timeline.setRange(v?.from ?? null, v?.to ?? null);
+    lastStats = {
+      storageCapGb: s.settings?.storageCapGb ?? STORAGE_CAP_GB_DEFAULT,
+      ramCacheGb: s.settings?.ramCacheGb ?? RAM_CACHE_GB_DEFAULT,
+      cacheUsedBytes: s.settings?.cacheUsedBytes ?? 0,
+      usedBytes: s.history.usedBytes ?? 0,
+      pinnedBytes: s.history.pinnedBytes ?? 0,
+      pins: s.pins ?? [],
+      homeRegion: s.settings?.homeRegion ?? null,
+      secondaryEnabled: s.feeds.ais.secondary?.enabled ?? true, // legacy absent → enabled
+    };
+    settingsUi.setStats(lastStats);
+  },
+  onTimelineState: (time, crafts, seq) => {
+    const eng = engine;
+    if (time === null) {
+      // Seek failed: leave rewind and ask for a fresh live snapshot, as LIVE does.
+      replay.exitReplay();
+      hud.setReplay(null);
+      timeline.setLive();
+      lastPlayFrame = null;
+      if (eng && eng.state !== "idle") {
+        eng.stop();
+        setPlaybackMode(map, false);
+      }
+      replay.requestLive();
+      socket?.sendTimelineLive();
+      syncTrailTimer(); // rewind exited immediately: trail traffic resumes
+      syncMotionTick();
+      return;
+    }
+    const s = seq ?? 0;
+    if (s < appliedSeekSeq) return;
+    appliedSeekSeq = s;
+    lastSeekT = time;
+    store.applySnapshot(crafts);
+    hud.setReplay(time);
+    applyTrailLayers(); // trail/prediction slice to the seek cursor
+  },
+  onAircraftInfo: (id, info) => {
+    infoCache.set(id, info);
+    panel.setInfo(id, info);
+  },
+  onFlightContext: (id, route, seq) => {
+    const s = seq ?? 0;
+    if (s < appliedContextSeq) return;
+    appliedContextSeq = s;
+    routeCache.set(id, route);
+    if (id === trailId) {
+      trailRoute = route;
+      const arr = route?.arr;
+      if (arr && arr.lat != null && arr.lon != null) {
+        setDestMarker(map, { lon: arr.lon, lat: arr.lat, name: arr.name ?? arr.icao ?? arr.code });
+      } else {
+        clearDestMarker(map);
+      }
+      applyTrailLayers(); // prediction may switch stub → great circle
+    }
+    panel.showContext(id, route);
+  },
+  onFlightTrack: (id, reply, seq) => {
+    const s = seq ?? 0;
+    if (s < appliedTrackSeq) return;
+    appliedTrackSeq = s;
+    budgetCache.set(id, reply.budget);
+    if (id === trailId) {
+      trailPath = reply.path;
+      applyTrailLayers();
+    }
+    panel.showTrack(id, reply.budget);
+  },
+  onPins: (pins) => {
+    timeline.setPins(pins);
+    lastStats.pins = pins;
+    settingsUi.setStats(lastStats);
+  },
+  onWindowChunk: (chunk) => {
+    const eng = engine;
+    if (eng) eng.feed(chunk);
+  },
+  onTraffic: (sample) => trafficUi.update(sample),
+});
+socket.connect();
 
-  // aiscast follow tile: push the settled viewport center, 1 s debounce,
-  // only while the status says the fill feed is enabled.
-  let tileTimer: number | null = null;
-  map.on("moveend", () => {
-    if (tileTimer != null) window.clearTimeout(tileTimer);
-    tileTimer = window.setTimeout(() => {
-      tileTimer = null;
-      if (!aiscastEnabled || !socket) return;
-      const c = map.getCenter();
-      socket.sendAisTile(c.lat, c.lng);
-    }, 1000);
-  });
+// Engine + pool after the socket is assigned: requestWindow fires only
+// from user-initiated play, so the socket is always ready by then.
+// pool != null ⇔ decodeSupported() (checked once, here).
+const pool = decodeSupported() ? createDecodePool() : null;
+engine = createPlaybackEngine({
+  snapshotMs: () => metaSnapshotMs,
+  staleMs: () => metaStaleMs,
+  historyFrom: () => viewWindow()?.from ?? null,
+  historyTo: () => viewWindow()?.to ?? null,
+  requestWindow: (r) => socket?.sendTimelineWindow(r.seq, r.from, r.to, r.stride, r.maxBytes),
+  decode: pool ? (b) => pool.decode(b) : () => Promise.reject(new Error("decode unsupported")),
+  onFrame,
+  onState: (s) => {
+    timeline.setPlaying(s === "playing" || s === "buffering");
+    if (s === "playing" || s === "buffering") startPlaybackLoop();
+  },
+  now: () => performance.now(),
+});
+
+store.subscribe(() => refreshRun.request());
+
+filters = createFilters(
+  document.getElementById("app") as HTMLElement,
+  visible,
+  (v) => {
+    visible = v;
+    const f = buildIconFilter(v);
+    map.setFilter("craft-icons", f);
+    map.setFilter("craft-labels", f);
+    map.setFilter("craft-sublabels", f);
+  },
+  {
+    getColor: (k) => effectiveColor(k, iconColorState),
+    setColor: (k, hex) => {
+      iconColorState = setKindColor(iconColorState, k, hex);
+      saveIconColors(iconColorState, localStorage);
+      // immediate (not coalesced): closes the window where playback frames
+      // would reference a color key that is not registered yet
+      void refresh();
+    },
+  },
+  { initial: zonesCfg, onZonesChange: applyZonesCfg },
+);
+
+// Craft interactions and the aiscast follow-tile also live outside the
+// style setup: map-level handlers survive a style rebuild, and registering
+// them per style.load would stack duplicates on every projection toggle.
+map.on("click", "craft-icons", (e) => {
+  // The region drawer disables dragPan, so maplibre's click suppression
+  // never fires while armed: the release of a commit drag must not open
+  // the panel.
+  if (regionArmed) return;
+  const f = e.features?.[0];
+  if (!f) return;
+  const id = f.properties.id as string;
+  const craft = lastPlayFrame?.get(id) ?? store.get(id);
+  if (craft) {
+    panel.show(craft);
+    beginTrail(craft);
+  }
+});
+map.on("click", (e) => {
+  if (regionArmed) return;
+  const features = map.queryRenderedFeatures(e.point, { layers: ["craft-icons"] });
+  if (!features.length) {
+    panel.hide();
+    clearTrail();
+  }
+});
+map.on("mouseenter", "craft-icons", () => {
+  map.getCanvas().style.cursor = "pointer";
+});
+map.on("mouseleave", "craft-icons", () => {
+  map.getCanvas().style.cursor = "";
+});
+
+// aiscast follow tile: push the settled viewport center, 1 s debounce,
+// only while the status says the fill feed is enabled.
+let tileTimer: number | null = null;
+map.on("moveend", () => {
+  if (tileTimer != null) window.clearTimeout(tileTimer);
+  tileTimer = window.setTimeout(() => {
+    tileTimer = null;
+    if (!aiscastEnabled || !socket) return;
+    const c = map.getCenter();
+    socket.sendAisTile(c.lat, c.lng);
+  }, 1000);
 });

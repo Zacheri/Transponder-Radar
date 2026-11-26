@@ -181,6 +181,7 @@ interface Stub {
   listenerCount: (type: string) => number;
   setDatas: unknown[];
   container: { style: { cursor: string } };
+  canvas: { style: { cursor: string } };
   pan: { enabled: boolean; log: string[] };
   rotate: { enabled: boolean; log: string[] };
 }
@@ -189,6 +190,9 @@ function drawerMap(opts?: { pan?: boolean; rotate?: boolean }): Stub {
   const handlers = new Map<string, Array<(e: any) => void>>();
   const setDatas: unknown[] = [];
   const container = { style: { cursor: "grab" } };
+  // The craft-hover handlers write the CANVAS cursor, so the drawer must
+  // too — the canvas starts unstyled (inheriting the container).
+  const canvas = { style: { cursor: "" } };
   const handler = (start: boolean) => {
     const state = { enabled: start, log: [] as string[] };
     return {
@@ -213,6 +217,7 @@ function drawerMap(opts?: { pan?: boolean; rotate?: boolean }): Stub {
     off: (t: string, fn: (e: any) => void) =>
       handlers.set(t, (handlers.get(t) ?? []).filter((f) => f !== fn)),
     getContainer: () => container,
+    getCanvas: () => canvas,
     // px → degrees, linear and invertible for assertions.
     unproject: ([x, y]: [number, number]) => ({ lng: x / 10, lat: y / 10 }),
     getSource: (id: string) =>
@@ -228,14 +233,15 @@ function drawerMap(opts?: { pan?: boolean; rotate?: boolean }): Stub {
     listenerCount: (t) => (handlers.get(t) ?? []).length,
     setDatas,
     container,
+    canvas,
     pan: pan.state,
     rotate: rotate.state,
   };
 }
 
 interface DomStub {
-  doc: { addEventListener: (t: string, fn: any) => void; removeEventListener: (t: string, fn: any) => void };
-  win: { addEventListener: (t: string, fn: any) => void; removeEventListener: (t: string, fn: any) => void };
+  doc: { removals: string[] };
+  win: { removals: string[] };
   fire: (where: "doc" | "win", type: string, e?: unknown) => void;
 }
 
@@ -243,9 +249,12 @@ function stubDom(): DomStub {
   const make = () => {
     const listeners = new Map<string, any[]>();
     const bag = {
+      removals: [] as string[],
       addEventListener: (t: string, fn: any) => listeners.set(t, [...(listeners.get(t) ?? []), fn]),
-      removeEventListener: (t: string, fn: any) =>
-        listeners.set(t, (listeners.get(t) ?? []).filter((f) => f !== fn)),
+      removeEventListener: (t: string, fn: any) => {
+        bag.removals.push(t);
+        listeners.set(t, (listeners.get(t) ?? []).filter((f) => f !== fn));
+      },
       fire: (t: string, e: unknown = {}) => {
         for (const fn of [...(listeners.get(t) ?? [])]) fn(e);
       },
@@ -268,12 +277,13 @@ afterEach(() => vi.unstubAllGlobals());
 const noop = () => {};
 
 describe("createRegionDrawer", () => {
-  it("arms: disables gestures and sets the crosshair cursor", () => {
+  it("arms: disables gestures and sets the crosshair cursor (canvas — craft hover writes the canvas)", () => {
     const s = drawerMap();
     stubDom();
     createRegionDrawer(s.map, { kind: "adsb", onCommit: noop, onCancel: noop });
     expect(s.pan.log).toEqual(["disable"]);
     expect(s.rotate.log).toEqual(["disable"]);
+    expect(s.canvas.style.cursor).toBe("crosshair");
     expect(s.container.style.cursor).toBe("crosshair");
   });
 
@@ -295,12 +305,22 @@ describe("createRegionDrawer", () => {
     expect(s.pan.enabled).toBe(true);
     expect(s.rotate.enabled).toBe(true);
     expect(s.container.style.cursor).toBe("grab");
+    expect(s.canvas.style.cursor).toBe("");
     expect(s.setDatas[s.setDatas.length - 1]).toEqual({ type: "FeatureCollection", features: [] });
     expect(s.listenerCount("mousedown")).toBe(0);
     expect(s.listenerCount("mousemove")).toBe(0);
     expect(s.listenerCount("mouseup")).toBe(0);
     drawer.cancel();
     expect(commits).toHaveLength(1);
+  });
+
+  it("teardown removes the document/window listeners", () => {
+    const dom = stubDom();
+    const s = drawerMap();
+    const drawer = createRegionDrawer(s.map, { kind: "adsb", onCommit: noop, onCancel: noop });
+    drawer.cancel();
+    expect(dom.doc.removals).toContain("keydown");
+    expect(dom.win.removals).toContain("blur");
   });
 
   it("tiny drag (< MIN_PX) cancels instead of committing", () => {

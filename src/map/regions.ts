@@ -150,7 +150,13 @@ export function createRegionDrawer(map: maplibregl.Map, opts: RegionDrawerOpts):
   const gestures = { pan: map.dragPan.isEnabled(), rotate: map.dragRotate.isEnabled() };
   map.dragPan.disable();
   map.dragRotate.disable();
-  const prevCursor = container.style.cursor;
+  // The crosshair goes on the CANVAS (craft-hover writes the canvas cursor,
+  // which would win over the container); the container set covers the
+  // non-canvas chrome and is harmless.
+  const canvas = map.getCanvas();
+  const prevCanvasCursor = canvas.style.cursor;
+  const prevContainerCursor = container.style.cursor;
+  canvas.style.cursor = "crosshair";
   container.style.cursor = "crosshair";
 
   let anchor: { at: Pixel; where: LonLat } | null = null;
@@ -195,7 +201,8 @@ export function createRegionDrawer(map: maplibregl.Map, opts: RegionDrawerOpts):
     else map.dragPan.disable();
     if (gestures.rotate) map.dragRotate.enable();
     else map.dragRotate.disable();
-    container.style.cursor = prevCursor;
+    container.style.cursor = prevContainerCursor;
+    canvas.style.cursor = prevCanvasCursor;
     setRegionPreview(map, null, REGION_COLORS[opts.kind]);
     if (rect) opts.onCommit(rect);
     else opts.onCancel();

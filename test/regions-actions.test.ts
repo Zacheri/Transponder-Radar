@@ -115,9 +115,10 @@ describe("dropRegion", () => {
     expect(JSON.parse(st.data.get(KEY) ?? "[]")).toEqual(next);
   });
 
-  it("an unknown id leaves the content unchanged", () => {
+  it("an unknown id changes nothing and writes nothing", () => {
     const st = fakeStorage();
     expect(dropRegion(state, "zzz", st).map((r) => r.id)).toEqual(["a", "b"]);
+    expect(st.data.has(KEY)).toBe(false);
   });
 
   it("a throwing storage still returns the reduced list", () => {

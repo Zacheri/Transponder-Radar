@@ -102,10 +102,13 @@ function byClass(root: FakeEl, cls: string): FakeEl {
   return must(find(root, (el) => el.className.split(" ").includes(cls)), cls);
 }
 
-function stubMap(opts: { loaded?: boolean; style?: Record<string, unknown> } = {}) {
+// 4.7.1 fidelity: Style#serialize NEVER round-trips projection, and
+// getStyle() reads undefined until the style has loaded (load flips it).
+function stubMap(opts: { loaded?: boolean } = {}) {
   const listeners = new Map<string, Listener[]>();
   const onceListeners = new Map<string, Listener[]>();
   const bearing = { value: 0 };
+  const state = { loaded: opts.loaded ?? false };
   const add = (m: Map<string, Listener[]>, t: string, fn: Listener) => {
     const l = m.get(t) ?? [];
     l.push(fn);
@@ -113,19 +116,21 @@ function stubMap(opts: { loaded?: boolean; style?: Record<string, unknown> } = {
   };
   const map = {
     bearing,
+    state,
     zoomIn: vi.fn(),
     zoomOut: vi.fn(),
     easeTo: vi.fn(),
     getBearing: vi.fn(() => bearing.value),
-    getStyle: vi.fn(() => ({ version: 8, layers: [], sources: {}, ...(opts.style ?? {}) })),
+    getStyle: vi.fn(() => (state.loaded ? { version: 8, layers: [], sources: {} } : undefined)),
     setStyle: vi.fn(),
-    loaded: vi.fn(() => opts.loaded ?? false),
+    loaded: vi.fn(() => state.loaded),
     once: vi.fn((t: string, fn: Listener) => add(onceListeners, t, fn)),
     on: vi.fn((t: string, fn: Listener) => add(listeners, t, fn)),
     off: vi.fn((t: string, fn: Listener) => {
       listeners.set(t, (listeners.get(t) ?? []).filter((f) => f !== fn));
     }),
     fire(t: string): void {
+      if (t === "load") state.loaded = true;
       for (const fn of [...(listeners.get(t) ?? [])]) fn();
       const armed = onceListeners.get(t) ?? [];
       onceListeners.set(t, []);
@@ -208,18 +213,30 @@ describe("zoom and compass buttons", () => {
 });
 
 describe("projection toggle", () => {
-  it("reflects the stored projection on add (absent = globe pressed)", () => {
+  it("reflects the stored projection on add (absent = globe pressed, click goes flat)", () => {
     const { projBtn } = setup();
     expect(projBtn.attr("aria-pressed")).toBe("true");
     expect(projBtn.textContent).toBe("\u{1F310}");
+    expect(projBtn.attr("aria-label")).toBe("Flat view");
   });
   it("a stored mercator boots unpressed with the flat icon", () => {
     const { projBtn } = setup({ storage: { "radar.projection": "mercator" } });
     expect(projBtn.attr("aria-pressed")).toBe("false");
     expect(projBtn.textContent).toBe("\u25A6");
+    expect(projBtn.attr("aria-label")).toBe("Globe view");
   });
-  it("toggle applies the projection by style-diff setStyle, persists, flips aria-pressed and icon", () => {
+  it("is a no-op before the style loads (getStyle would serialize nothing)", () => {
     const { map, storage, projBtn } = setup({ storage: { "radar.projection": "mercator" } });
+    projBtn.fire("click");
+    expect(map.setStyle).not.toHaveBeenCalled();
+    expect(storage.map.get("radar.projection")).toBe("mercator");
+    expect(projBtn.attr("aria-pressed")).toBe("false");
+  });
+  it("toggle rebuilds the serialized style with the projection (diff:false), persists, flips aria-pressed/icon/label", () => {
+    const { map, storage, projBtn } = setup({
+      storage: { "radar.projection": "mercator" },
+      map: stubMap({ loaded: true }),
+    });
     projBtn.fire("click");
     expect(map.setStyle).toHaveBeenCalledTimes(1);
     expect(map.setStyle.mock.calls[0]?.[0]).toEqual({
@@ -228,33 +245,44 @@ describe("projection toggle", () => {
       sources: {},
       projection: { type: "globe" },
     });
+    expect(map.setStyle.mock.calls[0]?.[1]).toEqual({ diff: false });
     expect(storage.map.get("radar.projection")).toBe("globe");
     expect(projBtn.attr("aria-pressed")).toBe("true");
     expect(projBtn.textContent).toBe("\u{1F310}");
+    expect(projBtn.attr("aria-label")).toBe("Flat view");
+    expect((projBtn as unknown as { title: string }).title).toBe("Flat view");
     projBtn.fire("click");
     expect(map.setStyle.mock.calls[1]?.[0]).toMatchObject({ projection: { type: "mercator" } });
     expect(storage.map.get("radar.projection")).toBe("mercator");
     expect(projBtn.attr("aria-pressed")).toBe("false");
     expect(projBtn.textContent).toBe("\u25A6");
+    expect(projBtn.attr("aria-label")).toBe("Globe view");
   });
 });
 
-describe("applyStoredProjection", () => {
-  it("applies immediately when loaded: absent storage still applies globe over the mercator style", () => {
+describe("applyStoredProjection (style-URL basemaps only)", () => {
+  it("applies globe once when loaded, as a full rebuild", () => {
     const { map, storage } = setup({ map: stubMap({ loaded: true }) });
     storage.map.clear();
     applyStoredProjection(map as unknown as ControlMap, storage);
     expect(map.setStyle).toHaveBeenCalledTimes(1);
-    expect(map.setStyle.mock.calls[0]?.[0]).toMatchObject({ projection: { type: "globe" } });
+    expect(map.setStyle.mock.calls[0]?.[0]).toEqual({
+      version: 8,
+      layers: [],
+      sources: {},
+      projection: { type: "globe" },
+    });
+    expect(map.setStyle.mock.calls[0]?.[1]).toEqual({ diff: false });
   });
-  it("skips setStyle when the style already matches the stored projection", () => {
-    const { map, storage } = setup({ map: stubMap({ loaded: true, style: { projection: { type: "globe" } } }) });
+  it("stored mercator matches the projection-less style default: no setStyle", () => {
+    const { map, storage } = setup({ map: stubMap({ loaded: true }) });
+    storage.map.set("radar.projection", "mercator");
     applyStoredProjection(map as unknown as ControlMap, storage);
     expect(map.setStyle).not.toHaveBeenCalled();
   });
   it("before load, waits for the first load and applies exactly once", () => {
     const map = stubMap();
-    const storage = makeStorage(); // absent → globe, vs the mercator style
+    const storage = makeStorage(); // absent → globe, vs the mercator style default
     applyStoredProjection(map as unknown as ControlMap, storage);
     expect(map.setStyle).not.toHaveBeenCalled();
     map.fire("load");
@@ -262,8 +290,8 @@ describe("applyStoredProjection", () => {
     expect(map.setStyle).toHaveBeenCalledTimes(1);
     expect(map.setStyle.mock.calls[0]?.[0]).toMatchObject({ projection: { type: "globe" } });
   });
-  it("reads storage at fire time, so a pre-load toggle is never clobbered", () => {
-    const map = stubMap({ style: { projection: { type: "mercator" } } });
+  it("reads storage at fire time, so a mercator saved pre-load is honored", () => {
+    const map = stubMap();
     const storage = makeStorage();
     applyStoredProjection(map as unknown as ControlMap, storage);
     storage.map.set("radar.projection", "mercator");

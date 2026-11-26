@@ -53,7 +53,14 @@ const isBox = (v: unknown): v is RegionBox =>
 
 const isSane = (b: RegionBox): boolean => {
   const [[minLat, minLon], [maxLat, maxLon]] = b;
-  return Math.abs(minLat) <= 90 && Math.abs(maxLat) <= 90 && minLat <= maxLat && minLon <= maxLon;
+  return (
+    Math.abs(minLat) <= 90 &&
+    Math.abs(maxLat) <= 90 &&
+    Math.abs(minLon) <= 180 &&
+    Math.abs(maxLon) <= 180 &&
+    minLat <= maxLat &&
+    minLon <= maxLon
+  );
 };
 
 const isKind = (v: unknown): v is RegionKind =>
@@ -99,6 +106,7 @@ export function addRegion(
 ): { list: Region[]; region: Region | null } {
   if (![a.lat, a.lon, b.lat, b.lon].every((n) => Number.isFinite(n))) return { list, region: null };
   if (Math.abs(a.lat) > 90 || Math.abs(b.lat) > 90) return { list, region: null };
+  if (Math.abs(a.lon) > 180 || Math.abs(b.lon) > 180) return { list, region: null };
   const box = normalizeBox(a, b);
   const [[minLat, minLon], [maxLat, maxLon]] = box;
   if (maxLat - minLat < MIN_DEG || maxLon - minLon < MIN_DEG) return { list, region: null };
