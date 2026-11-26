@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSettings } from "../src/ui/settings.js";
 import type { SettingsStats } from "../src/ui/settings.js";
+import type { Region } from "../src/data/regions.js";
 
 // Node-env Vitest without jsdom: a minimal DOM shim covering exactly what
 // createSettings touches (document.createElement/activeElement, classList,
@@ -10,17 +11,25 @@ import type { SettingsStats } from "../src/ui/settings.js";
 type Listener = () => void;
 
 class FakeEl {
-  className = "";
   value = "";
   type = "";
   checked = false;
+  title = "";
   children: FakeEl[] = [];
   parent: FakeEl | null = null;
+  private readonly classes = new Set<string>();
   readonly dataset: Record<string, string> = {};
   readonly style: Record<string, string> = {};
   private _textContent = "";
   private readonly listeners = new Map<string, Listener[]>();
-  private readonly classes = new Set<string>();
+  // className and classList share one set, like the real DOM.
+  get className(): string {
+    return [...this.classes].join(" ");
+  }
+  set className(v: string) {
+    this.classes.clear();
+    for (const c of v.split(" ")) if (c) this.classes.add(c);
+  }
   constructor(readonly tag: string) {}
   get textContent(): string {
     return this._textContent;
@@ -97,6 +106,19 @@ function byClass(root: FakeEl, cls: string): FakeEl | undefined {
   return find(root, (el) => el.className.split(" ").includes(cls));
 }
 
+function allByClass(root: FakeEl, cls: string): FakeEl[] {
+  const out: FakeEl[] = [];
+  const walk = (el: FakeEl): void => {
+    if (el.className.split(" ").includes(cls)) out.push(el);
+    for (const c of el.children) walk(c);
+  };
+  walk(root);
+  return out;
+}
+
+const attr = (el: FakeEl, k: string): string | undefined =>
+  (el as unknown as Record<string, unknown>)[`attr:${k}`] as string | undefined;
+
 const STATS: SettingsStats = {
   storageCapGb: 10,
   ramCacheGb: 1,
@@ -115,6 +137,8 @@ function setup(motionOn = true) {
     clearHome: vi.fn(),
     motionOn,
     setMotion: vi.fn(),
+    onArmRegion: vi.fn(),
+    removeRegion: vi.fn(),
   };
   const ui = createSettings(root as unknown as HTMLElement, opts);
   const park = must(
@@ -130,7 +154,20 @@ function setup(motionOn = true) {
     find(root, (el) => el.tag === "input" && el.type === "checkbox"),
     "smooth-motion checkbox",
   );
-  return { ui, opts, park, clear, homeVal, motion };
+  const arm = (label: string) =>
+    must(find(root, (el) => el.tag === "button" && el.textContent === label), `${label} button`);
+  return {
+    ui,
+    opts,
+    root,
+    park,
+    clear,
+    homeVal,
+    motion,
+    armAds: arm("+ ADS-B area"),
+    armAis: arm("+ AIS area"),
+    rows: () => allByClass(root, "settings-region-row"),
+  };
 }
 
 describe("settings drawer AIS fill home controls", () => {
@@ -204,5 +241,78 @@ describe("settings drawer park-button no-key state", () => {
     ui.setStats(STATS);
     expect(disabledOf(park)).toBe(false);
     expect(park.textContent).toBe("Park AIS fill tile here");
+  });
+});
+
+// spec 2026-11-26 §B: rows render from caller data; armed state is pushed
+// back in from main (it can flip from map-side events), so clicks forward
+// and setRegionArmed is the single re-render path.
+const SEED: Region[] = [
+  { id: "a", kind: "adsb", b: [[10, 100], [17, 112]] },
+  { id: "b", kind: "ais", b: [[34.5, -120.25], [40, -115]] },
+];
+
+describe("settings drawer Map sections list", () => {
+  it("renders a row per region: chip color, label, size caption, title", () => {
+    const { ui, rows } = setup();
+    ui.setRegions(SEED);
+    const r = rows();
+    expect(r.length).toBe(2);
+    expect(must(byClass(r[0], "settings-region-chip"), "chip").style.backgroundColor).toBe("#4fc3f7");
+    expect(must(byClass(r[0], "settings-region-name"), "name").textContent).toBe("ADS-B area");
+    expect(must(byClass(r[0], "settings-region-size"), "size").textContent).toBe("12° × 7°");
+    expect(r[0].title).toBe("ADS-B area — click to remove");
+    expect(must(byClass(r[1], "settings-region-chip"), "chip").style.backgroundColor).toBe("#4db6ac");
+    expect(must(byClass(r[1], "settings-region-name"), "name").textContent).toBe("AIS area");
+    expect(must(byClass(r[1], "settings-region-size"), "size").textContent).toBe("5.3° × 5.5°");
+    expect(r[1].title).toBe("AIS area — click to remove");
+  });
+
+  it("shows the empty hint at boot and again when the list empties", () => {
+    const { ui, root, rows } = setup();
+    expect(rows().length).toBe(0);
+    const hint = must(byClass(root, "settings-region-empty"), "empty hint");
+    expect(hint.textContent).toBe("No sections yet — add one, then drag on the map.");
+    ui.setRegions(SEED);
+    expect(byClass(root, "settings-region-empty")).toBeUndefined();
+    ui.setRegions([]);
+    expect(rows().length).toBe(0);
+    expect(byClass(root, "settings-region-empty")).toBeDefined();
+  });
+
+  it("clicking a row removes that region by id", () => {
+    const { ui, opts, rows } = setup();
+    ui.setRegions(SEED);
+    rows()[0].fire("click");
+    expect(opts.removeRegion).toHaveBeenCalledTimes(1);
+    expect(opts.removeRegion).toHaveBeenCalledWith("a");
+    rows()[1].fire("click");
+    expect(opts.removeRegion).toHaveBeenLastCalledWith("b");
+  });
+});
+
+describe("settings drawer Map sections arm buttons", () => {
+  it("arm forwards the kind; re-click forwards null; the other kind switches", () => {
+    const { ui, opts, armAds, armAis } = setup();
+    armAds.fire("click");
+    expect(opts.onArmRegion).toHaveBeenCalledTimes(1);
+    expect(opts.onArmRegion).toHaveBeenCalledWith("adsb");
+    ui.setRegionArmed("adsb"); // main echoes the armed state back
+    armAds.fire("click");
+    expect(opts.onArmRegion).toHaveBeenLastCalledWith(null);
+    armAis.fire("click");
+    expect(opts.onArmRegion).toHaveBeenLastCalledWith("ais");
+  });
+
+  it("setRegionArmed marks exactly one button (aria-pressed + class)", () => {
+    const { ui, armAds, armAis } = setup();
+    expect(attr(armAds, "aria-pressed")).toBe("false");
+    ui.setRegionArmed("ais");
+    expect(attr(armAis, "aria-pressed")).toBe("true");
+    expect(armAis.className.split(" ")).toContain("settings-btn-armed");
+    expect(attr(armAds, "aria-pressed")).toBe("false");
+    ui.setRegionArmed(null);
+    expect(attr(armAis, "aria-pressed")).toBe("false");
+    expect(armAis.className.split(" ")).not.toContain("settings-btn-armed");
   });
 });

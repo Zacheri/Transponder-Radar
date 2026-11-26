@@ -28,6 +28,9 @@ import { greatCircle, destinationPoint } from "../shared/geo.js";
 import type { LonLat } from "../shared/geo.js";
 import { effectiveColor, loadIconColors, saveIconColors, setKindColor, type IconColorState } from "./data/icon-colors.js";
 import { loadMotion, saveMotion } from "./data/motion-cfg.js";
+import { bootRegions, commitRegion, dropRegion } from "./data/regions-actions.js";
+import type { Region, RegionKind } from "./data/regions.js";
+import { addRegionLayers, createRegionDrawer, setRegionData } from "./map/regions.js";
 import {
   clampZonesBoost,
   parseZonesCfg,
@@ -82,6 +85,43 @@ let filters: { setCounts(c: Map<CraftKind, number>): void } | null = null;
 // drawer owns the row, main owns the flag, persistence and the repaint tick.
 let motionOn = loadMotion(localStorage);
 let stopMotion: (() => void) | null = null;
+// Map sections (spec 2026-11-26 §B): main owns the persisted list and the
+// live draw drawer; the settings drawer renders rows and forwards arm/remove
+// clicks. Armed state lives here — the drawer can also end from Escape, blur
+// or a commit on the map, so main pushes it back via setRegionArmed.
+let regions: Region[] = bootRegions(localStorage);
+let regionArmed: RegionKind | null = null;
+let regionDrawer: { cancel(): void } | null = null;
+function paintRegions(): void {
+  setRegionData(map, regions);
+}
+function syncRegionUi(): void {
+  settingsUi.setRegions(regions);
+  settingsUi.setRegionArmed(regionArmed);
+}
+function armRegion(kind: RegionKind | null): void {
+  regionDrawer?.cancel();
+  regionDrawer = null;
+  regionArmed = kind;
+  settingsUi.setRegionArmed(kind);
+  if (!kind) return;
+  regionDrawer = createRegionDrawer(map, {
+    kind,
+    onCommit: (rect) => {
+      const res = commitRegion(regions, kind, rect, localStorage);
+      regionDrawer = null;
+      regionArmed = null;
+      regions = res.list; // rejected commit → same list; repaint is a no-op
+      paintRegions();
+      syncRegionUi();
+    },
+    onCancel: () => {
+      regionDrawer = null;
+      regionArmed = null;
+      syncRegionUi();
+    },
+  });
+}
 const settingsUi = createSettings(document.getElementById("app") as HTMLElement, {
   update: (p) => socket?.sendSettingsUpdate(p),
   removePin: (id) => socket?.sendPinRemove(id),
@@ -99,7 +139,14 @@ const settingsUi = createSettings(document.getElementById("app") as HTMLElement,
     // refresh that started motion-ON can never land after this OFF rebuild
     refreshRun.flush();
   },
+  onArmRegion: armRegion,
+  removeRegion: (id) => {
+    regions = dropRegion(regions, id, localStorage);
+    paintRegions();
+    syncRegionUi();
+  },
 });
+settingsUi.setRegions(regions);
 
 // Set after the map.load flow; null until then.
 let packLoader: PackIconLoader | null = null;
@@ -518,6 +565,8 @@ map.on("load", async () => {
   addTrackLayers(map);
   addHotzoneLayer(map);
   addAisTileLayers(map); // after hotzone: lands above it, below craft-icons
+  addRegionLayers(map); // after the ais-tile outlines: on top of them, below craft-icons
+  paintRegions(); // boot-restored sections (spec §B restore)
   void refresh();
 
   socket = new RadarSocket(wsUrl, {

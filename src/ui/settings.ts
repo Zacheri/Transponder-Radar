@@ -1,4 +1,12 @@
 import { GB } from "../../shared/limits.js";
+import {
+  REGION_COLORS,
+  REGION_KINDS,
+  regionLabel,
+  sizeDeg,
+  type Region,
+  type RegionKind,
+} from "../data/regions.js";
 import type { Pin } from "../data/ws.js";
 import { formatBytes, formatPinRange } from "./format.js";
 
@@ -19,7 +27,12 @@ export interface SettingsStats {
   secondaryEnabled?: boolean;
 }
 
-export interface SettingsApi { setStats: (s: SettingsStats) => void; feedRates: HTMLElement }
+export interface SettingsApi {
+  setStats: (s: SettingsStats) => void;
+  setRegions: (regions: Region[]) => void;
+  setRegionArmed: (kind: RegionKind | null) => void;
+  feedRates: HTMLElement
+}
 
 function debouncedNumber(input: HTMLInputElement, apply: (n: number) => void): (sent: number) => void {
   let timer: number | null = null;
@@ -49,6 +62,8 @@ export function createSettings(
     clearHome: () => void;
     motionOn: boolean;
     setMotion: (on: boolean) => void;
+    onArmRegion: (kind: RegionKind | null) => void;
+    removeRegion: (id: string) => void;
   },
 ): SettingsApi {
   const el = document.createElement("aside");
@@ -169,7 +184,78 @@ export function createSettings(
   motionRow.appendChild(motionLabel);
   displayGroup.append(displayTitle, motionRow);
 
-  body.append(displayGroup, feedGroup, fillGroup, group);
+  // Map sections (spec 2026-11-26 §B): rows render from caller data; armed
+  // state is main's (the drawer can end via Escape/blur/commit on the map),
+  // so clicks only forward, and setRegionArmed is the single re-render path.
+  const regionGroup = document.createElement("div");
+  regionGroup.className = "settings-group";
+  const regionTitle = document.createElement("div");
+  regionTitle.className = "settings-group-title";
+  regionTitle.textContent = "Map sections";
+  const regionBtnRow = document.createElement("div");
+  regionBtnRow.className = "settings-row";
+  const regionRows = document.createElement("div");
+  let armed: RegionKind | null = null;
+  const regionBtns = new Map<RegionKind, HTMLButtonElement>();
+  for (const kind of REGION_KINDS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "settings-btn settings-region-arm";
+    btn.textContent = `+ ${regionLabel(kind)}`;
+    btn.setAttribute("aria-pressed", "false");
+    btn.addEventListener("click", () => opts.onArmRegion(armed === kind ? null : kind));
+    regionBtns.set(kind, btn);
+    regionBtnRow.appendChild(btn);
+  }
+  regionGroup.append(regionTitle, regionBtnRow, regionRows);
+
+  // 1 decimal, trimmed ("12° × 7°"); the || 0 keeps -0 from printing "-0".
+  const fmtDeg = (n: number): string => {
+    const s = (Math.round(n * 10) / 10 || 0).toFixed(1);
+    return s.endsWith(".0") ? s.slice(0, -2) : s;
+  };
+
+  function setRegions(regions: Region[]): void {
+    regionRows.replaceChildren();
+    if (regions.length === 0) {
+      const hint = document.createElement("div");
+      hint.className = "settings-line settings-region-empty";
+      hint.textContent = "No sections yet — add one, then drag on the map.";
+      regionRows.appendChild(hint);
+      return;
+    }
+    for (const r of regions) {
+      const row = document.createElement("div");
+      row.className = "settings-region-row";
+      row.title = `${regionLabel(r.kind)} — click to remove`;
+      const chip = document.createElement("span");
+      chip.className = "settings-region-chip";
+      chip.style.backgroundColor = REGION_COLORS[r.kind];
+      const name = document.createElement("span");
+      name.className = "settings-region-name";
+      name.textContent = regionLabel(r.kind);
+      const size = document.createElement("span");
+      size.className = "settings-region-size";
+      const d = sizeDeg(r);
+      size.textContent = `${fmtDeg(d.lon)}° × ${fmtDeg(d.lat)}°`;
+      row.append(chip, name, size);
+      row.addEventListener("click", () => opts.removeRegion(r.id));
+      regionRows.appendChild(row);
+    }
+  }
+
+  function setRegionArmed(kind: RegionKind | null): void {
+    armed = kind;
+    for (const [k, btn] of regionBtns) {
+      const on = k === kind;
+      btn.classList.toggle("settings-btn-armed", on);
+      btn.setAttribute("aria-pressed", String(on));
+    }
+  }
+
+  setRegions([]);
+
+  body.append(displayGroup, feedGroup, fillGroup, regionGroup, group);
   root.appendChild(el);
 
   let collapsed = true;
@@ -252,5 +338,5 @@ export function createSettings(
     renderPins(s.pins);
   }
 
-  return { setStats, feedRates: feedGroup };
+  return { setStats, setRegions, setRegionArmed, feedRates: feedGroup };
 }
