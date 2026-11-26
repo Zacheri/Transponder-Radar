@@ -33,8 +33,14 @@ export type ControlMap = {
   // includes `projection` — hence the closure-tracked state below.
   getStyle(): ControlStyle | undefined;
   setStyle(style: ControlStyle | string | null, options?: { diff?: boolean }): unknown;
-  loaded(): boolean;
-  once(type: "load", fn: () => void): unknown;
+  // isStyleLoaded(), NOT loaded(): loaded() also requires every visible
+  // tile, which on slow connections is almost never true and silently
+  // no-oped every toggle click (user report 2026-11-26). isStyleLoaded
+  // covers what setStyle actually needs — a fully applied style — and is
+  // false during a style transition, so mid-rebuild clicks are ignored.
+  // (Declared boolean|void to match the 4.7.1 d.ts signature.)
+  isStyleLoaded(): boolean | void;
+  once(type: "style.load", fn: () => void): unknown;
   on(type: string, fn: () => void): unknown;
   off(type: string, fn: () => void): unknown;
 };
@@ -76,8 +82,9 @@ export function createMapControls(storage: StorageLike = globalThis.localStorage
     };
     const toggleProjection = (): void => {
       // Pre-load getStyle() serializes nothing, so a toggle there would
-      // apply setStyle to an undefined style and brick the map.
-      if (!map.loaded()) return;
+      // apply setStyle to an undefined style and brick the map; a click
+      // during a style transition (rebuild in flight) is likewise ignored.
+      if (!map.isStyleLoaded()) return;
       const style = map.getStyle();
       if (!style) return;
       const next: ProjectionKind = projection === "globe" ? "mercator" : "globe";
@@ -142,9 +149,9 @@ export function applyStoredProjection(map: ControlMap, storage: StorageLike): vo
     if (want === "mercator" || !style) return;
     map.setStyle({ ...style, projection: { type: "globe" } }, { diff: false });
   };
-  if (map.loaded()) {
+  if (map.isStyleLoaded()) {
     apply();
     return;
   }
-  map.once("load", apply);
+  map.once("style.load", apply);
 }
