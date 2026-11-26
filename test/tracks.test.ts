@@ -208,6 +208,23 @@ describe("createTracks — daily ledger", () => {
     expect(calls.length).toBe(300);
   });
 
+  it("autoLeft reads the ledger exactly: 1 at 299 used, 0 at 300, never negative", async () => {
+    always = jsonRes(osBody([]));
+    await writeFile(ledgerFile, JSON.stringify({ day: "2026-11-21", count: 298 }));
+    const svc = make({ cacheMs: 0 });
+
+    // 299th call (auto, 298 used): allowed, exactly 1 left.
+    expect((await svc.get("a3feee", true)).budget).toEqual({ autoLeft: 1, hard: false });
+    // 300th call rides manual (the 300th auto is refused, pinned above).
+    expect((await svc.get("a3feee", false)).budget).toEqual({ autoLeft: 0, hard: false });
+    // Auto past the cap: refusal reports 0, never negative, and does not spend.
+    expect((await svc.get("a3feee", true)).budget).toEqual({ autoLeft: 0, hard: false });
+    // Manual past the cap: max(0, 300 - 301) stays 0.
+    expect((await svc.get("a3feee", false)).budget.autoLeft).toBe(0);
+    expect(calls.length).toBe(3); // the refusal made no request
+    expect(JSON.parse(await readFile(ledgerFile, "utf8")).count).toBe(301);
+  });
+
   it("hard-refuses everything past 800/day, even manual, and empty-craft refusals have no cache to serve", async () => {
     always = jsonRes(FIXTURE);
     const svc = make({ cacheMs: 0 });

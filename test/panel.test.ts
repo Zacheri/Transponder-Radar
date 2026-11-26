@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createPanel } from "../src/ui/panel.js";
 import type { AirportRef, FlightRoute } from "../src/data/ws.js";
 import type { Craft } from "../shared/craft.js";
+import { haversineMeters, MS_PER_KNOT } from "../shared/geo.js";
 
 // Node-env Vitest without jsdom: a minimal DOM shim covering exactly what
 // createPanel touches (document.createElement, classList, dataset, child ops
@@ -99,6 +100,24 @@ function must(el: FakeEl | undefined, what: string): FakeEl {
 
 function byClass(root: FakeEl, cls: string): FakeEl | undefined {
   return find(root, (el) => el.className.split(" ").includes(cls));
+}
+
+function findAll(root: FakeEl, pred: (el: FakeEl) => boolean): FakeEl[] {
+  const out: FakeEl[] = [];
+  const walk = (el: FakeEl): void => {
+    if (pred(el)) out.push(el);
+    for (const c of el.children) walk(c);
+  };
+  walk(root);
+  return out;
+}
+
+// Value cell of the panel-row whose key reads `label` ("—" renders as such).
+function rowValue(root: FakeEl, label: string): string | undefined {
+  const hit = findAll(root, (el) => el.className === "panel-row").find(
+    (r) => r.children[0]?.textContent === label,
+  );
+  return hit?.children[1]?.textContent;
 }
 
 function allText(el: FakeEl): string {
@@ -298,5 +317,82 @@ describe("panel flight-context round-trip (setInfo idiom)", () => {
     expect(requestInfo).toHaveBeenCalledTimes(1);
     expect(requestInfo).toHaveBeenCalledWith(AIR.id);
     expect(allText(root)).toContain("Type …");
+  });
+});
+
+describe("panel ETA row", () => {
+  const NOW = Date.parse("2026-11-21T12:00:00.000Z");
+
+  // Fakes Date.now and pins the local zone so expected values can be derived
+  // with the UTC getters — independent of the implementation's local getters.
+  function withClock(fn: () => void): void {
+    const tz = process.env.TZ;
+    process.env.TZ = "UTC";
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    try {
+      fn();
+    } finally {
+      vi.useRealTimers();
+      if (tz === undefined) delete process.env.TZ;
+      else process.env.TZ = tz;
+    }
+  }
+
+  function etaLocal(baseMs: number, from: number): string {
+    const d = new Date(from + baseMs);
+    const p2 = (n: number): string => String(n).padStart(2, "0");
+    return `~${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  }
+
+  const flightMs = (craft: Craft): number =>
+    (haversineMeters(
+      { lon: craft.lon, lat: craft.lat },
+      { lon: ARR.lon ?? 0, lat: ARR.lat ?? 0 },
+    ) /
+      ((craft.speed ?? 0) * MS_PER_KNOT)) *
+    1000;
+
+  it("renders ~HH:MM local for an airborne craft with speed and a destination", () => {
+    withClock(() => {
+      const { panel, root } = setup({ getRoute: () => ROUTE });
+      panel.show(AIR);
+      expect(rowValue(root, "ETA")).toBe(etaLocal(flightMs(AIR), NOW));
+    });
+  });
+
+  it("blanks the ETA when airborne, speed or destination coords are missing", () => {
+    withClock(() => {
+      const cases: Array<{ craft: Craft; route: FlightRoute }> = [
+        { craft: { ...AIR, onGround: true }, route: ROUTE },
+        { craft: { ...AIR, speed: null }, route: ROUTE },
+        { craft: AIR, route: { ...ROUTE, arr: { ...ARR, lat: null, lon: null } } },
+      ];
+      for (const { craft, route } of cases) {
+        const { panel, root } = setup({ getRoute: () => route });
+        panel.show(craft);
+        expect(rowValue(root, "ETA")).toBe("—");
+      }
+    });
+  });
+
+  it("renders no ETA row while the route is pending or absent", () => {
+    for (const route of [undefined, null]) {
+      const { panel, root } = setup({ getRoute: () => route });
+      panel.show(AIR);
+      expect(rowValue(root, "ETA")).toBeUndefined();
+    }
+  });
+
+  it("recomputes the ETA on every update instead of going stale", () => {
+    withClock(() => {
+      const { panel, root } = setup({ getRoute: () => ROUTE });
+      panel.show(AIR);
+      const before = rowValue(root, "ETA");
+      vi.setSystemTime(NOW + 3_600_000);
+      panel.update(AIR);
+      const after = rowValue(root, "ETA");
+      expect(after).toBe(etaLocal(flightMs(AIR), NOW + 3_600_000));
+      expect(after).not.toBe(before);
+    });
   });
 });

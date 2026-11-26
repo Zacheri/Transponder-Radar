@@ -1,5 +1,6 @@
 import type { Craft } from "../../shared/craft.js";
 import { KINDS } from "../../shared/craft.js";
+import { etaMs } from "../../shared/geo.js";
 import type { AircraftInfo, AirportRef, FlightRoute, TrackReply } from "../data/ws.js";
 
 export type TrailBudget = TrackReply["budget"];
@@ -129,6 +130,23 @@ export function createPanel(root: HTMLElement, hooks: PanelHooks = {}): {
     return d;
   }
 
+  // Remaining-flight-time to the arrival airport, local clock. Read at render
+  // time from the live craft, so it can never go stale across updates.
+  function etaText(craft: Craft, route: FlightRoute): string | null {
+    const arr = route.arr;
+    if (!arr || arr.lat == null || arr.lon == null || craft.onGround) return null;
+    const eta = etaMs(
+      { lon: craft.lon, lat: craft.lat },
+      { lon: arr.lon, lat: arr.lat },
+      craft.speed,
+      Date.now(),
+    );
+    if (eta === null) return null;
+    const d = new Date(eta);
+    const p2 = (n: number): string => String(n).padStart(2, "0");
+    return `~${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  }
+
   // Route chips + trail section (spec §F): route/budget are read through
   // hooks like the FAA info; the trail refresh button always renders and
   // the budget note appears once a budget is known (R2).
@@ -154,7 +172,7 @@ export function createPanel(root: HTMLElement, hooks: PanelHooks = {}): {
       v.append(sep);
       if (route.arr) v.append(chip(route.arr, "arr"));
       d.append(k, v);
-      out.push(d);
+      out.push(d, row("ETA", etaText(craft, route)));
     }
     const btn = document.createElement("button");
     btn.className = "panel-trail-refresh";

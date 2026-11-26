@@ -73,7 +73,7 @@ export function destinationPoint(from: LonLat, bearingDeg: number, meters: numbe
   const lat1 = toRad(from.lat);
   const lon1 = toRad(from.lon);
   const lat2 = Math.asin(
-    Math.sin(lat1) * Math.cos(ang) + Math.cos(lat1) * Math.sin(ang) * Math.cos(brg),
+    Math.min(1, Math.max(-1, Math.sin(lat1) * Math.cos(ang) + Math.cos(lat1) * Math.sin(ang) * Math.cos(brg))),
   );
   const lon2 =
     lon1 +

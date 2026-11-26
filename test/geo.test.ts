@@ -84,6 +84,16 @@ describe("destinationPoint", () => {
     expect(Math.abs(p.lat)).toBeLessThan(1e-9);
     expect(Math.abs(haversineMeters(origin, p) - 100_000)).toBeLessThan(1);
   });
+
+  it("clamps to the pole instead of returning NaN on a pole-aimed call", () => {
+    // Exact arc to the north pole: float noise can push the asin argument to
+    // 1.0000000000000002 (verified for this latitude without the clamp).
+    const from: LonLat = { lon: 0, lat: 0.518 };
+    const toPole = (Math.PI / 2 - (0.518 * Math.PI) / 180) * 6_371_000;
+    const p = destinationPoint(from, 0, toPole);
+    expect(p.lat).toBeCloseTo(90, 6);
+    expect(Number.isFinite(p.lon)).toBe(true);
+  });
 });
 
 describe("initialBearingDeg", () => {
