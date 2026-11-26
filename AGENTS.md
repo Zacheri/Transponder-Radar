@@ -397,8 +397,10 @@ Counting caveats (verified Nov 2026):
   (RoutesService: callsign→route ladder adsbdb → OpenSky `/flights/all`
   est-airports → null; 24 h/1 h caches persisted `data/routes/cache.json`),
   `tracks.ts` (TracksService: HistoryRecorder.trackFor + OpenSky `/tracks/all`
-  merged per-icao24 trail; daily ledger `data/tracks/ledger.json` caps auto
-  fetches at 300/day and all at 800/day — refusals answer cache + `budget`),
+  merged per-icao24 trail; daily ledger `data/tracks/ledger.json` refuses an
+  auto fetch that would hit 300 calls (299/day actually run) and any fetch
+  that would hit 800 — refusals answer cache + `budget`; `autoLeft` follows
+  the gate formula (`(cap−1) − count`), so `autoLeft > 0` ⇔ next auto runs),
   `traffic.ts` (createTrafficMonitor: WAN-edge counters, netstat/nettop device
   series, per-day totals, watch-gated 1 Hz frames — see Traffic monitor),
   `ais-tiles.ts` (pure: `clampCenter`/`boxesFor` (20° tiles) + `composeTiles`

@@ -8,7 +8,7 @@ file-partitioned SDD tasks. Gates per task: `npm test` → `npm run typecheck`
 Files: `src/ui/panel.ts`, `shared/geo.ts`, `server/tracks.ts`, tests.
 1. ETA row in the flight panel: when a flight has a route destination
    (airport lat/lon from `flight.context`) and the craft is airborne with
-   speed > 0, show `ETA ~HH:MM UTC` computed with `etaMs(dest, craftPos,
+   speed > 0, show `ETA ~HH:MM` (local time) computed with `etaMs(dest, craftPos,
    speedMs, now)`; blank row when speed unknown. Local time (not UTC) for
    the label; use `etaMs` (currently zero callers).
 2. `destinationPoint` asin clamp (lat-arg round-trip guard, one-liner + test).
