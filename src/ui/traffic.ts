@@ -114,6 +114,8 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
 
   const el = document.createElement("aside");
   el.className = "drawer traffic-panel";
+  el.setAttribute("role", "complementary");
+  el.setAttribute("aria-label", "Network traffic");
   const head = document.createElement("div");
   head.className = "drawer-head";
   head.setAttribute("role", "button");
@@ -128,6 +130,8 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
 
   const canvas = document.createElement("canvas");
   canvas.className = "traffic-canvas";
+  // Decorative: the numeric rows below carry the same facts.
+  canvas.setAttribute("aria-hidden", "true");
 
   const line = (cls: string, text: string): HTMLElement => {
     const row = document.createElement("div");
@@ -325,6 +329,7 @@ export function createTrafficPanel(root: HTMLElement, opts: TrafficPanelOpts): T
       ...rows.map((r) => {
         const { el, val } = row("traffic-top-row", r.proc);
         val.textContent = humanize(r.bytes);
+        el.title = `${r.proc} — ${humanize(r.bytes)} in the last 5 s`;
         return el;
       }),
     );

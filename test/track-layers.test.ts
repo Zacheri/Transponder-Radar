@@ -10,6 +10,7 @@ import {
   clearPredicted,
   setDestMarker,
   clearDestMarker,
+  unwrapLongitudes,
 } from "../src/map/trackLayers.js";
 import { CRAFT_SOURCE_ID, CRAFT_TEXT_FONT, craftLayerDefs } from "../src/map/layers.js";
 import { buildIconFilter } from "../src/data/filter.js";
@@ -115,6 +116,12 @@ describe("setTrailData / clearTrailData", () => {
     expect(written["flight-trail"].features[0].geometry.coordinates).toEqual([[185, 52], [190, 55]]);
   });
 
+  it("unwraps a dateline-crossing recorded trail at the setter", () => {
+    const { map, written } = mockMap();
+    setTrailData(map, [{ lat: 34, lon: 170 }, { lat: 36, lon: -179 }], "#fff");
+    expect(written["flight-trail"].features[0].geometry.coordinates).toEqual([[170, 34], [181, 36]]);
+  });
+
   it("fewer than two points or clearing writes an empty collection", () => {
     const { map, written } = mockMap();
     setTrailData(map, [{ lat: 1, lon: 2 }], "#fff");
@@ -123,6 +130,48 @@ describe("setTrailData / clearTrailData", () => {
     expect(written["flight-trail"].features).toEqual([]);
     clearTrailData(map);
     expect(written["flight-trail"]).toEqual({ type: "FeatureCollection", features: [] });
+  });
+});
+
+describe("unwrapLongitudes", () => {
+  it("passes empty and single-point paths through", () => {
+    expect(unwrapLongitudes([])).toEqual([]);
+    expect(unwrapLongitudes([{ lat: 1, lon: 2 }])).toEqual([{ lat: 1, lon: 2 }]);
+  });
+  it("eastbound trans-Pacific crossing runs monotonic past +180", () => {
+    const lon = unwrapLongitudes([
+      { lat: 34, lon: 170 },
+      { lat: 35, lon: 179 },
+      { lat: 36, lon: -179 },
+      { lat: 37, lon: -170 },
+    ]).map((p) => p.lon);
+    expect(lon).toEqual([170, 179, 181, 190]);
+  });
+  it("westbound crossing runs monotonic past −180", () => {
+    const lon = unwrapLongitudes([
+      { lat: 37, lon: -170 },
+      { lat: 36, lon: -179 },
+      { lat: 35, lon: 179 },
+      { lat: 34, lon: 170 },
+    ]).map((p) => p.lon);
+    expect(lon).toEqual([-170, -179, -181, -190]);
+  });
+  it("dateline jitter stays continuous instead of zigzagging", () => {
+    const lon = unwrapLongitudes([
+      { lat: 0, lon: 179.5 },
+      { lat: 0, lon: -179.5 },
+      { lat: 0, lon: 179.25 },
+      { lat: 0, lon: -179.25 },
+    ]).map((p) => p.lon);
+    expect(lon).toEqual([179.5, 180.5, 179.25, 180.75]);
+  });
+  it("is a no-op on domestic paths, lats included", () => {
+    const pts = [
+      { lat: 37.7, lon: -122.4 },
+      { lat: 39.8, lon: -116.6 },
+      { lat: 40.7, lon: -111.9 },
+    ];
+    expect(unwrapLongitudes(pts)).toEqual(pts);
   });
 });
 

@@ -445,7 +445,9 @@ body {
 }
 .timeline-overlay {
   position: absolute;
-  inset: 0;
+  /* Inset by the 2px end-pin sliver width so pins at 0% or 100% stay fully
+     inside the track instead of hanging off its edges. */
+  inset: 0 2px;
   pointer-events: none;
 }
 .timeline-tick {
@@ -755,4 +757,12 @@ body {
 .traffic-top-row {
   line-height: 1.5;
   color: var(--muted);
+}
+
+/* Below 540px the 260px settings drawer and this 260px panel cannot both
+   dock left; desktop tool, so the panel hides. */
+@media (max-width: 539.98px) {
+  .traffic-panel {
+    display: none;
+  }
 }

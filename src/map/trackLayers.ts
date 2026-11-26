@@ -7,10 +7,11 @@
 // each layer BELOW `craft-icons` (falling back to `craft-labels`, then to
 // plain append) so craft symbols and labels always paint on top of tracks.
 //
-// Coordinates are written into GeoJSON verbatim. Unwrapped longitudes
-// (|lon| > 180, as produced by shared/geo greatCircle across the dateline)
-// must pass through untouched — normalizing them would reintroduce dateline
-// wraps and draw the path across the whole world.
+// Longitudes are never renormalized back into ±180: unwrapped longitudes
+// (|lon| > 180) must pass through GeoJSON untouched. The flight-trail setter
+// unwraps raw ±180 recorded points first (unwrapLongitudes) so a dateline
+// crossing does not draw across the whole world; the predicted path arrives
+// unwrapped from shared/geo greatCircle already.
 
 import type maplibregl from "maplibre-gl";
 import type { LayerSpecification } from "@maplibre/maplibre-gl-style-spec";
@@ -104,8 +105,25 @@ function setData(map: maplibregl.Map, id: string, data: TrackFC): void {
   src?.setData(data as any);
 }
 
+// Recorded trail points carry raw ±180 longitudes, so a dateline crossing
+// draws straight across the map. Shift each point by a multiple of 360 to
+// keep it within 180° of its predecessor (same algorithm as shared/geo
+// greatCircle); the first point is verbatim, so already-unwrapped paths pass
+// through untouched.
+export function unwrapLongitudes(points: readonly LonLat[]): LonLat[] {
+  const out: LonLat[] = [];
+  let prevLon: number | undefined;
+  for (const p of points) {
+    const lon =
+      prevLon === undefined ? p.lon : p.lon + 360 * Math.round((prevLon - p.lon) / 360);
+    out.push({ lon, lat: p.lat });
+    prevLon = lon;
+  }
+  return out;
+}
+
 export function setTrailData(map: maplibregl.Map, path: readonly LonLat[], color: string): void {
-  setData(map, TRAIL, lineFc(path, { color }));
+  setData(map, TRAIL, lineFc(unwrapLongitudes(path), { color }));
 }
 
 export function clearTrailData(map: maplibregl.Map): void {

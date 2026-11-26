@@ -298,9 +298,20 @@ describe("traffic panel rendering", () => {
     expect(rows.length).toBe(3);
     const cells = (row: FakeEl) => row.children.map((c) => c.textContent);
     expect(cells(rows[0])).toEqual(["alpha", "1.2 MB"]);
+    expect((rows[0] as unknown as { title: string }).title).toBe("alpha — 1.2 MB in the last 5 s");
     expect(rows.map((r) => r.textContent).join("")).not.toContain("delta");
     ui.update({ ...SAMPLE, top: null });
     expect(byClass(root, "traffic-top").children.length).toBe(0);
+  });
+});
+
+describe("traffic panel a11y", () => {
+  it("root is a labelled complementary landmark; the graph is hidden from AT", () => {
+    const { root, canvas } = setup();
+    const panel = byClass(root, "traffic-panel");
+    expect(panel.attr("role")).toBe("complementary");
+    expect(panel.attr("aria-label")).toBe("Network traffic");
+    expect(canvas.attr("aria-hidden")).toBe("true");
   });
 });
 
