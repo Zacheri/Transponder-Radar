@@ -10,8 +10,9 @@ import type { StorageLike } from "../data/icon-colors.js";
 // zoomOut and the compass resets via one easeTo({bearing: 0, pitch: 0}).
 // There is also no public map.setProjection(), and switching it through a
 // style-diff is a trap: the diff EMITS a setProjection command but
-// Style#setState has no applier for it, so setState throws Unimplemented
-// and Map falls back to a full style rebuild behind a console warning.
+// Style#setState has no applier for it, so applying it throws (caught
+// TypeError), surfacing as an "Unable to perform style diff" warning and a
+// full style rebuild.
 // The toggle therefore requests that rebuild directly with diff:false
 // (verified against the installed maplibre-gl 4.7.1: setStyle routes
 // straight to _updateStyle, no diff attempted, deterministic and silent)

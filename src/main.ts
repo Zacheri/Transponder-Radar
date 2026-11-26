@@ -774,6 +774,9 @@ filters = createFilters(
   visible,
   (v) => {
     visible = v;
+    // Pre-load toggles only update state; addCraftLayers applies the
+    // filter built from it when the style first loads.
+    if (!map.getLayer("craft-icons")) return;
     const f = buildIconFilter(v);
     map.setFilter("craft-icons", f);
     map.setFilter("craft-labels", f);
@@ -818,9 +821,11 @@ map.on("click", (e) => {
   }
 });
 map.on("mouseenter", "craft-icons", () => {
+  if (regionArmed) return;
   map.getCanvas().style.cursor = "pointer";
 });
 map.on("mouseleave", "craft-icons", () => {
+  if (regionArmed) return;
   map.getCanvas().style.cursor = "";
 });
 

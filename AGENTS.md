@@ -11,7 +11,8 @@ Local, single-user web app: live world map of **aircraft** (OpenSky ADS-B) and
 click-to-open detail panel (FAA type/year/owner for US-registered aircraft),
 model-driven aircraft shape-family icons (see Aircraft icons below),
 kind filter drawer, live aircraft poll-rate slider, timeline rewind, a status
-HUD, and a live traffic monitor panel.
+HUD, a live traffic monitor panel, a globe/flat projection toggle, and
+user-drawn ADS-B/AIS map sections.
 
 ## Commands
 
@@ -120,6 +121,14 @@ commit it; delete it to reset all cached data.
   it expects preprocessed styles; use `validateStyleMin`.)
 - Vite `build.target` is `es2022` (required for top-level await in
   `src/main.ts`); don't lower it.
+- **Projection switching (cost a rejected review round):** no public
+  `map.setProjection()` and no `MapOptions.projection`; the style-diff
+  EMITS `setProjection` but the applier throws (caught) → warning + FULL
+  style rebuild, `getStyle()` never round-trips `projection` and is
+  undefined pre-load. Inline styles may carry `projection` at creation;
+  toggling = `setStyle(copy, { diff: false })` after `loaded()`, with all
+  layer/source setup idempotent on `style.load`. Verify style-mutating
+  APIs against the bundle's applier, not just the d.ts.
 
 ### Aircraft icons (`server/icons.ts`, `server/icon-tables.ts`)
 
@@ -415,6 +424,16 @@ Counting caveats (verified Nov 2026):
   `data/icons/`; `init()` never throws — failures land in `status()`),
   `icons-catalog.ts` (catalog page HTML + gap list).
 - `src/` — `main.ts` (top-level await; wiring, rewind mode, info cache,
+  map controls — custom horizontal top-right `createMapControls` IControl
+  (zoom ±/compass/globe toggle, `src/map/controls.ts`): projection lives in
+  the inline Carto style at creation (`radar.projection`,
+  `src/data/projection-cfg.ts`, default globe); toggle = guarded
+  `setStyle(copy,{diff:false})` full rebuild (4.7.1 has no setProjection —
+  see gotchas); ALL style-scoped setup is idempotent in
+  `setupStyleLayers()` on `style.load`+`load`, socket created once outside
+  style events; user regions — `radar.regions` via
+  `src/data/regions.ts`/`regions-actions.ts`, painted by `src/map/regions.ts`,
+  armed from the drawer, click handlers + hover cursor yield while armed),
   flight-trail selection + credit-guarded refresh loop
   `clamp(pollMs/2, 30 s, 300 s)` — paused while hidden/rewound, seq-guarded
   replies, layers cleared on selection close/change; hot zone — restores
@@ -444,7 +463,12 @@ Counting caveats (verified Nov 2026):
   added after hotzone with the same before-id (lands above it, below
   `craft-icons`),
   `motion.ts` = dead-reckoning `effectivePosition` (air-only, 150 s cap,
-  exclusions pass the raw fix) + `startMotionTick` throw-giving loop), `data/`
+  exclusions pass the raw fix) + `startMotionTick` throw-giving loop,
+  `regions.ts` = user-region fill/outline + preview layers (below
+  `craft-icons`, above the ais-tile outlines; non-interactive) + the
+  rectangle `createRegionDrawer` FSM (single teardown restores gestures,
+  canvas cursor, preview), `controls.ts` = the horizontal control row
+  IControl (see map controls above)), `data/`
   (socket client, client store, feature building (live frames take a
   `motion: {nowMs}` opt that rewrites coordinates only), icon filter,
   `replay.ts` =
@@ -478,7 +502,11 @@ Counting caveats (verified Nov 2026):
   "Smooth motion" checkbox (Display group → `opts.setMotion`); the park
   button renders disabled as "Needs AISCAST_API_KEY" while status
   `secondary.enabled === false` — server-sourced truth re-applied on every
-  `setStats`, legacy frames without the field treated as enabled.
+  `setStats`, legacy frames without the field treated as enabled; the
+  "Map sections" group arms rectangle drawing per kind (+ ADS-B area /
+  + AIS area, `aria-pressed` armed state) and lists regions as
+  chip+label+size rows — clicking a row removes it (client-only,
+  `radar.regions`).
 - WS protocol (both ends mirror it, no shared file):
   client → server: `{type:"feed.rate",feed,ms}` (`feed` ∈ hub `FEED_IDS` =
   `["opensky", "ais"]`; the server clamps `feed.rate`/`ais` to [60000, 600000]
@@ -542,5 +570,5 @@ Counting caveats (verified Nov 2026):
   upTotal,downTotal}|null,top:[{proc,bytes}]|null}` (1 Hz, only while
   watchers exist; `device`/`top` null on non-mac/degraded — see Traffic
   monitor).
-- `test/` — 55 files, 1116 tests. Node-environment Vitest; browser-only code
+- `test/` — 60 files, 1179 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.

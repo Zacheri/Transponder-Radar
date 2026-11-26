@@ -15,17 +15,22 @@ on flat, pitched, and globe views.
   group: zoom −, zoom +, compass (click = reset bearing AND pitch; always
   visible, rotation reflected), globe/flat toggle. Dark-themed to match the
   UI; keyboard-accessible buttons with `aria-label`s and `title`s.
-- **Projection.** Verified against the installed stack (maplibre-gl 4.7.1,
-  style-spec 20.4.0): the style spec accepts `projection: {type: "mercator"
-  | "globe"}` and the style-diff emits a dedicated `setProjection` command,
-  so the toggle does `map.setStyle({ ...map.getStyle(), projection: {type} })`
-  (diff mode — camera, sources, our layers, and registered images survive;
-  the dev bundle confirms `command: 'setProjection'`). No public
-  `map.setProjection()` exists in 4.x — do not reach for it.
-  Startup: remembered under `radar.projection` (`"globe"|"mercator"`;
-  absent/corrupt → **globe**, user ruling). Persisted on every toggle.
-  The initial projection is applied right after map creation (constructor
-  option if honored, else the same setStyle-diff once on first load).
+- **Projection (corrected 2026-11-26 post-review).** maplibre-gl 4.7.1 has
+  NO public `map.setProjection()`, and the style-diff route is a trap: the
+  diff EMITS a `setProjection` command but `Style#setState` has no applier
+  for it — the command throws a caught TypeError, `setStyle` warns and
+  **full-rebuilds the style** (camera survives; sources/layers are rebuilt
+  from the serialized copy; images re-add via the existing `style.load`
+  registrars). `getStyle()` also never round-trips `projection` and is
+  `undefined` before load. Shipped design: the Carto inline style carries
+  `projection: {type}` at creation (zero boot reload); the OpenFreeMap URL
+  fallback applies one `setStyle` after first load only when globe is
+  wanted; the toggle no-ops until `loaded()` and requests the rebuild
+  deterministically with `setStyle(copy, { diff: false })`; ALL layer/source
+  setup lives in an idempotent `style.load`-registered routine so a
+  projection rebuild heals the map (socket created once, outside style
+  events). Full-rebuild-on-toggle is the accepted 4.7.1 cost; a future
+  maplibre 5.x upgrade buys the in-place `setProjection`.
 - **Detail panel drops below the row:** `.panel { top: 56px }` (12 + ~36 +
   8) so it can never occlude the controls; the controls sit at top-right
   above it (z-order: controls > panel).
