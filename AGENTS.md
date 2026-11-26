@@ -370,11 +370,16 @@ Counting caveats (verified Nov 2026):
    `update`, `status` frames), `opensky.ts` (poller; setTimeout chain; live
    `setPollInterval`; hot-zone boost — `setZonesConfig`, own zone tick
    (1-credit bbox call funded from the `X-Rate-Limit-Remaining` captured in
-   `pollOnce`; a zone 429 pauses boost only), `feedStatus.boost` +
-   `zoneStatus`),
-  `hotzones.ts` (pure: `planZone` 2°-grid clustering (box cap 5°×5°,
-  create ≥2/hold ≥1/expire 5 min, broadcast copy moves only on >0.5°
-  centroid drift) + scheduler `surplusCredits`/`zoneIntervalFor`),
+   `pollOnce`; zone ticks fund greedily densest-slot-first from the surplus
+   (zone 2 needs surplus ≥ 1 after zone 1's due poll); a zone 429 pauses
+   that zone only), `feedStatus.boost` +
+   `zonesStatus`),
+  `hotzones.ts` (pure: `planZones` 2°-grid clustering → up to TWO zones,
+  slot-stable (≤5° centroid match keeps identity; densest at formation;
+  zone 2 = densest non-overlapping remainder; box cap 5°×5°,
+  create ≥2/hold ≥1/expire 5 min per slot, broadcast copy moves only on
+  >0.5° centroid drift) + scheduler `surplusCredits`/`zoneIntervalFor`
+  (stretch model per-zone-conservative: two funded zones burn ~2×)),
   `opensky-auth.ts` (OAuth2 token provider), `ais.ts` (parameterized AIS WS
   client — url/name/boxesProvider/attribution injectable; index.ts runs two
   instances: primary aisstream + the `aiscast` fill client aimed by
@@ -412,8 +417,8 @@ Counting caveats (verified Nov 2026):
   `clamp(pollMs/2, 30 s, 300 s)` — paused while hidden/rewound, seq-guarded
   replies, layers cleared on selection close/change; hot zone — restores
   `radar.zonesCfg` at boot, re-sends the config on every socket open
-  (server-side state is memory-only), paints `status.hotzone` via
-  `setHotzone` and the aiscast tile rects via `setAisTileBoxes` (status
+  (server-side state is memory-only), paints `status.hotzones` via
+  `setHotzones` (one rect per zone) and the aiscast tile rects via `setAisTileBoxes` (status
   `secondary.boxes`, straight through — no client heuristics); traffic panel
   — `createTrafficPanel` + watch re-send on open + `createBrowserTx` WAN-down
   harvest started on first open; smooth motion — restores `radar.motion` at boot, `refresh()`
@@ -425,10 +430,13 @@ Counting caveats (verified Nov 2026):
   13 air family + 10 sea SVG imports = 23 entries, `pack-icons.ts` = lazy
   pack‑icon loader (fetch `GET /icons/*` → transform → 96×96 raster →
   `addImage`, failed-set retry), layer defs, `trackLayers.ts` =
-  `flight-trail`/`flight-predicted`/`flight-dest` defs + pure data setters,
+  `flight-trail`/`flight-predicted`/`flight-dest` defs + pure data setters
+  (recorded trail runs through `unwrapLongitudes` — ±360 per-step unwrap so
+  dateline trails draw the short way; predicted arrives pre-unwrapped),
   inserted below `craft-icons`, `hotzone.ts` =
   `hotzone-fill`/`hotzone-outline` rect (dominant-kind color at 18% fill +
-  1 px stroke, feature `color`/`count` props) inserted below `craft-icons`,
+  1 px stroke, feature `color`/`count` props; `setHotzones` paints one ring
+  per zone, `[]` clears) inserted below `craft-icons`,
   `aisTiles.ts` = `ais-tile-outline` dashed `#4fc3f7` line layer
   (source `ais-tile-src`) stroking the aiscast `secondary.boxes` rects,
   added after hotzone with the same before-id (lands above it, below
@@ -444,7 +452,8 @@ Counting caveats (verified Nov 2026):
   downloads (transferSize only, name+startTime dedupe) reported via
   `traffic.report`), `ui/` (panel (FAA info
   rows; air: dep/arr route chips `IATA · city` → fly-to + dest marker,
-  trail refresh button, R2 budget note), filters (+ the "Boost zones"
+  trail refresh button, R2 budget note, ETA row (`ETA ~HH:MM` local, from
+  `etaMs` when airborne + speed + dest coords)), filters (+ the "Boost zones"
   section: air-kind checkboxes tinted via the color api + a 10–120 s slider,
   `ZonesControlOpts` 5th arg → `zones.config`), `zones-cfg.ts` (pure
   parse/serialize of `radar.zonesCfg`; corrupt → null, caller defaults
@@ -502,18 +511,21 @@ Counting caveats (verified Nov 2026):
   server → client: `{type:"snapshot",craft}`, `{type:"update",upsert,remove}`
   (craft objects carry an optional `icon` — air shape family / sea kind /
   absent in pre-icon snapshots),
-  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs,boost?},ais:{connected,enabled,lastError,lastMessageAt,flushMs,secondary:{enabled,connected,lastError,lastMessageAt,attributions,boxes?}}},settings:{storageCapGb,ramCacheGb,cacheUsedBytes,homeRegion},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},hotzone,serverTime}`
+  `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs,boost?},ais:{connected,enabled,lastError,lastMessageAt,flushMs,secondary:{enabled,connected,lastError,lastMessageAt,attributions,boxes?}}},settings:{storageCapGb,ramCacheGb,cacheUsedBytes,homeRegion},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},hotzones,serverTime}`
   (icons.state: ready|downloading|failed|absent; `secondary` is non-nullable —
   disabled = `enabled:false` zeroed, never null; `homeRegion` is
   `{lat,lon}|null`; `boost` = poller BoostStatus
-  `{active,count,intervalMs,paused:"credits"|null}` — null/absent = legacy or
+  `{active,count,intervalMs,paused:"credits"|null,zones}` — `count` sums the
+  zones, `zones` = live zone count (1–2); null/absent = legacy or
   no zones config (every client read optional-chained); `boxes` =
   `[[minLat,minLon],[maxLat,maxLon]][]` (≤2, the composed aiscast home+follow
   tiles recomputed at status time — single source with the AIS subscription;
   `[]` when disabled; the client strokes them as `ais-tile-outline`);
-  `hotzone` =
-  broadcast-geometry copy `{center,halfW,halfH,count,kind}` (the poller's
-  `dominantKind` ships as `kind`) or null),
+  `hotzones` =
+  array (≤2, slot-stable order) of broadcast-geometry copies
+  `{center,halfW,halfH,count,kind}` (the poller's `dominantKind` ships as
+  `kind`); `[]` when idle — replaced singular `hotzone` 2026-11-26, no
+  legacy field kept),
   `{type:"timeline.state",time,craft,seq?}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
   `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`),
@@ -528,5 +540,5 @@ Counting caveats (verified Nov 2026):
   upTotal,downTotal}|null,top:[{proc,bytes}]|null}` (1 Hz, only while
   watchers exist; `device`/`top` null on non-mac/degraded — see Traffic
   monitor).
-- `test/` — 55 files, 1090 tests. Node-environment Vitest; browser-only code
+- `test/` — 55 files, 1116 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.
