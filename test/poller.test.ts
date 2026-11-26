@@ -626,6 +626,51 @@ describe("OpenSkyPoller hot-zone boost", () => {
     expect(poller.feedStatus.boost?.paused).toBeNull();
     poller.setZonesConfig(null);
   });
+
+  it("a 429 pause on a held zone does not leak into the next zone in its slot", async () => {
+    const store = new CraftStore();
+    let t = 0;
+    const urls: string[] = [];
+    let mode = "ok";
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, (url) => {
+        // retry-after 300 s -> the capped 300000 pause, long enough to
+        // outlive the held copy's expiry when members leave now.
+        if (mode === "zone429" && url.includes("lamin=")) {
+          return jsonResponse(null, 429, { "retry-after": "300" });
+        }
+        return funded("4000");
+      }),
+    });
+    await poller.pollOnce();
+    seedCluster(store); // zone forms at t=0 (lastMembersAt 0), nextAt = 84706
+    poller.setZonesConfig({ kinds: ["military"], boostMs: 10000 });
+    await poller.pollZoneOnce();
+
+    // Members gone -> the zone holds its copy on TTL and the next due tick
+    // 429s: pausedUntil = 84707 + 300000 = 384707, PAST the copy's expiry.
+    store.pruneAir(new Set(), 1, 0);
+    mode = "zone429";
+    t = 84707;
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(2);
+
+    // The slot expires with the pause still pending — the empty-slot path
+    // must reset the run, not hand the stale pause to the next zone.
+    t = 300_001;
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(2);
+
+    // A new cluster in the same slot polls immediately.
+    t = 300_002;
+    mode = "ok";
+    seedCluster(store);
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(3);
+    expect(poller.feedStatus.boost?.paused).toBeNull();
+    poller.setZonesConfig(null);
+  });
 });
 
 describe("OpenSkyPoller hot-zone boost active flag", () => {

@@ -21,6 +21,9 @@ export interface TrackReply {
 
 export interface TracksService {
   get(icao24: string, auto: boolean): Promise<TrackReply>;
+  // The live budget for echo replies that make no request (unknown-id
+  // flight.track); reads the ledger, never spends.
+  budget(): Promise<TrackReply["budget"]>;
 }
 
 export interface TracksOpts {
@@ -106,7 +109,9 @@ export function createTracks(opts: TracksOpts): TracksService {
 
   const budgetFor = (ms: number): TrackReply["budget"] => {
     const count = countFor(utcDay(ms));
-    return { autoLeft: Math.max(0, autoDailyCap - count), hard: count + 1 >= hardDailyCap };
+    // autoLeft agrees with the auto gate (refused at count + 1 >= cap):
+    // the number of auto calls still accepted, matching `hard`.
+    return { autoLeft: Math.max(0, autoDailyCap - 1 - count), hard: count + 1 >= hardDailyCap };
   };
 
   // Refusal: serve the cached reply (any age), or an empty "none" when this
@@ -152,6 +157,10 @@ export function createTracks(opts: TracksOpts): TracksService {
   }
 
   return {
+    async budget(): Promise<TrackReply["budget"]> {
+      await boot;
+      return budgetFor(now());
+    },
     async get(icao24: string, auto: boolean): Promise<TrackReply> {
       await boot;
       const hex = icao24.trim().toLowerCase();

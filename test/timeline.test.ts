@@ -18,6 +18,7 @@ class FakeEl {
   value = "";
   disabled = false;
   rectWidth = 0;
+  rectLeft = 0;
   children: FakeEl[] = [];
   parent: FakeEl | null = null;
   readonly style: Record<string, string> = {};
@@ -71,7 +72,7 @@ class FakeEl {
     this.listeners.set(t, (this.listeners.get(t) ?? []).filter((f) => f !== fn));
   }
   getBoundingClientRect() {
-    return { left: 0, width: this.rectWidth } as DOMRect;
+    return { left: this.rectLeft, width: this.rectWidth } as DOMRect;
   }
   fire(t: string, ev: Ev = {}): void {
     for (const fn of [...(this.listeners.get(t) ?? [])]) fn(ev);
@@ -134,6 +135,7 @@ function setup(
     ...opts,
   });
   const slider = must(find(root, (el) => el.attrs["aria-label"] === "Timeline scrubber"), "slider");
+  const overlay = find(root, (el) => el.className === "timeline-overlay");
   const sel = must(find(root, (el) => el.className === "timeline-sel"), "selection label");
   const markBtn = find(root, (el) => el.className === "timeline-mark");
   const view = find(root, (el) => el.className === "timeline-view");
@@ -143,7 +145,7 @@ function setup(
   const toInput = find(root, (el) => el.className === "timeline-view-to");
   const applyBtn = find(root, (el) => el.className === "timeline-view-apply");
   const resetBtn = find(root, (el) => el.className === "timeline-view-reset");
-  return { api, root, slider, sel, markBtn, view, presetSel, custom, fromInput, toInput, applyBtn, resetBtn };
+  return { api, root, slider, overlay, sel, markBtn, view, presetSel, custom, fromInput, toInput, applyBtn, resetBtn };
 }
 
 function pickOption(sel: FakeEl, label: string): FakeEl {
@@ -197,10 +199,14 @@ describe("timeline mark rounding (B9)", () => {
   function markSetup() {
     const markAdd = vi.fn();
     const markRemove = vi.fn();
-    const { api, slider, markBtn } = setup({ markAdd, markRemove });
+    const { api, slider, overlay, markBtn } = setup({ markAdd, markRemove });
     api.setRange(FROM, TO);
     must(markBtn, "mark button").fire("click");
+    // Click math lives in the overlay's rect (the as-drawn pin/tick space);
+    // default it to the slider's rect unless a test pins an inset overlay.
     slider.rectWidth = 1000;
+    const ov = must(overlay, "overlay");
+    ov.rectWidth = 1000;
     return { api, slider, markAdd, markRemove };
   }
 
@@ -339,7 +345,7 @@ describe("timeline view controls", () => {
 describe("timeline out-of-window pins and cursor (review focus)", () => {
   it("clamps a fully out-of-window pin to the track edge and keeps it removable", () => {
     const markRemove = vi.fn();
-    const { api, slider, markBtn, root } = setup({ markAdd: vi.fn(), markRemove });
+    const { api, slider, overlay, markBtn, root } = setup({ markAdd: vi.fn(), markRemove });
     api.setRange(FROM, TO);
     api.setPins([{ id: "p1", from: 10_000, to: 70_000 }]);
     expect(() => api.setRange(200_000, 300_000)).not.toThrow();
@@ -353,13 +359,15 @@ describe("timeline out-of-window pins and cursor (review focus)", () => {
 
     must(markBtn, "mark button").fire("click");
     slider.rectWidth = 1000;
+    const ov = must(overlay, "overlay");
+    ov.rectWidth = 1000;
     drag(slider, 0, 0); // click on the clamped edge position
     expect(markRemove).toHaveBeenCalledWith("p1");
   });
 
   it("clips a straddling pin to its visible span and removes it on an in-view click", () => {
     const markRemove = vi.fn();
-    const { api, slider, markBtn, root } = setup({ markAdd: vi.fn(), markRemove });
+    const { api, slider, overlay, markBtn, root } = setup({ markAdd: vi.fn(), markRemove });
     api.setRange(200_000, 300_000);
     api.setPins([{ id: "p1", from: 50_000, to: 250_000 }]);
 
@@ -369,8 +377,28 @@ describe("timeline out-of-window pins and cursor (review focus)", () => {
 
     must(markBtn, "mark button").fire("click");
     slider.rectWidth = 1000;
+    const ov = must(overlay, "overlay");
+    ov.rectWidth = 1000;
     drag(slider, 250, 250); // 225,000 ms, inside the visible span
     expect(markRemove).toHaveBeenCalledWith("p1");
+  });
+
+  it("hits an end pin when clicking its drawn position on the inset overlay", () => {
+    const markRemove = vi.fn();
+    const { api, slider, overlay, markBtn } = setup({ markAdd: vi.fn(), markRemove });
+    api.setRange(FROM, TO);
+    api.setPins([{ id: "pe", from: FROM - 5_000, to: FROM }]); // clamps to 0%
+    slider.rectWidth = 1000;
+    // .timeline-overlay is inset 0 2px, so the 0% pin's drawn sliver sits at
+    // x∈[2,4] — the click→time space must be the overlay's rect, not the
+    // slider's full-width one (wave-4 "hit on the as-drawn span" invariant).
+    const ov = must(overlay, "overlay");
+    ov.rectLeft = 2;
+    ov.rectWidth = 996;
+
+    must(markBtn, "mark button").fire("click");
+    drag(slider, 2, 2); // click on the drawn sliver's position
+    expect(markRemove).toHaveBeenCalledWith("pe");
   });
 
   it("keeps the cursor label through a later window that excludes the cursor", () => {

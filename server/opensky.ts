@@ -303,6 +303,13 @@ export class OpenSkyPoller {
     const surplus = surplusCredits(this.statesRemaining, now, this.opts.pollMs, GLOBE_CALL_COST);
     const interval = zoneIntervalFor(cfg.boostMs, surplus, now);
     const slots = step.state.slots;
+    // Empty-slot run reset happens BEFORE the no-box early return: a 429 on
+    // a held copy (members already gone) can outlive that copy's expiry, and
+    // the next zone forming in the slot must not inherit the stale pause.
+    while (this.zoneRuns.length < slots.length) this.zoneRuns.push(freshRun());
+    for (let i = 0; i < slots.length; i++) {
+      if (!slots[i].box) this.zoneRuns[i] = freshRun();
+    }
     if (!slots.some((s) => s.box !== null)) {
       this.boostIntervalMs = null;
       this.boostPaused = null;
@@ -322,13 +329,9 @@ export class OpenSkyPoller {
     let unfundedDue = false;
     let nextDelayMs = Number.POSITIVE_INFINITY;
     const base = this.opts.url ?? "https://opensky-network.org/api/states/all";
-    while (this.zoneRuns.length < slots.length) this.zoneRuns.push(freshRun());
     for (let i = 0; i < slots.length; i++) {
       const zone = slots[i].box;
-      if (!zone) {
-        this.zoneRuns[i] = freshRun();
-        continue;
-      }
+      if (!zone) continue; // run already reset above
       const run = this.zoneRuns[i];
       if (now < run.pausedUntil) {
         paused = true;

@@ -28,6 +28,9 @@ Files: `server/hotzones.ts`, `server/opensky.ts`, `server/index.ts`,
    when surplus ≥ 1 credit remains after reserving for the OTHER zone's due
    poll and the globe reserve (same THE-RULE math, just two ledgers — zone 1
    funds first). A 429 pauses only that zone; pause reason shared.
+   [Ruling 2026-11-25: implemented as a greedy per-tick budget — surplus ≥ 1
+   funds zone 2 after zone 1's due poll spends its credit, with no explicit
+   cross-reserve for the other zone; matches the Rulings section.]
 3. Wire: replace status `hotzone` (object|null) with `hotzones`
    (array, ≤2, ordered). Ruling: local single-user app, both ends ship
    together — no legacy field kept (matches ais.tile precedent of no

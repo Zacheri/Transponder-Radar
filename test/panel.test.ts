@@ -323,11 +323,13 @@ describe("panel flight-context round-trip (setInfo idiom)", () => {
 describe("panel ETA row", () => {
   const NOW = Date.parse("2026-11-21T12:00:00.000Z");
 
-  // Fakes Date.now and pins the local zone so expected values can be derived
-  // with the UTC getters — independent of the implementation's local getters.
+  // Fakes Date.now and pins the local zone to a fixed non-UTC offset (IST,
+  // +5:30, no DST). The expected label is derived with the SAME local getters
+  // the implementation uses; the IST pin is what makes that discriminating —
+  // it pins "the label uses LOCAL getters", which a UTC pin could not.
   function withClock(fn: () => void): void {
     const tz = process.env.TZ;
-    process.env.TZ = "UTC";
+    process.env.TZ = "Asia/Kolkata";
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     try {
       fn();
@@ -340,6 +342,12 @@ describe("panel ETA row", () => {
 
   function etaLocal(baseMs: number, from: number): string {
     const d = new Date(from + baseMs);
+    // Guard: if this instant were ever UTC-aligned (zone reverted to UTC),
+    // the expected label would stop detecting a local-vs-UTC regression —
+    // fail loudly instead of passing blind.
+    if (d.getHours() === d.getUTCHours() && d.getMinutes() === d.getUTCMinutes()) {
+      throw new Error("ETA test instant is UTC-aligned; the IST pin must keep local ≠ UTC");
+    }
     const p2 = (n: number): string => String(n).padStart(2, "0");
     return `~${p2(d.getHours())}:${p2(d.getMinutes())}`;
   }

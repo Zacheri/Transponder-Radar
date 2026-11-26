@@ -304,9 +304,13 @@ export function createTimeline(
     }, DEBOUNCE_MS);
   });
 
+  // Clicks invert through the OVERLAY's rect — the 2px-inset span that
+  // actually paints pins/ticks/preview — so click→time and the pin hit-test
+  // share one space (wave-4 invariant: hit on the as-drawn span). Scrubbing
+  // via the native range input is a separate, untouched path.
   function xToTime(clientX: number): number | null {
     if (from == null || to == null || from >= to) return null;
-    const rect = slider.getBoundingClientRect();
+    const rect = overlay.getBoundingClientRect();
     if (rect.width <= 0) return from;
     const frac = (clientX - rect.left) / rect.width;
     return Math.max(from, Math.min(to, from + frac * (to - from)));

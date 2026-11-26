@@ -164,8 +164,9 @@ describe("hud ais-fill line", () => {
 });
 
 describe("hud boost segment", () => {
-  // The HUD reads every boost field optionally; zones (wave 10) untested here.
-  type Boost = Partial<NonNullable<FeedStatus["opensky"]["boost"]>>;
+  // Full-shape fixtures (wave-10 Boost): the HUD renders count/interval/
+  // paused; zones rides along unrendered.
+  type Boost = NonNullable<FeedStatus["opensky"]["boost"]>;
 
   function withBoost(boost?: Boost | null) {
     const { setFeeds, feeds } = setup();
@@ -178,27 +179,27 @@ describe("hud boost segment", () => {
   }
 
   it("appends count + effective interval when active with an interval", () => {
-    const t = withBoost({ active: true, count: 4, intervalMs: 30000, paused: null });
+    const t = withBoost({ active: true, count: 4, intervalMs: 30000, paused: null, zones: 1 });
     expect(t).toMatch(/^OpenSky: ok · AIS: ok · Boost: 4 @30s$/);
   });
 
   it("shows a stretched interval verbatim (65s)", () => {
-    const t = withBoost({ active: true, count: 2, intervalMs: 65000, paused: null });
+    const t = withBoost({ active: true, count: 2, intervalMs: 65000, paused: null, zones: 1 });
     expect(t).toContain(" · Boost: 2 @65s");
   });
 
   it("shows paused (no count) when active and paused, even if an interval lingers", () => {
-    expect(withBoost({ active: true, count: 4, intervalMs: null, paused: "credits" })).toContain(" · Boost paused");
-    expect(withBoost({ active: true, count: 4, intervalMs: 30000, paused: "credits" })).toContain(" · Boost paused");
+    expect(withBoost({ active: true, count: 4, intervalMs: null, paused: "credits", zones: 1 })).toContain(" · Boost paused");
+    expect(withBoost({ active: true, count: 4, intervalMs: 30000, paused: "credits", zones: 2 })).toContain(" · Boost paused");
   });
 
   it("shows nothing while active but not yet ticking (no interval, no pause)", () => {
-    const t = withBoost({ active: true, count: 0, intervalMs: null, paused: null });
+    const t = withBoost({ active: true, count: 0, intervalMs: null, paused: null, zones: 1 });
     expect(t).not.toContain("Boost");
   });
 
   it("shows nothing for inactive, null, or a legacy frame without the field", () => {
-    expect(withBoost({ active: false, count: 0, intervalMs: null, paused: null })).not.toContain("Boost");
+    expect(withBoost({ active: false, count: 0, intervalMs: null, paused: null, zones: 0 })).not.toContain("Boost");
     expect(withBoost(null)).not.toContain("Boost");
     const t = withBoost(undefined);
     expect(t).toBe("OpenSky: ok · AIS: ok");
@@ -207,7 +208,7 @@ describe("hud boost segment", () => {
 
 describe("hud boost-paused tooltip", () => {
   const PAUSE_TITLE = "Slow the Aircraft-poll slider to fund zone polling";
-  type Boost = Partial<NonNullable<FeedStatus["opensky"]["boost"]>>;
+  type Boost = NonNullable<FeedStatus["opensky"]["boost"]>;
 
   function withBoost(boost: Boost) {
     const { setFeeds, feeds } = setup();
@@ -221,7 +222,7 @@ describe("hud boost-paused tooltip", () => {
     find(el, (e) => (e as unknown as Record<string, unknown>)["attr:title"] != null);
 
   it("carries the guidance title on the paused segment, text unchanged", () => {
-    const feeds = withBoost({ active: true, count: 4, intervalMs: 30000, paused: "credits" });
+    const feeds = withBoost({ active: true, count: 4, intervalMs: 30000, paused: "credits", zones: 1 });
     expect(feeds.textContent).toBe("OpenSky: ok · AIS: ok · Boost paused");
     const seg = must(titled(feeds), "titled paused segment");
     expect((seg as unknown as Record<string, unknown>)["attr:title"]).toBe(PAUSE_TITLE);
@@ -229,10 +230,10 @@ describe("hud boost-paused tooltip", () => {
   });
 
   it("adds no title while boosting on a real interval, or with no boost", () => {
-    const running = withBoost({ active: true, count: 4, intervalMs: 30000, paused: null });
+    const running = withBoost({ active: true, count: 4, intervalMs: 30000, paused: null, zones: 1 });
     expect(running.textContent).toBe("OpenSky: ok · AIS: ok · Boost: 4 @30s");
     expect(titled(running)).toBeUndefined();
-    const idle = withBoost({ active: false, count: 0, intervalMs: null, paused: null });
+    const idle = withBoost({ active: false, count: 0, intervalMs: null, paused: null, zones: 0 });
     expect(idle.textContent).toBe("OpenSky: ok · AIS: ok");
     expect(titled(idle)).toBeUndefined();
   });

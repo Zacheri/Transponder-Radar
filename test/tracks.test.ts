@@ -98,7 +98,7 @@ describe("createTracks — sources and merge", () => {
       { t: T + 60_000, lat: 3.5, lon: 4.5, alt: null, onGround: true },
     ]);
     expect(reply.fetchedAt).toBe(clock);
-    expect(reply.budget).toEqual({ autoLeft: 299, hard: false });
+    expect(reply.budget).toEqual({ autoLeft: 298, hard: false }); // gate: 299 - 1 used
   });
 
   it("maps the recorded fixture exactly (index map, ms times, bare-record shape)", async () => {
@@ -196,7 +196,9 @@ describe("createTracks — daily ledger", () => {
     for (let i = 0; i < 299; i++) {
       const reply = await svc.get("a3feee", true);
       expect(calls.length).toBe(i + 1);
-      expect(reply.budget.autoLeft).toBe(300 - (i + 1));
+      // autoLeft agrees with the gate (auto refused at count + 1 >= 300):
+      // after the (i+1)-th call, 299 - (i + 1) auto calls remain accepted.
+      expect(reply.budget.autoLeft).toBe(299 - (i + 1));
     }
     // 300th auto: refused, served the (any-age) cached path, no call.
     const refused = await svc.get("a3feee", true);
@@ -208,21 +210,35 @@ describe("createTracks — daily ledger", () => {
     expect(calls.length).toBe(300);
   });
 
-  it("autoLeft reads the ledger exactly: 1 at 299 used, 0 at 300, never negative", async () => {
+  it("autoLeft reads the gate: 1 at 298 used, 0 at 299, never negative", async () => {
     always = jsonRes(osBody([]));
-    await writeFile(ledgerFile, JSON.stringify({ day: "2026-11-21", count: 298 }));
+    await writeFile(ledgerFile, JSON.stringify({ day: "2026-11-21", count: 297 }));
     const svc = make({ cacheMs: 0 });
 
-    // 299th call (auto, 298 used): allowed, exactly 1 left.
+    // autoLeft = auto calls the gate still accepts (refused at count + 1 >= 300),
+    // so the budget note never promises a request the gate would deny.
+    // 297→298 used: one auto poll still accepted.
     expect((await svc.get("a3feee", true)).budget).toEqual({ autoLeft: 1, hard: false });
-    // 300th call rides manual (the 300th auto is refused, pinned above).
-    expect((await svc.get("a3feee", false)).budget).toEqual({ autoLeft: 0, hard: false });
-    // Auto past the cap: refusal reports 0, never negative, and does not spend.
+    // 298→299 used: the next auto is refused, so 0.
     expect((await svc.get("a3feee", true)).budget).toEqual({ autoLeft: 0, hard: false });
-    // Manual past the cap: max(0, 300 - 301) stays 0.
+    // Auto at 299: refused, reports 0, spends nothing (no request, no bump).
+    expect((await svc.get("a3feee", true)).budget).toEqual({ autoLeft: 0, hard: false });
+    expect(calls.length).toBe(2);
+    expect(JSON.parse(await readFile(ledgerFile, "utf8")).count).toBe(299);
+    // Manual still rides: 299→300, and max(0, 299 - 300) stays 0.
     expect((await svc.get("a3feee", false)).budget.autoLeft).toBe(0);
-    expect(calls.length).toBe(3); // the refusal made no request
-    expect(JSON.parse(await readFile(ledgerFile, "utf8")).count).toBe(301);
+    expect(calls.length).toBe(3);
+  });
+
+  it("budget() reads the live gate without spending", async () => {
+    await writeFile(ledgerFile, JSON.stringify({ day: "2026-11-21", count: 299 }));
+    const svc = make();
+
+    // Unknown-id track echoes report this same live budget (index.ts): honest
+    // at count=299 (0, not the cap), and side-effect-free.
+    expect(await svc.budget()).toEqual({ autoLeft: 0, hard: false });
+    expect(calls.length).toBe(0);
+    expect(JSON.parse(await readFile(ledgerFile, "utf8")).count).toBe(299);
   });
 
   it("hard-refuses everything past 800/day, even manual, and empty-craft refusals have no cache to serve", async () => {

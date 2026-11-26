@@ -263,6 +263,8 @@ export function surplusCredits(
 // midnight fit in the surplus; null = paused (no surplus, or the stretch
 // alone would exceed the 120 s slider cap). The per-zone credit gate lives in
 // the poller (each due zone spends 1 credit off this surplus, zone 1 first).
+// Note: the stretch budgets the whole surplus for ONE zone's cadence — with
+// two funded zones it burns ~2x, so the model is per-zone-conservative.
 export function zoneIntervalFor(
   requestedMs: number,
   surplus: number,

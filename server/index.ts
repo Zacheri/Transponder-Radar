@@ -28,7 +28,7 @@ import { FaaLoader, type FaaProvider, type FaaRecord } from "./faa.js";
 import { FaaLookup } from "./faa-lookup.js";
 import { createAirports } from "./airports.js";
 import { createRoutes, type FlightRoute } from "./routes.js";
-import { AUTO_DAILY_CAP, createTracks } from "./tracks.js";
+import { createTracks } from "./tracks.js";
 import { resolveAirIcon } from "./icons.js";
 import { IconPack } from "./iconpack.js";
 import { loadIconSources } from "./iconpack-sources.js";
@@ -241,9 +241,10 @@ export async function buildApp(deps: ServerDeps = {}) {
     log,
     traffic,
   });
-  // Wire copies of the live hot zones (design §D, wave 10): densest first,
-  // <= MAX_ZONES, dominantKind renamed `kind`; injected stubs without the
-  // getter read as an empty array (old null-passthrough posture).
+  // Wire copies of the live hot zones (design §D, wave 10): slot-stable order
+  // (densest at formation), <= MAX_ZONES, dominantKind renamed `kind`;
+  // injected stubs without the getter read as an empty array (old
+  // null-passthrough posture).
   const hotzonesWire = () =>
     (opensky.zonesStatus ?? []).map((z) => ({
       center: z.center,
@@ -481,7 +482,8 @@ export async function buildApp(deps: ServerDeps = {}) {
           void (async () => {
             if (!craft || craft.domain === "sea") {
               // Same empty echo the service gives for a never-fetched craft;
-              // the full budget is honest here — an unknown id costs nothing.
+              // the live gate budget (an unknown id spends nothing, but the
+              // note must match what the next real reply reports).
               reply({
                 type: "flight.track",
                 id: msg.id,
@@ -489,7 +491,7 @@ export async function buildApp(deps: ServerDeps = {}) {
                 path: [],
                 fetchedAt: 0,
                 source: "none",
-                budget: { autoLeft: AUTO_DAILY_CAP, hard: false },
+                budget: await tracks.budget(),
               });
               return;
             }
