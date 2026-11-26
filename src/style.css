@@ -31,9 +31,85 @@ body {
   outline: none;
 }
 
+/* Top-right control row (custom IControl): one horizontal group stacked
+   above the detail panel, which drops to top: 56px so it can never cover
+   the controls. */
+.maplibregl-map .maplibregl-ctrl-top-right {
+  z-index: 11;
+}
+.maplibregl-ctrl-top-right .maplibregl-ctrl.map-control-row {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  margin: 12px 12px 0 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  backdrop-filter: blur(8px);
+}
+.map-control-row button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  min-width: 34px;
+  padding: 8px 9px;
+}
+.map-control-row button:last-child {
+  border-right: 0;
+}
+.maplibregl-ctrl.map-control-row button:not(:disabled):hover {
+  background: rgba(79, 195, 247, 0.12);
+}
+.map-control-row button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.map-control-row button[aria-pressed="true"] {
+  color: var(--accent);
+}
+.map-control-compass-arrow {
+  display: inline-block;
+  font-size: 11px;
+}
+
+/* Attribution: dark-themed, lifted clear of the timeline band (bottom 12px
+   + row), and stacked above it. It grows bottom-anchored, so the expanded
+   list stays inside the viewport. */
+.maplibregl-map .maplibregl-ctrl-bottom-right {
+  z-index: 10;
+}
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib.maplibregl-compact {
+  margin: 0 12px 64px 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  backdrop-filter: blur(8px);
+  max-width: min(480px, calc(100vw - 24px));
+}
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib a {
+  color: var(--accent);
+}
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button {
+  background-color: transparent;
+  filter: invert(1);
+}
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
 .panel {
   position: absolute;
-  top: 12px;
+  top: 56px;
   right: 12px;
   width: 280px;
   max-height: calc(100% - 24px);
