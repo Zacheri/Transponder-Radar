@@ -164,7 +164,8 @@ describe("hud ais-fill line", () => {
 });
 
 describe("hud boost segment", () => {
-  type Boost = NonNullable<FeedStatus["opensky"]["boost"]>;
+  // The HUD reads every boost field optionally; zones (wave 10) untested here.
+  type Boost = Partial<NonNullable<FeedStatus["opensky"]["boost"]>>;
 
   function withBoost(boost?: Boost | null) {
     const { setFeeds, feeds } = setup();
@@ -206,7 +207,7 @@ describe("hud boost segment", () => {
 
 describe("hud boost-paused tooltip", () => {
   const PAUSE_TITLE = "Slow the Aircraft-poll slider to fund zone polling";
-  type Boost = NonNullable<FeedStatus["opensky"]["boost"]>;
+  type Boost = Partial<NonNullable<FeedStatus["opensky"]["boost"]>>;
 
   function withBoost(boost: Boost) {
     const { setFeeds, feeds } = setup();

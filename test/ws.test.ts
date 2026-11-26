@@ -557,22 +557,27 @@ describe("zones.config client protocol mirror", () => {
     }
   });
 
-  it("parses a status frame carrying boost + hotzone (additive fields)", () => {    const raw = JSON.stringify({
+  it("parses a status frame carrying boost + hotzones (wire fields)", () => {    const raw = JSON.stringify({
       type: "status",
       feeds: {
-        opensky: { lastOkAt: 1000, lastError: null, pollMs: 90000, boost: { active: true, count: 4, intervalMs: 30000, paused: null } },
+        opensky: { lastOkAt: 1000, lastError: null, pollMs: 90000, boost: { active: true, count: 4, intervalMs: 30000, paused: null, zones: 1 } },
         ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 900, flushMs: 120000 },
       },
       history,
       faa,
       serverTime: 2000,
-      hotzone: { center: { lon: -74, lat: 40 }, halfW: 2.5, halfH: 2, count: 4, kind: "military" },
+      hotzones: [
+        { center: { lon: -74, lat: 40 }, halfW: 2.5, halfH: 2, count: 4, kind: "military" },
+        { center: { lon: 10, lat: -40 }, halfW: 1, halfH: 1, count: 2, kind: "general" },
+      ],
     });
     const msg = parseRadarMessage(raw);
     expect(msg?.type).toBe("status");
     if (msg?.type === "status") {
-      expect(msg.feeds.opensky.boost).toEqual({ active: true, count: 4, intervalMs: 30000, paused: null });
-      expect(msg.hotzone?.kind).toBe("military");
+      expect(msg.feeds.opensky.boost).toEqual({ active: true, count: 4, intervalMs: 30000, paused: null, zones: 1 });
+      expect(msg.hotzones).toHaveLength(2);
+      expect(msg.hotzones?.[0].kind).toBe("military");
+      expect(msg.hotzones?.[1].kind).toBe("general");
     }
   });
 
@@ -580,7 +585,7 @@ describe("zones.config client protocol mirror", () => {
     const raw = JSON.stringify({ type: "status", feeds, history, faa, serverTime: 2000 });
     const msg = parseRadarMessage(raw);
     if (msg?.type !== "status") throw new Error("status rejected");
-    expect(msg.hotzone ?? null).toBeNull();
+    expect(msg.hotzones ?? null).toBeNull();
     expect(msg.feeds.opensky.boost ?? null).toBeNull();
   });
 });

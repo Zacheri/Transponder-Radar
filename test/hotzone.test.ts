@@ -5,7 +5,7 @@ import {
   HOTZONE_LAYER,
   hotzoneDefs,
   addHotzoneLayer,
-  setHotzone,
+  setHotzones,
 } from "../src/map/hotzone.js";
 
 // Pure-def + data-builder coverage like track-layers.test.ts; the actual
@@ -92,13 +92,14 @@ describe("addHotzoneLayer", () => {
   });
 });
 
-describe("setHotzone", () => {
+describe("setHotzones", () => {
   const zone = { center: { lon: -74, lat: 40 }, halfW: 2.5, halfH: 2, count: 7 };
+  const zone2 = { center: { lon: 10, lat: -40 }, halfW: 1, halfH: 1, count: 3 };
 
-  it("builds a closed 5-point ring from center ± half, with color and count", () => {
+  it("one zone: a closed 5-point ring from center ± half, with color and count", () => {
     const { map, setDatas } = fakeMap(["craft-icons"]);
     addHotzoneLayer(map);
-    setHotzone(map, zone, "#ef5350");
+    setHotzones(map, [{ ...zone, color: "#ef5350" }]);
     expect(setDatas).toHaveLength(1);
     const fc = setDatas[0] as {
       type: string;
@@ -121,17 +122,33 @@ describe("setHotzone", () => {
     expect(f.properties.count).toBe(7);
   });
 
-  it("null clears to an empty FeatureCollection", () => {
+  it("two zones: one feature each, per-feature color (dominant kind per rect)", () => {
     const { map, setDatas } = fakeMap(["craft-icons"]);
     addHotzoneLayer(map);
-    setHotzone(map, zone, "#ef5350");
-    setHotzone(map, null, "");
+    setHotzones(map, [
+      { ...zone, color: "#ef5350" },
+      { ...zone2, color: "#4fc3f7" },
+    ]);
+    const fc = setDatas[0] as {
+      features: { geometry: { coordinates: [number, number][][] }; properties: Record<string, unknown> }[];
+    };
+    expect(fc.features).toHaveLength(2);
+    expect(fc.features[1].geometry.coordinates[0][0]).toEqual([9, -41]);
+    expect(fc.features[1].properties.color).toBe("#4fc3f7");
+    expect(fc.features[1].properties.count).toBe(3);
+  });
+
+  it("empty list clears to an empty FeatureCollection", () => {
+    const { map, setDatas } = fakeMap(["craft-icons"]);
+    addHotzoneLayer(map);
+    setHotzones(map, [{ ...zone, color: "#ef5350" }]);
+    setHotzones(map, []);
     const fc = setDatas[setDatas.length - 1] as { features: unknown[] };
     expect(fc.features).toEqual([]);
   });
 
   it("is safe before the source exists (no map.load race)", () => {
     const { map } = fakeMap([]);
-    expect(() => setHotzone(map, zone, "#fff")).not.toThrow();
+    expect(() => setHotzones(map, [{ ...zone, color: "#fff" }])).not.toThrow();
   });
 });

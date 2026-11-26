@@ -53,7 +53,7 @@ function payload(feeds: FeedStatus, history: HistoryStatus = historyStatus(), ov
     staleMs: 120000,
     faa: { state: "ready", updatedAt: null, aircraft: 0, lastError: null },
     icons: ICONS_STUB,
-    hotzone: null,
+    hotzones: [],
     ...over,
   };
 }
@@ -473,10 +473,10 @@ describe("parseClientMessage (zones.config)", () => {
 });
 
 describe("Hub (legacy status shape)", () => {
-  it("still broadcasts a payload stripped of boost/hotzone (new status blocks are additive)", async () => {
+  it("still broadcasts a payload stripped of boost/hotzones (new status blocks are additive)", async () => {
     const store = new CraftStore();
-    // Hand-built pre-hot-zone shape: no boost on opensky, no hotzone field
-    // (cast — the type now REQUIRES hotzone, this pins old producers).
+    // Hand-built pre-hot-zone shape: no boost on opensky, legacy `hotzone`
+    // field (cast — the type now REQUIRES `hotzones`; this pins old producers).
     const legacy = {
       feeds: {
         opensky: { lastOkAt: null, lastError: null, pollMs: 120000 },
@@ -496,7 +496,8 @@ describe("Hub (legacy status shape)", () => {
     await waitFor(() => statusFrames(sock.sent).length >= 2);
     for (const raw of sock.sent.map((s) => JSON.parse(s) as { type: string; [k: string]: any })) {
       if (raw.type !== "status") continue;
-      expect(raw.hotzone).toBeUndefined();
+      expect(raw.hotzone).toBeUndefined(); // old field is gone from new frames too
+      expect(raw.hotzones).toBeUndefined();
       expect(raw.feeds.opensky.boost).toBeUndefined();
       expect(raw.feeds.opensky.pollMs).toBe(120000);
     }

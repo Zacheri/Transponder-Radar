@@ -321,6 +321,21 @@ const seedCluster = (store: CraftStore) => {
   store.upsert(CLUSTER.map(([id, lat, lon]) => airCraft(id, "military", lat, lon)), 0);
 };
 
+// A second, non-overlapping cluster (2 members, far south) plus one extra
+// member crowding the dense cluster's cell, so CLUSTER unambiguously ranks
+// as zone 1 (cell counts decide the rank) in the funding-order tests.
+const FAR_CLUSTER: [string, number, number][] = [
+  ["f1", -30, 60],
+  ["f2", -30.5, 60.5],
+];
+const SEED_BOTH: [string, number, number][] = [...CLUSTER, ["m4", 41, -100], ...FAR_CLUSTER];
+
+const seedInto = (store: CraftStore, list: [string, number, number][]) => {
+  store.upsert(list.map(([id, lat, lon]) => airCraft(id, "military", lat, lon)), 0);
+};
+
+const zoneUrls = (urls: string[]) => urls.filter((u) => u.includes("lamin="));
+
 describe("OpenSkyPoller hot-zone boost", () => {
   // t is hand-advanced; 0 = epoch (UTC midnight) so reserve math is exact:
   // pollMs 120000 -> 720 due polls -> reserve 720*4 + 100 = 2980.
@@ -365,7 +380,6 @@ describe("OpenSkyPoller hot-zone boost", () => {
     expect(poller.feedStatus.boost?.intervalMs).toBeNull();
     poller.setZonesConfig(null);
   });
-
   it("zone tick fetches the bbox URL with lamin/lomin/lamax/lomax", async () => {
     const store = new CraftStore();
     let t = 0;
@@ -430,7 +444,7 @@ describe("OpenSkyPoller hot-zone boost", () => {
     expect(urls).toHaveLength(1); // globe only — zone never fetched
     expect(r.upserted).toBe(0);
     expect(poller.feedStatus.boost).toEqual({
-      active: true, count: 3, intervalMs: null, paused: "credits",
+      active: true, count: 3, intervalMs: null, paused: "credits", zones: 1,
     });
 
     // No header ever seen -> surplus 0 -> boost stays off as well.
@@ -492,13 +506,14 @@ describe("OpenSkyPoller hot-zone boost", () => {
     seedCluster(store);
     poller.setZonesConfig({ kinds: ["military"], boostMs: 10000 });
     await poller.pollZoneOnce();
-    expect(poller.zoneStatus).not.toBeNull();
-    expect(poller.zoneStatus?.dominantKind).toBe("military");
+    expect(poller.zonesStatus).toHaveLength(1);
+    expect(poller.zonesStatus[0].dominantKind).toBe("military");
     expect(poller.feedStatus.boost?.active).toBe(true);
     expect(poller.feedStatus.boost?.count).toBe(3);
+    expect(poller.feedStatus.boost?.zones).toBe(1);
 
     poller.setZonesConfig(null);
-    expect(poller.zoneStatus).toBeNull();
+    expect(poller.zonesStatus).toHaveLength(0);
     expect(poller.feedStatus.boost).toBeNull();
     t = 1_000_000;
     await poller.pollZoneOnce();
@@ -529,6 +544,87 @@ describe("OpenSkyPoller hot-zone boost", () => {
     poller.setZonesConfig(null);
     poller.setZonesConfig({ kinds: ["military"], boostMs: Infinity }); // from null -> still off
     expect(poller.feedStatus.boost).toBeNull();
+  });
+
+  it("two clusters: surplus >= 2 funds both zones in one tick (zone 1 = denser first)", async () => {
+    const store = new CraftStore();
+    const t = 0;
+    const urls: string[] = [];
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, () => funded("4000")),
+    });
+    await poller.pollOnce(); // remaining 4000 -> surplus 1020
+    seedInto(store, SEED_BOTH);
+    poller.setZonesConfig({ kinds: ["military"], boostMs: 10000 });
+    const r = await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(2); // both due zones funded off one surplus
+    expect(r.upserted).toBe(0);
+    expect(poller.feedStatus.boost?.zones).toBe(2);
+    expect(poller.feedStatus.boost?.count).toBe(6); // craft summed across zones
+    expect(poller.feedStatus.boost?.paused).toBeNull();
+    expect(zoneUrls(urls)[0]).toContain("lamin=39.5"); // the dense cluster
+    expect(zoneUrls(urls)[1]).toContain("lamin=-30.5"); // the far pair
+    poller.setZonesConfig(null);
+  });
+
+  it("zone 2 skipped when surplus covers only zone 1's due poll (THE RULE)", async () => {
+    const store = new CraftStore();
+    // 60 s to UTC midnight: reserve = 1 due globe poll x 4 + 100 = 104.
+    let t = Date.parse("2026-11-22T23:59:00.000Z");
+    const urls: string[] = [];
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, () => funded("105")), // surplus exactly 1
+    });
+    await poller.pollOnce();
+    seedInto(store, SEED_BOTH);
+    poller.setZonesConfig({ kinds: ["military"], boostMs: 10000 });
+    const r = await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(1); // zone 1's credit spent; zone 2 waits
+    expect(zoneUrls(urls)[0]).toContain("lamin=39.5"); // the denser zone funded first
+    expect(poller.feedStatus.boost?.zones).toBe(2);
+    expect(poller.feedStatus.boost?.paused).toBe("credits");
+    expect(r.nextDelayMs).toBe(60000); // stretched interval (ceil(60000/1))
+    poller.setZonesConfig(null);
+  });
+
+  it("a 429 pauses only its own zone; the other zone keeps polling", async () => {
+    const store = new CraftStore();
+    let t = 0;
+    const urls: string[] = [];
+    let mode = "ok";
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, (url) => {
+        // Only zone 1's bbox 429s (retry-after 30 s -> max(pollMs, 30s) pause).
+        if (mode === "zone1_429" && url.includes("lamin=39.5")) {
+          return jsonResponse(null, 429, { "retry-after": "30" });
+        }
+        return funded("4000");
+      }),
+    });
+    await poller.pollOnce();
+    seedInto(store, SEED_BOTH);
+    poller.setZonesConfig({ kinds: ["military"], boostMs: 10000 });
+
+    mode = "zone1_429";
+    await poller.pollZoneOnce(); // both due: zone 1 429s, zone 2 succeeds
+    expect(zoneUrls(urls)).toHaveLength(2);
+    expect(poller.feedStatus.boost?.zones).toBe(2);
+    expect(poller.feedStatus.boost?.paused).toBe("credits"); // aggregate: zone 1 paused
+
+    // Same instant: zone 1 in its pause, zone 2 between due times -> no fetch.
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(2);
+
+    // Past zone 1's pause both are due again -> two fresh polls, pause cleared.
+    mode = "ok";
+    t = 120000;
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(4);
+    expect(poller.feedStatus.boost?.paused).toBeNull();
+    poller.setZonesConfig(null);
   });
 });
 

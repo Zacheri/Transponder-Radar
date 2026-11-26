@@ -135,7 +135,7 @@ describe("full pipeline (stub feeds -> hub)", () => {
         staleMs: 120000,
         faa: fakeFaa.status(),
         icons: { state: "absent", count: 0, updatedAt: null, lastError: null },
-        hotzone: null,
+        hotzones: [],
       }),
     });
 
@@ -580,7 +580,7 @@ describe("icon pack routes (fixture pack)", () => {
         staleMs: 120000,
         faa: { state: "loading", updatedAt: null, aircraft: 0, lastError: null },
         icons: fixturePack.status(),
-        hotzone: null,
+        hotzones: [],
       }),
     });
     // Stub feed clients: the pack routes + hub are what's under test; pointing
@@ -1283,7 +1283,7 @@ describe("hot-zone boost wiring (zones.config frame + status)", () => {
 
     await waitFor(() => statusFrames(frames).length >= 1, 3000);
     const base = statusFrames(frames).at(-1)!;
-    expect(base.hotzone).toBeNull(); // idle server: explicit null, not absent
+    expect(base.hotzones).toEqual([]); // idle server: explicit empty array, not absent
     expect(base.feeds.opensky.boost).toBeNull();
 
     // Invalid frames die at the validator; the well-formed one still applies
@@ -1295,18 +1295,19 @@ describe("hot-zone boost wiring (zones.config frame + status)", () => {
     expect(server.opensky.feedStatus.boost?.count).toBe(0); // no military in the store yet
     await waitFor(() => {
       const st = statusFrames(frames).at(-1);
-      return st?.hotzone === null && st?.feeds?.opensky?.boost?.active === true;
+      return st?.hotzones?.length === 0 && st?.feeds?.opensky?.boost?.active === true;
     }, 3000);
 
     // Engineer 2 military rows into the stub /states payload: one globe poll
-    // lands them, the next zone tick forms the zone (planZone runs ahead of
+    // lands them, the next zone tick forms the zone (planZones runs ahead of
     // the credit gate, so the GEOMETRY needs no funded fetch).
     states = [spiRow("m001", 40, -100), spiRow("m002", 40.5, -100.5)];
     await server.opensky.pollOnce();
     await server.opensky.pollZoneOnce();
-    await waitFor(() => statusFrames(frames).at(-1)?.hotzone != null, 3000);
+    await waitFor(() => (statusFrames(frames).at(-1)?.hotzones?.length ?? 0) > 0, 3000);
     const st = statusFrames(frames).at(-1)!;
-    expect(st.hotzone).toEqual({
+    expect(st.hotzones).toHaveLength(1);
+    expect(st.hotzones[0]).toEqual({
       center: { lat: 40.25, lon: -100.25 },
       halfW: 0.25,
       halfH: 0.25,
@@ -1314,12 +1315,12 @@ describe("hot-zone boost wiring (zones.config frame + status)", () => {
       kind: "military", // dominantKind renamed on the wire
     });
     // boost rides opensky.feedStatus untouched (Task 2 shape; no duplication).
-    expect(st.feeds.opensky.boost).toEqual({ active: true, count: 2, intervalMs: null, paused: "credits" });
+    expect(st.feeds.opensky.boost).toEqual({ active: true, count: 2, intervalMs: null, paused: "credits", zones: 1 });
 
-    // Full replace with an empty kind set: the new config voids the zone.
+    // Full replace with an empty kind set: the new config voids the zones.
     ws.send(JSON.stringify({ type: "zones.config", kinds: [], boostMs: 30000 }));
-    await waitFor(() => server.opensky.zoneStatus === null, 3000);
-    await waitFor(() => statusFrames(frames).at(-1)?.hotzone === null, 3000);
+    await waitFor(() => server.opensky.zonesStatus.length === 0, 3000);
+    await waitFor(() => statusFrames(frames).at(-1)?.hotzones?.length === 0, 3000);
     ws.close();
   });
 });

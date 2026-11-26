@@ -11,7 +11,7 @@ import {
   setDestMarker,
   clearDestMarker,
 } from "./map/trackLayers.js";
-import { addHotzoneLayer, setHotzone } from "./map/hotzone.js";
+import { addHotzoneLayer, setHotzones } from "./map/hotzone.js";
 import { addAisTileLayers, setAisTileBoxes } from "./map/aisTiles.js";
 import { startMotionTick } from "./map/motion.js";
 import { ClientStore } from "./data/store.js";
@@ -564,10 +564,18 @@ map.on("load", async () => {
     onStatus: (s) => {
       hud.setFeeds(s.feeds, s.serverTime);
       hud.setIcons(s.icons ?? null); // ?? — legacy frames carry no icons
-      // Hot-zone rect in the dominant kind's icon color; absent/null (legacy
-      // or no zone) clears it. Color is unused on the null path.
-      const hz = s.hotzone ?? null;
-      setHotzone(map, hz, hz ? iconColorFor(hz.kind) : "");
+      // One rect per hot zone, each in its own dominant kind's icon color
+      // (<= 2, slot-stable order); empty/legacy clears them.
+      setHotzones(
+        map,
+        (s.hotzones ?? []).map((z) => ({
+          center: z.center,
+          halfW: z.halfW,
+          halfH: z.halfH,
+          count: z.count,
+          color: iconColorFor(z.kind),
+        })),
+      );
       // AIS fill tile outlines; boxes: [] (disabled fill) clears from status,
       // and legacy frames without boxes clear via the ?? null.
       setAisTileBoxes(map, s.feeds?.ais?.secondary?.boxes ?? null);

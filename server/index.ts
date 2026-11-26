@@ -241,14 +241,17 @@ export async function buildApp(deps: ServerDeps = {}) {
     log,
     traffic,
   });
-  // Wire copy of the live hot zone (design §D): dominantKind renamed `kind`,
-  // null passthrough; injected stubs without the getter read as null.
-  const hotzoneWire = () => {
-    const z = opensky.zoneStatus;
-    return z
-      ? { center: z.center, halfW: z.halfW, halfH: z.halfH, count: z.count, kind: z.dominantKind }
-      : null;
-  };
+  // Wire copies of the live hot zones (design §D, wave 10): densest first,
+  // <= MAX_ZONES, dominantKind renamed `kind`; injected stubs without the
+  // getter read as an empty array (old null-passthrough posture).
+  const hotzonesWire = () =>
+    (opensky.zonesStatus ?? []).map((z) => ({
+      center: z.center,
+      halfW: z.halfW,
+      halfH: z.halfH,
+      count: z.count,
+      kind: z.dominantKind,
+    }));
   const hub =
     deps.hub ??
     new Hub({
@@ -289,7 +292,7 @@ export async function buildApp(deps: ServerDeps = {}) {
         staleMs: config.STALE_MS,
         faa: faa?.status() ?? { state: "loading", updatedAt: null, aircraft: 0, lastError: null },
         icons: iconPack ? iconPack.status() : { state: "absent", count: 0, updatedAt: null, lastError: null },
-        hotzone: hotzoneWire(),
+        hotzones: hotzonesWire(),
       }),
     });
 

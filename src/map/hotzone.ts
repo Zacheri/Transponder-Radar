@@ -1,7 +1,8 @@
-// Hot-zone highlight: a plain rect (densest-cluster box, R4 broadcast copy)
-// under the craft icons, filled in the dominant kind's color at 18% with a
-// 1 px same-color outline (companion line layer — fill-outline-color cannot
-// take a feature expression). Pure defs + data builder, trackLayers.ts style.
+// Hot-zone highlight: one plain rect per live zone (densest-cluster boxes,
+// R4 broadcast copies) under the craft icons, each filled in its own
+// dominant kind's color at 18% with a 1 px same-color outline (companion
+// line layer — fill-outline-color cannot take a feature expression). Pure
+// defs + data builder, trackLayers.ts style.
 
 import type maplibregl from "maplibre-gl";
 import type { LayerSpecification } from "@maplibre/maplibre-gl-style-spec";
@@ -43,7 +44,7 @@ export function addHotzoneLayer(map: maplibregl.Map): void {
   for (const layer of hotzoneDefs()) map.addLayer(layer, below);
 }
 
-type ZoneGeom = { center: LonLat; halfW: number; halfH: number; count: number };
+type ZoneRect = { center: LonLat; halfW: number; halfH: number; count: number; color: string };
 
 type HotzoneFC = {
   type: "FeatureCollection";
@@ -57,21 +58,19 @@ type HotzoneFC = {
 const emptyFc = (): HotzoneFC => ({ type: "FeatureCollection", features: [] });
 
 // Server zones clamp lat to ±90 / lon to ±180 at construction (R1), so the
-// ring needs no client-side clamp.
-export function setHotzone(map: maplibregl.Map, zone: ZoneGeom | null, color: string): void {
+// rings need no client-side clamp. One closed ring per zone (<= 2, dominant-
+// kind color per feature); an empty list clears the source.
+export function setHotzones(map: maplibregl.Map, zones: ZoneRect[]): void {
   const src = map.getSource(HOTZONE_SOURCE) as maplibregl.GeoJSONSource | undefined;
-  if (!zone) {
-    src?.setData(emptyFc() as any);
-    return;
-  }
-  const w = zone.center.lon - zone.halfW;
-  const e = zone.center.lon + zone.halfW;
-  const s = zone.center.lat - zone.halfH;
-  const n = zone.center.lat + zone.halfH;
+  if (!src) return;
   const fc: HotzoneFC = {
     type: "FeatureCollection",
-    features: [
-      {
+    features: zones.map((zone) => {
+      const w = zone.center.lon - zone.halfW;
+      const e = zone.center.lon + zone.halfW;
+      const s = zone.center.lat - zone.halfH;
+      const n = zone.center.lat + zone.halfH;
+      return {
         type: "Feature",
         geometry: {
           type: "Polygon",
@@ -85,9 +84,9 @@ export function setHotzone(map: maplibregl.Map, zone: ZoneGeom | null, color: st
             ],
           ],
         },
-        properties: { color, count: zone.count },
-      },
-    ],
+        properties: { color: zone.color, count: zone.count },
+      };
+    }),
   };
-  src?.setData(fc as any);
+  src.setData(fc as any);
 }

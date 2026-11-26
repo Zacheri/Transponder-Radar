@@ -26,6 +26,8 @@ user-set interval** and is **highlighted on the map**.
 1. Scope A: full boost + highlight (not visual-only, not behind a master
    toggle). The credit guard IS the feature.
 2. Exactly ONE hot zone — the densest cluster. Multi-zone = backlog.
+   (Delivered 2026-11-26 by wave 10: up to two non-overlapping zones,
+   densest first, second funded only from surplus left after zone 1.)
 3. Boost funding: surplus only. `surplus = remaining − reserve − 100` where
    `reserve` = globe polls still due before the next UTC midnight × their
    live per-call cost. Boost never touches reserve.
@@ -172,7 +174,7 @@ sender/mirror (the usual mirrors; no reply frame). Status blocks are additive
 
 ## Out of scope (backlog)
 
-Multi-zone; sea kinds; per-craft (impossible — R-list citation); server-side
+Multi-zone (delivered 2026-11-26 by wave 10); sea kinds; per-craft (impossible — R-list citation); server-side
 persistence of zones config; using `/tracks/all` bucket for trail-adjacent
 polling; adaptive requested-interval from remaining-craft-count; dateline
 split boxes.

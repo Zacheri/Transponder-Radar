@@ -22,7 +22,8 @@ export interface FeedStatus {
     pollMs: number;
     // Mirror of the poller's BoostStatus (import-free by hub convention); the
     // poller sends it once a zones.config is live, null/absent = legacy.
-    boost?: { active: boolean; count: number; intervalMs: number | null; paused: "credits" | null } | null;
+    // zones = live zone count (wave-10 additive); count = craft across zones.
+    boost?: { active: boolean; count: number; intervalMs: number | null; paused: "credits" | null; zones: number } | null;
   };
   ais: {
     connected: boolean;
@@ -177,9 +178,11 @@ export interface StatusPayload {
   staleMs: number;
   faa: FaaStatus;
   icons: IconStatus;
-  // Broadcast-geometry copy of the live hot zone (R4 hysteresis; the poller's
-  // dominantKind ships as `kind`), or null when no zone is configured/formed.
-  hotzone: { center: LonLat; halfW: number; halfH: number; count: number; kind: AirKind } | null;
+  // Broadcast-geometry copies of the live hot zones, length <= 2, slot-stable
+  // order (densest first as formed; R4 hysteresis; the poller's dominantKind
+  // ships as `kind`). Empty array when nothing is configured/formed (wave 10:
+  // was a hotzone object-or-null).
+  hotzones: { center: LonLat; halfW: number; halfH: number; count: number; kind: AirKind }[];
 }
 
 export interface HubOpts {

@@ -1,6 +1,7 @@
-// Hot-zone engine + credit scheduler (design 2026-11-22 §A/§B). Pure: no
-// I/O, no state outside the ZoneState value the poller carries in its
-// closure. All functions are deterministic; `nowMs` is always injected.
+// Hot-zone engine + credit scheduler (design 2026-11-22 §A/§B, wave-10
+// two-zone extension). Pure: no I/O, no state outside the ZonesState value
+// the poller carries in its closure. All functions are deterministic;
+// `nowMs` is always injected.
 
 import type { AirKind } from "../shared/craft.js";
 import type { LonLat } from "../shared/geo.js";
@@ -20,12 +21,20 @@ export interface HotZone {
   dominantKind: AirKind;
 }
 
-// Broadcast-geometry copy of the live cluster + the hysteresis clock.
-// Plain JSON-able object; the poller stores it as-is.
+// One hysteresis slot: the broadcast-geometry copy of a zone plus its own
+// last-members-seen clock. Plain JSON-able object.
 export interface ZoneState {
   box: HotZone | null;
   lastMembersAt: number;
 }
+
+// Up to MAX_ZONES slots with stable identity across ticks (a live zone keeps
+// its slot while another zone appears, holds or expires beside it).
+export interface ZonesState {
+  slots: ZoneState[];
+}
+
+export const MAX_ZONES = 2;
 
 const CELL_DEG = 2;
 const MAX_HALF_DEG = 2.5; // R1: zone box stays in the 1-credit <=25 sq° tier
@@ -35,34 +44,14 @@ const COPY_DRIFT_DEG = 0.5; // R4: broadcast copy moves only past this drift
 const cellOf = (v: number): number => Math.floor(v / CELL_DEG);
 const cellKey = (latCell: number, lonCell: number): string => `${latCell}:${lonCell}`;
 
-// Densest 3x3-cell neighborhood. Tie rule (determinism): when a cell's
-// count reaches the running maximum, the LATER-in-input cell wins — ties are
-// broken by later input order. The grid never wraps, so lon ±180 cells are
-// never neighbors and a straddling pattern competes as two clusters.
-function densestCluster(members: ZoneMember[]): ZoneMember[] {
-  const counts = new Map<string, number>();
-  let bestKey: string | null = null;
-  let bestCell: [number, number] = [0, 0];
-  let bestCount = 0;
-  for (const m of members) {
-    const cell: [number, number] = [cellOf(m.lat), cellOf(m.lon)];
-    const key = cellKey(cell[0], cell[1]);
-    const n = (counts.get(key) ?? 0) + 1;
-    counts.set(key, n);
-    if (n >= bestCount) {
-      bestCount = n;
-      bestKey = key;
-      bestCell = cell;
-    }
-  }
-  if (!bestKey) return [];
-  const hood = new Set<string>();
-  for (let dLat = -1; dLat <= 1; dLat++) {
-    for (let dLon = -1; dLon <= 1; dLon++) {
-      hood.add(cellKey(bestCell[0] + dLat, bestCell[1] + dLon));
-    }
-  }
-  return members.filter((m) => hood.has(cellKey(cellOf(m.lat), cellOf(m.lon))));
+// Strict rectangle intersection on zone boxes (edge-touching is not overlap).
+export function boxesOverlap(a: HotZone, b: HotZone): boolean {
+  return (
+    a.center.lon - a.halfW < b.center.lon + b.halfW &&
+    b.center.lon - b.halfW < a.center.lon + a.halfW &&
+    a.center.lat - a.halfH < b.center.lat + b.halfH &&
+    b.center.lat - b.halfH < a.center.lat + a.halfH
+  );
 }
 
 function geometryFor(cluster: ZoneMember[]): HotZone {
@@ -101,38 +90,145 @@ function geometryFor(cluster: ZoneMember[]): HotZone {
   return { center, halfW, halfH, count: cluster.length, dominantKind };
 }
 
-// One hysteresis step (R4): create at >=2 cluster members, sustain (refresh
-// the clock) at >=1, expire once no member has been seen for MEMBER_TTL_MS;
-// during the grace window the zero-member zone holds its last broadcast copy
-// verbatim. With a live box, keep prev geometry when the new centroid drifts
-// <= COPY_DRIFT_DEG on BOTH axes — the kept copy still carries the fresh
-// count and dominant kind; larger drift on either axis moves the box.
-export function planZone(
-  members: ZoneMember[],
-  nowMs: number,
-  prev: ZoneState | null,
-): { zone: HotZone | null; state: ZoneState } {
-  const cluster = densestCluster(members);
-  let box = prev?.box ?? null;
-  let lastMembersAt = prev?.lastMembersAt ?? 0;
-  if (cluster.length === 0) {
-    if (box && nowMs - lastMembersAt > MEMBER_TTL_MS) box = null;
-  } else {
-    lastMembersAt = nowMs;
-    if (cluster.length >= 2 || box) {
-      const fresh = geometryFor(cluster);
-      if (
-        box &&
-        Math.abs(fresh.center.lat - box.center.lat) <= COPY_DRIFT_DEG &&
-        Math.abs(fresh.center.lon - box.center.lon) <= COPY_DRIFT_DEG
-      ) {
-        box = { ...box, count: fresh.count, dominantKind: fresh.dominantKind };
-      } else {
-        box = fresh;
+// Candidate boxes: one per occupied cell — the geometry of that cell's full
+// 3x3-cell hood (the grid never wraps, so lon ±180 cells are never neighbors
+// and a straddling pattern competes as two clusters). Rank = hood density
+// (the "densest first" rule); ties fall to the denser cell, then the cell
+// whose latest sighting comes later in the input (deterministic — wave 7's
+// pinned rule when every cluster is one cell). Greedy selection keeps the
+// densest candidate and skips any candidate whose box overlaps one already
+// kept — the second zone is the densest remaining non-overlapping cluster.
+// Candidates dedupe when two cells see the same OCCUPIED cells in their hoods
+// (identical geometry — the ghost of a neighbor's cluster, never a zone).
+function candidateBoxes(members: ZoneMember[]): HotZone[] {
+  const cells = new Map<string, { latCell: number; lonCell: number; n: number; last: number }>();
+  members.forEach((m, i) => {
+    const key = cellKey(cellOf(m.lat), cellOf(m.lon));
+    const e = cells.get(key);
+    if (e) {
+      e.n += 1;
+      e.last = i;
+    } else {
+      cells.set(key, { latCell: cellOf(m.lat), lonCell: cellOf(m.lon), n: 1, last: i });
+    }
+  });
+  const hoodCount = (latCell: number, lonCell: number): number => {
+    let n = 0;
+    for (let dLat = -1; dLat <= 1; dLat++) {
+      for (let dLon = -1; dLon <= 1; dLon++) {
+        n += cells.get(cellKey(latCell + dLat, lonCell + dLon))?.n ?? 0;
       }
     }
+    return n;
+  };
+  const ranked = [...cells.values()].sort(
+    (a, b) =>
+      hoodCount(b.latCell, b.lonCell) - hoodCount(a.latCell, a.lonCell) ||
+      b.n - a.n ||
+      b.last - a.last,
+  );
+  const cands: HotZone[] = [];
+  const seenHoods = new Set<string>();
+  for (const cell of ranked) {
+    // Past MAX_ZONES the surplus candidates are only alternate matches for
+    // continuity; the plan's slot count caps what can ever go live.
+    if (cands.length === MAX_ZONES * 2) break;
+    // A cell's hood is fully determined by its OCCUPIED cells; when an
+    // already-ranked cell shares the occupied set the cluster geometry is
+    // identical, so that ghost candidate is deduped instead of kept.
+    const cluster: ZoneMember[] = [];
+    const occupied: string[] = [];
+    for (let dLat = -1; dLat <= 1; dLat++) {
+      for (let dLon = -1; dLon <= 1; dLon++) {
+        const k = cellKey(cell.latCell + dLat, cell.lonCell + dLon);
+        if (!cells.has(k)) continue;
+        occupied.push(k);
+        for (const m of members) if (cellKey(cellOf(m.lat), cellOf(m.lon)) === k) cluster.push(m);
+      }
+    }
+    const hoodKey = occupied.join("|");
+    if (seenHoods.has(hoodKey)) continue;
+    seenHoods.add(hoodKey);
+    const geom = geometryFor(cluster);
+    if (cands.some((c) => boxesOverlap(c, geom))) continue;
+    cands.push(geom);
   }
-  return { zone: box, state: { box, lastMembersAt } };
+  return cands;
+}
+
+// Continuity radius for matching a candidate to an existing slot: a zone's
+// broadcast box never exceeds 5 deg per side, so a cluster that grew out of
+// (or drifted from) a live zone stays within one box-diagonal of it, while a
+// genuinely new cluster elsewhere does not.
+const MATCH_MAX_DEG = 5;
+
+// One hysteresis step over the slots (R4 per zone). Candidates are matched to
+// slots by nearest centroid within MATCH_MAX_DEG (continuity while a zone
+// holds or drifts, whatever its density rank); unmatched candidates form only
+// under the create rule (>=2 members) and only in an empty slot; an unmatched
+// slot holds its last broadcast copy verbatim until MEMBER_TTL_MS past its own
+// lastMembersAt, then expires. With a live box, keep prev geometry when the
+// new centroid drifts <= COPY_DRIFT_DEG on BOTH axes — the kept copy still
+// carries the fresh count and dominant kind; larger drift on either axis
+// moves the box.
+export function planZones(
+  members: ZoneMember[],
+  nowMs: number,
+  prev: ZonesState | null,
+): { zones: HotZone[]; state: ZonesState } {
+  const slots: ZoneState[] = [];
+  for (let i = 0; i < MAX_ZONES; i++) {
+    const s = prev?.slots[i];
+    slots.push(s ? { ...s } : { box: null, lastMembersAt: 0 });
+  }
+
+  const cands = candidateBoxes(members);
+  // Continuity match: nearest candidate centroid per occupied slot (greedy
+  // by distance; deterministic tie-break slot then candidate). A slot keeps
+  // its identity across ticks — hold, drift-move and expiry follow the zone,
+  // not its density rank.
+  const matched: (HotZone | null)[] = slots.map(() => null);
+  const used = cands.map(() => false);
+  const pairs: { si: number; ci: number; d: number }[] = [];
+  slots.forEach((s, si) => {
+    if (!s.box) return;
+    cands.forEach((c, ci) => {
+      const d = Math.hypot(s.box!.center.lat - c.center.lat, s.box!.center.lon - c.center.lon);
+      if (d <= MATCH_MAX_DEG) pairs.push({ si, ci, d });
+    });
+  });
+  pairs.sort((a, b) => a.d - b.d || a.si - b.si || a.ci - b.ci);
+  for (const p of pairs) {
+    if (matched[p.si] === null && !used[p.ci]) {
+      matched[p.si] = cands[p.ci];
+      used[p.ci] = true;
+    }
+  }
+  const fresh: (HotZone | null)[] = slots.map(() => null);
+  for (let ci = 0; ci < cands.length; ci++) {
+    if (used[ci] || cands[ci].count < 2) continue;
+    const si = slots.findIndex((_, k) => slots[k].box === null && matched[k] === null && fresh[k] === null);
+    if (si !== -1) fresh[si] = cands[ci];
+  }
+
+  const next: ZoneState[] = slots.map((prevSlot, si) => {
+    const cand = matched[si] ?? fresh[si];
+    if (cand) {
+      let box = cand;
+      if (
+        prevSlot.box &&
+        Math.abs(cand.center.lat - prevSlot.box.center.lat) <= COPY_DRIFT_DEG &&
+        Math.abs(cand.center.lon - prevSlot.box.center.lon) <= COPY_DRIFT_DEG
+      ) {
+        box = { ...prevSlot.box, count: cand.count, dominantKind: cand.dominantKind };
+      }
+      return { box, lastMembersAt: nowMs };
+    }
+    if (prevSlot.box && nowMs - prevSlot.lastMembersAt <= MEMBER_TTL_MS) return { ...prevSlot };
+    return { box: null, lastMembersAt: prevSlot.lastMembersAt };
+  });
+
+  return { zones: next.flatMap((s) => (s.box ? [s.box] : [])), state: { slots: next } };
 }
 
 // Whole seconds until the next UTC midnight, in (0, 86400] (exactly
@@ -165,7 +261,8 @@ export function surplusCredits(
 
 // Zone interval = requested, stretched so zone calls left before UTC
 // midnight fit in the surplus; null = paused (no surplus, or the stretch
-// alone would exceed the 120 s slider cap).
+// alone would exceed the 120 s slider cap). The per-zone credit gate lives in
+// the poller (each due zone spends 1 credit off this surplus, zone 1 first).
 export function zoneIntervalFor(
   requestedMs: number,
   surplus: number,

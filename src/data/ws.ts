@@ -7,8 +7,9 @@ export interface FeedStatus {
     lastError: string | null;
     pollMs: number;
     // Mirror of server FeedStatus.boost; null = no zones config live, absent
-    // on legacy frames — every read optional-chained.
-    boost?: { active: boolean; count: number; intervalMs: number | null; paused: "credits" | null } | null;
+    // on legacy frames — every read optional-chained. zones = live zone
+    // count (wave 10), count = craft across zones.
+    boost?: { active: boolean; count: number; intervalMs: number | null; paused: "credits" | null; zones: number } | null;
   };
   ais: {
     connected: boolean;
@@ -135,9 +136,10 @@ export interface StatusMessage {
   settings?: { storageCapGb: number; ramCacheGb: number; cacheUsedBytes: number; homeRegion?: { lat: number; lon: number } | null };
   pins?: Pin[];
   staleMs?: number;
-  // Broadcast-geometry hot zone copy (mirror of server StatusPayload.hotzone);
-  // absent on legacy frames, null = configured but no zone formed.
-  hotzone?: { center: LonLat; halfW: number; halfH: number; count: number; kind: AirKind } | null;
+  // Broadcast-geometry hot-zone copies (mirror of server StatusPayload.hotzones;
+  // <= 2, slot-stable order). Absent on legacy frames (the old single-hotzone
+  // field was dropped in wave 10 — both ends ship together).
+  hotzones?: { center: LonLat; halfW: number; halfH: number; count: number; kind: AirKind }[];
 }
 
 export type RadarMessage =
