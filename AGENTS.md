@@ -121,14 +121,18 @@ commit it; delete it to reset all cached data.
   it expects preprocessed styles; use `validateStyleMin`.)
 - Vite `build.target` is `es2022` (required for top-level await in
   `src/main.ts`); don't lower it.
-- **Projection switching (cost a rejected review round):** no public
-  `map.setProjection()` and no `MapOptions.projection`; the style-diff
-  EMITS `setProjection` but the applier throws (caught) → warning + FULL
-  style rebuild, `getStyle()` never round-trips `projection` and is
-  undefined pre-load. Inline styles may carry `projection` at creation;
-  toggling = `setStyle(copy, { diff: false })` after `loaded()`, with all
-  layer/source setup idempotent on `style.load`. Verify style-mutating
-  APIs against the bundle's applier, not just the d.ts.
+- **Projection (maplibre-gl 5.24.1 since 2026-11-27):** toggle =
+  `map.setProjection({ type })` — in-place, animated morph, sources/layers/
+  images/tile cache survive; still gate on `isStyleLoaded()` (5.24.1
+  `setProjection` throws pre-style-apply) and NEVER on `loaded()` (requires
+  every tile — ~never true on slow links). `MapOptions` still has no
+  `projection` key (inline style carries it at creation; URL styles apply
+  one `setProjection` after `style.load`). History: 4.7.1 had NO globe
+  renderer at all (style property silently ignored, diff-applier missing —
+  full rebuilds on every swap); that era's rebuild dance is why the
+  `style.load`-idempotence guards, region writeOrQueue insurance, and
+  socket-outside-style-events remain. Verify style-mutating APIs against
+  the installed bundle's renderer/applier, not the d.ts.
 
 ### Aircraft icons (`server/icons.ts`, `server/icon-tables.ts`)
 
@@ -428,8 +432,8 @@ Counting caveats (verified Nov 2026):
   (zoom ±/compass/globe toggle, `src/map/controls.ts`): projection lives in
   the inline Carto style at creation (`radar.projection`,
   `src/data/projection-cfg.ts`, default globe); toggle = guarded
-  `setStyle(copy,{diff:false})` full rebuild (4.7.1 has no setProjection —
-  see gotchas); ALL style-scoped setup is idempotent in
+  `map.setProjection({type})` in-place morph (v5.24.1 — see gotchas);
+  style-scoped setup stays idempotent in
   `setupStyleLayers()` on `style.load`+`load`, socket created once outside
   style events; user regions — `radar.regions` via
   `src/data/regions.ts`/`regions-actions.ts`, painted by `src/map/regions.ts`,
@@ -570,5 +574,5 @@ Counting caveats (verified Nov 2026):
   upTotal,downTotal}|null,top:[{proc,bytes}]|null}` (1 Hz, only while
   watchers exist; `device`/`top` null on non-mac/degraded — see Traffic
   monitor).
-- `test/` — 60 files, 1179 tests. Node-environment Vitest; browser-only code
+- `test/` — 60 files, 1198 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.
