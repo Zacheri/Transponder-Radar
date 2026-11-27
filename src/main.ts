@@ -237,30 +237,6 @@ let openSkyPollMs = 90000;
 // Latest status mirror: gate the aiscast follow-tile sends on the server's
 // real secondary-enabled field (optional chain guards pre-secondary frames).
 let aiscastEnabled = false;
-// T2 (parallel) owns the ws.ts status mirrors; at this commit they may still
-// mirror v1, so the v2 fields consumed here are typed locally against spec
-// 2026-11-27 §C/§D (exact names). Compiles against either; simplify when
-// T2's ws.ts lands in the baseline.
-type HotzoneV2 = {
-  center: LonLat;
-  halfW: number;
-  halfH: number;
-  count: number;
-  kind: AirKind;
-  id?: string;
-  manual?: boolean;
-  active?: boolean;
-};
-interface BoostV2 {
-  active: boolean;
-  count: number;
-  intervalMs: number | null;
-  paused: "credits" | "standdown" | null;
-  zones: number;
-  sectionsActive?: number;
-  sectionsIdle?: number;
-  creditsToday?: number;
-}
 // Latches once any status frame carries the T2 id/manual fields: rows then
 // get live active/idle on every frame (empty set = all idle). Frames without
 // either field never flip it — rows degrade silently to idle-unknown.
@@ -685,7 +661,7 @@ socket = new RadarSocket(wsUrl, {
     hud.setIcons(s.icons ?? null); // ?? — legacy frames carry no icons
     // One rect per hot zone, each in its own dominant kind's icon color
     // (<= 2, slot-stable order); empty/legacy clears them.
-    const hz = (s.hotzones ?? []) as HotzoneV2[];
+    const hz = s.hotzones ?? [];
     // Manual (section) entries paint nothing here — the regions layer
     // already strokes those rects; the hotzone layer stays auto-only.
     setHotzones(
@@ -747,7 +723,7 @@ socket = new RadarSocket(wsUrl, {
       pins: s.pins ?? [],
       homeRegion: s.settings?.homeRegion ?? null,
       secondaryEnabled: s.feeds.ais.secondary?.enabled ?? true, // legacy absent → enabled
-      boostCreditsToday: (s.feeds.opensky.boost as BoostV2 | null | undefined)?.creditsToday,
+      boostCreditsToday: s.feeds.opensky.boost?.creditsToday,
     };
     settingsUi.setStats(lastStats);
   },

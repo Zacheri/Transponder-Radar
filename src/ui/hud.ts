@@ -6,20 +6,6 @@ export type ConnStatus = "connecting" | "open" | "closed";
 const OPENSKY_STALE_MS = 72000;
 const AIS_STALE_MS = 180000;
 
-// BoostStatus v2 consumption (spec 2026-11-27 §C) — ws.ts is T2-owned and
-// may still mirror v1 at this commit; the widened local type compiles
-// against either. Delete once the ws.ts v2 mirror is in the baseline.
-interface BoostV2 {
-  active: boolean;
-  count: number;
-  intervalMs: number | null;
-  paused: "credits" | "standdown" | null;
-  zones: number;
-  sectionsActive?: number;
-  sectionsIdle?: number;
-  creditsToday?: number;
-}
-
 export function createHud(root: HTMLElement): {
   setCounts(air: number, sea: number): void;
   setStatus(s: ConnStatus): void;
@@ -92,9 +78,7 @@ export function createHud(root: HTMLElement): {
     }
     let boostSeg = "";
     let boostTitle: string | null = null;
-    // v2 fields via the widened local type (ws.ts is T2-owned; may still
-    // mirror v1 at this commit — the cast compiles against either).
-    const boost = feeds.opensky.boost as BoostV2 | null | undefined;
+    const boost = feeds.opensky.boost;
     if (boost?.active) {
       if (boost.paused === "standdown") {
         boostSeg = " · Boost: sections only";
