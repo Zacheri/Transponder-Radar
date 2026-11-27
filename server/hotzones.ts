@@ -1,9 +1,10 @@
 // Hot-zone engine + credit scheduler (design 2026-11-22 §A/§B, wave-10
-// two-zone extension). Pure: no I/O, no state outside the ZonesState value
-// the poller carries in its closure. All functions are deterministic;
-// `nowMs` is always injected.
+// two-zone extension, section boost 2026-11-27 §B). Pure: no I/O, no state
+// outside the ZonesState value the poller carries in its closure. All
+// functions are deterministic; `nowMs` is always injected.
 
-import type { AirKind } from "../shared/craft.js";
+import { AIR_KINDS, type AirKind } from "../shared/craft.js";
+import { statesCallCost } from "../shared/credits.js";
 import type { LonLat } from "../shared/geo.js";
 
 export interface ZoneMember {
@@ -165,17 +166,20 @@ const MATCH_MAX_DEG = 5;
 // One hysteresis step over the slots (R4 per zone). Candidates are matched to
 // slots by nearest centroid within MATCH_MAX_DEG (continuity while a zone
 // holds or drifts, whatever its density rank); unmatched candidates form only
-// under the create rule (>=2 members) and only in an empty slot; an unmatched
-// slot holds its last broadcast copy verbatim until MEMBER_TTL_MS past its own
-// lastMembersAt, then expires. With a live box, keep prev geometry when the
-// new centroid drifts <= COPY_DRIFT_DEG on BOTH axes — the kept copy still
-// carries the fresh count and dominant kind; larger drift on either axis
-// moves the box.
+// under the create rule (>= createMin members, default 2) and only in an empty
+// slot; an unmatched slot holds its last broadcast copy verbatim until
+// MEMBER_TTL_MS past its own lastMembersAt, then expires. With a live box,
+// keep prev geometry when the new centroid drifts <= COPY_DRIFT_DEG on BOTH
+// axes — the kept copy still carries the fresh count and dominant kind; larger
+// drift on either axis moves the box.
 export function planZones(
   members: ZoneMember[],
   nowMs: number,
   prev: ZonesState | null,
+  opts?: { createMin?: number },
 ): { zones: HotZone[]; state: ZonesState } {
+  const rawCreate = opts?.createMin ?? 2;
+  const createMin = Math.min(10, Math.max(2, Number.isFinite(rawCreate) ? rawCreate : 2));
   const slots: ZoneState[] = [];
   for (let i = 0; i < MAX_ZONES; i++) {
     const s = prev?.slots[i];
@@ -206,7 +210,7 @@ export function planZones(
   }
   const fresh: (HotZone | null)[] = slots.map(() => null);
   for (let ci = 0; ci < cands.length; ci++) {
-    if (used[ci] || cands[ci].count < 2) continue;
+    if (used[ci] || cands[ci].count < createMin) continue;
     const si = slots.findIndex((_, k) => slots[k].box === null && matched[k] === null && fresh[k] === null);
     if (si !== -1) fresh[si] = cands[ci];
   }
@@ -274,4 +278,147 @@ export function zoneIntervalFor(
   const stretched = Math.ceil((secToUtcMidnight(nowMs) * 1000) / surplus);
   if (stretched > 120_000) return null;
   return Math.max(requestedMs, stretched);
+}
+
+// --- Section boost (design 2026-11-27 §B) -----------------------------------
+
+// A user-drawn rectangle: [[minLat, minLon], [maxLat, maxLon]] (the client's
+// RegionBox shape). Inclusive on every edge.
+export type SectionBox = [[number, number], [number, number]];
+
+export interface PollSection {
+  id: string;
+  kinds: AirKind[];
+  boostMs: number;
+  b: SectionBox;
+  enabled: boolean;
+}
+
+// The bbox one /states call covers; HotZone is structurally one of these.
+export interface ZoneBox {
+  center: LonLat;
+  halfW: number;
+  halfH: number;
+}
+
+// A single box the poller issues one /states call for. cost is fixed by the
+// credit law (area tier), never by contents.
+export interface PolledZone {
+  id: string;
+  box: ZoneBox;
+  cost: 1 | 2 | 3 | 4;
+  // Section: the clamped user rate. Auto: null — zoneIntervalFor (surplus +
+  // nowMs, unknown here) stretches it, and that stretch is auto-only.
+  intervalMs: number | null;
+  source: "section" | "auto";
+  kind: AirKind;
+}
+
+export interface PollPlanInput {
+  autoZones: HotZone[];
+  sections: PollSection[];
+  members: ZoneMember[];
+  autoEnabled: boolean;
+  // Boost-ENABLED wire sections (plain highlights never count) — poller-sourced.
+  boostedSectionCount: number;
+  standdownAt: 0 | 1 | 2;
+}
+
+const BOOST_MIN_MS = 10000;
+const BOOST_MAX_MS = 120000; // slider cap; mirrors the poller's ZONE_BOOST_MAX_MS
+const BOOST_DEFAULT_MS = 30000;
+
+// Mirror of the poller's boostMs clamp (opensky.ts re-clamps harmlessly; kept
+// local to avoid a hotzones -> opensky import cycle).
+function clampBoostMs(ms: number): number {
+  if (!Number.isFinite(ms)) return BOOST_DEFAULT_MS;
+  return Math.min(BOOST_MAX_MS, Math.max(BOOST_MIN_MS, Math.round(ms)));
+}
+
+function inBox(m: ZoneMember, b: SectionBox): boolean {
+  const [[minLat, minLon], [maxLat, maxLon]] = b;
+  return m.lat >= minLat && m.lat <= maxLat && m.lon >= minLon && m.lon <= maxLon;
+}
+
+// Matching members: kind in section.kinds AND inside the (inclusive) rect.
+// Empty kinds => no member ever matches (an unscoped boost is never implied).
+function matchingMembers(section: { kinds: AirKind[]; b: SectionBox }, members: ZoneMember[]): ZoneMember[] {
+  if (section.kinds.length === 0) return [];
+  const kinds = new Set(section.kinds);
+  return members.filter((m) => kinds.has(m.kind) && inBox(m, section.b));
+}
+
+// Activation gate: is this section worth polling right now? A skipped poll is
+// the only credit loophole, so an idle section (no matching traffic) costs 0.
+export function sectionActivity(
+  section: { kinds: AirKind[]; b: SectionBox },
+  members: ZoneMember[],
+): { active: boolean; count: number } {
+  const count = matchingMembers(section, members).length;
+  return { active: count > 0, count };
+}
+
+// Plurality kind among matching members; ties fall to the first kind in
+// AIR_KINDS order (scanning that order and replacing only on a strict win).
+function dominantKindAmong(matching: ZoneMember[]): AirKind | null {
+  const counts = new Map<AirKind, number>();
+  for (const m of matching) counts.set(m.kind, (counts.get(m.kind) ?? 0) + 1);
+  let best: AirKind | null = null;
+  let bestCount = 0;
+  for (const kind of AIR_KINDS as AirKind[]) {
+    const n = counts.get(kind) ?? 0;
+    if (n > bestCount) {
+      best = kind;
+      bestCount = n;
+    }
+  }
+  return best;
+}
+
+// One plan tick: enabled + active sections (id-sorted) first, then auto zones
+// gated by stand-down. Order is the funding order (budget is spent front to
+// back), so sections starve later auto zones, never the globe. Auto zones are
+// cost-1 by construction (their box stays <= 2.5 deg half-side).
+export function buildPollPlan(input: PollPlanInput): PolledZone[] {
+  const plan: PolledZone[] = [];
+
+  const active = input.sections
+    .filter((s) => s.enabled && sectionActivity(s, input.members).active)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  for (const s of active) {
+    const [[minLat, minLon], [maxLat, maxLon]] = s.b;
+    const wDeg = maxLon - minLon;
+    const hDeg = maxLat - minLat;
+    const matching = matchingMembers(s, input.members);
+    plan.push({
+      id: s.id,
+      box: {
+        center: { lat: (minLat + maxLat) / 2, lon: (minLon + maxLon) / 2 },
+        halfW: wDeg / 2,
+        halfH: hDeg / 2,
+      },
+      cost: statesCallCost(wDeg, hDeg),
+      intervalMs: clampBoostMs(s.boostMs),
+      source: "section",
+      kind: dominantKindAmong(matching) ?? "general",
+    });
+  }
+
+  const standdownAllows =
+    input.standdownAt === 0 || input.boostedSectionCount < input.standdownAt;
+  if (input.autoEnabled && standdownAllows) {
+    input.autoZones.forEach((z, i) => {
+      plan.push({
+        id: `auto:${i}`,
+        box: { center: z.center, halfW: z.halfW, halfH: z.halfH },
+        cost: 1,
+        intervalMs: null,
+        source: "auto",
+        kind: z.dominantKind,
+      });
+    });
+  }
+
+  return plan;
 }

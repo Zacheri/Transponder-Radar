@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   boxesOverlap,
+  buildPollPlan,
   planZones,
+  sectionActivity,
   surplusCredits,
   zoneIntervalFor,
   type HotZone,
+  type PollPlanInput,
+  type PollSection,
+  type SectionBox,
   type ZoneMember,
   type ZonesState,
 } from "../server/hotzones.js";
@@ -412,5 +417,186 @@ describe("zoneIntervalFor", () => {
   it("computes from UTC midnight regardless of the instant", () => {
     // 1 s left, surplus 1 -> stretched 1000 ms, requested wins
     expect(zoneIntervalFor(30000, 1, AT_2359)).toBe(30000);
+  });
+});
+
+// --- Section boost (design 2026-11-27 §A/§B) --------------------------------
+
+// Default box: lat [40,42], lon [-74,-72] — a 2x2 deg, cost-1 rectangle.
+const SEC_BOX: SectionBox = [[40, -74], [42, -72]];
+
+const section = (over: Partial<PollSection> = {}): PollSection => ({
+  id: "s",
+  kinds: ["military"],
+  boostMs: 30000,
+  b: SEC_BOX,
+  enabled: true,
+  ...over,
+});
+
+const AUTO: HotZone = {
+  center: { lat: 5, lon: 5 },
+  halfW: 2,
+  halfH: 2,
+  count: 3,
+  dominantKind: "military",
+};
+
+// base = auto on, standdown 0, one inside military member (so default sections
+// activate); override only what a case cares about.
+const poll = (over: Partial<PollPlanInput> = {}) =>
+  buildPollPlan({
+    autoZones: [],
+    sections: [],
+    members: [m("in", "military", 41, -73)],
+    autoEnabled: true,
+    boostedSectionCount: 0,
+    standdownAt: 0,
+    ...over,
+  });
+
+describe("planZones — createMin option", () => {
+  const cluster = (n: number): ZoneMember[] =>
+    Array.from({ length: n }, (_, i) => m(`c${i}`, "general", 10 + i * 0.01, 10 + i * 0.01));
+
+  it("defaults to 2 and accepts an explicit createMin (4 needs 4 members)", () => {
+    expect(planZones(cluster(3), T0, null, { createMin: 4 }).zones).toHaveLength(0);
+    expect(planZones(cluster(4), T0, null, { createMin: 4 }).zones).toHaveLength(1);
+    expect(planZones(cluster(2), T0, null).zones).toHaveLength(1); // default stays 2
+  });
+
+  it("clamps createMin into [2,10]", () => {
+    // 1 -> 2: a lone member still cannot form a zone.
+    expect(planZones(cluster(1), T0, null, { createMin: 1 }).zones).toHaveLength(0);
+    // 99 -> 10: 9 members fall short, 10 forms.
+    expect(planZones(cluster(9), T0, null, { createMin: 99 }).zones).toHaveLength(0);
+    expect(planZones(cluster(10), T0, null, { createMin: 99 }).zones).toHaveLength(1);
+  });
+
+  it("falls back to the default 2 for a non-finite createMin", () => {
+    expect(planZones(cluster(2), T0, null, { createMin: NaN }).zones).toHaveLength(1);
+  });
+});
+
+describe("sectionActivity", () => {
+  it("counts kind members inside, inclusive on every edge (both axes)", () => {
+    const members = [
+      m("in", "military", 41, -73),
+      m("min", "military", 40, -74), // exactly min corner
+      m("max", "military", 42, -72), // exactly max corner
+      m("edgeLat", "military", 42, -73),
+    ];
+    expect(sectionActivity({ kinds: ["military"], b: SEC_BOX }, members).count).toBe(4);
+  });
+
+  it("excludes members just past any edge", () => {
+    const members = [
+      m("below", "military", 39.999, -73),
+      m("above", "military", 42.001, -73),
+      m("west", "military", 41, -74.001),
+      m("east", "military", 41, -71.999),
+    ];
+    expect(sectionActivity({ kinds: ["military"], b: SEC_BOX }, members)).toEqual({ active: false, count: 0 });
+  });
+
+  it("counts only members whose kind is in the section", () => {
+    const members = [m("mil", "military", 41, -73), m("gen", "general", 41.1, -73)];
+    expect(sectionActivity({ kinds: ["military"], b: SEC_BOX }, members)).toEqual({ active: true, count: 1 });
+  });
+
+  it("empty kinds never activates", () => {
+    const members = [m("mil", "military", 41, -73)];
+    expect(sectionActivity({ kinds: [], b: SEC_BOX }, members)).toEqual({ active: false, count: 0 });
+  });
+});
+
+describe("buildPollPlan", () => {
+  it("returns an empty plan for empty inputs", () => {
+    expect(
+      poll({ members: [], sections: [], autoZones: [], autoEnabled: false }),
+    ).toEqual([]);
+  });
+
+  it("emits active sections in id order, then auto zones", () => {
+    const plan = poll({ sections: [section({ id: "z" }), section({ id: "a" })], autoZones: [AUTO] });
+    expect(plan.map((p) => p.id)).toEqual(["a", "z", "auto:0"]);
+    expect(plan.map((p) => p.source)).toEqual(["section", "section", "auto"]);
+  });
+
+  it("does not mutate the input sections array", () => {
+    const sections = [section({ id: "z" }), section({ id: "a" })];
+    poll({ sections });
+    expect(sections.map((s) => s.id)).toEqual(["z", "a"]);
+  });
+
+  it("skips disabled and idle sections", () => {
+    expect(poll({ sections: [section({ enabled: false })] })).toEqual([]);
+    const noTraffic = poll({ members: [], sections: [section()] });
+    expect(noTraffic).toEqual([]);
+  });
+
+  it("takes the cost tier from actual box extents", () => {
+    const tiny = poll({
+      sections: [section({ b: [[40, -74], [40.1, -73.9]] })],
+      members: [m("in", "military", 40.05, -73.95)],
+    });
+    expect(tiny[0].cost).toBe(1); // 0.01 sq deg
+    const big = poll({
+      sections: [section({ b: [[0, -10], [20, 10]] })],
+      members: [m("in", "military", 10, 0)],
+    });
+    expect(big[0].cost).toBe(3); // 20x20 = 400 sq deg
+    expect(big[0].box.center).toEqual({ lat: 10, lon: 0 });
+  });
+
+  it("clamps the section interval into [10000,120000]", () => {
+    expect(poll({ sections: [section({ boostMs: 5000 })] })[0].intervalMs).toBe(10000);
+    expect(poll({ sections: [section({ boostMs: 200000 })] })[0].intervalMs).toBe(120000);
+    expect(poll({ sections: [section({ boostMs: 37500.6 })] })[0].intervalMs).toBe(37501);
+    expect(poll({ sections: [section({ boostMs: NaN })] })[0].intervalMs).toBe(30000);
+  });
+
+  it("gives sections the dominant matching kind (plurality, ties to first in AIR_KINDS)", () => {
+    const plurality = poll({
+      sections: [section({ kinds: ["military", "general"] })],
+      members: [
+        m("a", "military", 41, -73),
+        m("b", "military", 41.1, -73),
+        m("c", "general", 41.2, -73),
+      ],
+    });
+    expect(plurality[0].kind).toBe("military");
+    const tie = poll({
+      sections: [section({ kinds: ["business", "military"] })],
+      members: [m("a", "business", 41, -73), m("b", "military", 41.1, -73)],
+    });
+    expect(tie[0].kind).toBe("business"); // business precedes military in AIR_KINDS
+  });
+
+  it("carries auto zones cost-1 with null interval and their own kind", () => {
+    const plan = poll({ autoZones: [AUTO] });
+    expect(plan[0]).toEqual({
+      id: "auto:0",
+      box: { center: { lat: 5, lon: 5 }, halfW: 2, halfH: 2 },
+      cost: 1,
+      intervalMs: null,
+      source: "auto",
+      kind: "military",
+    });
+  });
+
+  it("gates auto zones on the stand-down rule", () => {
+    const autoPresent = (over: Partial<PollPlanInput>) =>
+      poll({ sections: [], autoZones: [AUTO], ...over }).some((p) => p.source === "auto");
+    // standdownAt 0: coexist regardless of boosted count.
+    expect(autoPresent({ standdownAt: 0, boostedSectionCount: 5 })).toBe(true);
+    // standdownAt 1: suppress once one boosted section polls.
+    expect(autoPresent({ standdownAt: 1, boostedSectionCount: 0 })).toBe(true);
+    expect(autoPresent({ standdownAt: 1, boostedSectionCount: 1 })).toBe(false);
+    // standdownAt 2: only suppress at two.
+    expect(autoPresent({ standdownAt: 2, boostedSectionCount: 1 })).toBe(true);
+    expect(autoPresent({ standdownAt: 2, boostedSectionCount: 2 })).toBe(false);
+    // auto disabled: never present.
+    expect(autoPresent({ autoEnabled: false, standdownAt: 0 })).toBe(false);
   });
 });
