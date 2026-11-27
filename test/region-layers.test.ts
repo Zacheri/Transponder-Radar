@@ -9,6 +9,7 @@ import {
   regionDefs,
   regionPreviewDefs,
   setRegionData,
+  setRegionPreview,
 } from "../src/map/regions.js";
 import { cartoStyle } from "../src/map/basemap.js";
 import type { Region } from "../src/data/regions.js";
@@ -89,6 +90,10 @@ function fakeMap(existingLayers: string[]) {
       layers.add(layer.id);
       added.push({ id: layer.id, before });
     },
+    // Queue-on-missing-source path (writeOrQueue) arms a style.load flush.
+    on: () => {},
+    once: () => {},
+    off: () => {},
   };
   return { map: map as never, added, setDatas, sources };
 }
@@ -170,6 +175,114 @@ describe("setRegionData", () => {
   it("is safe before the source exists", () => {
     const { map } = fakeMap([]);
     expect(() => setRegionData(map, [adsb()])).not.toThrow();
+  });
+});
+
+// Paint-race regression (user report 2026-11-27): a full setStyle swap (the
+// globe/flat toggle, the fallback-boot rebuild) removes the sources until the
+// next style.load — a paint landing in that window must replay, not drop.
+// The stub models the swap: sources exist only while the style is live;
+// reload() mirrors the real ordering (setupStyleLayers re-adds first — it
+// registers as a style.load listener before any queue can arm — then the
+// style.load dispatch runs the queued flush).
+function swapMap() {
+  const styleListeners: Array<() => void> = [];
+  const writes: Record<string, unknown[]> = {};
+  const sources = new Map<string, { setData: (d: unknown) => void }>();
+  const map = {
+    getLayer: (id: string) => (sources.size > 0 && id === REGION_FILL ? { id } : undefined),
+    getSource: (id: string) => sources.get(id),
+    addSource: (id: string) => {
+      if (!writes[id]) writes[id] = [];
+      sources.set(id, {
+        setData: (d: unknown) => {
+          writes[id].push(d);
+        },
+      });
+    },
+    addLayer: () => {},
+    on: () => {},
+    once: (_t: string, fn: () => void) => {
+      styleListeners.push(fn);
+    },
+    off: () => {},
+  };
+  return {
+    map: map as never,
+    writes,
+    /** Boot setup: the style is live and this module's layers are on. */
+    live: () => addRegionLayers(map as never),
+    /** A setStyle swap starts: every source (and layer) is gone. */
+    swap: () => sources.clear(),
+    /** The swap completes: setupStyleLayers re-adds, then style.load dispatches. */
+    reload: () => {
+      addRegionLayers(map as never);
+      const fns = styleListeners.splice(0, styleListeners.length);
+      for (const fn of fns) fn();
+    },
+  };
+}
+
+const previewFc = (setDatas: unknown[]) => setDatas[setDatas.length - 1] as { features: unknown[] };
+
+describe("region paints during a style swap", () => {
+  it("a commit dropped mid-swap paints when the style returns (no reload)", () => {
+    const m = swapMap();
+    m.live();
+    setRegionData(m.map, [adsb()]);
+    expect(m.writes[REGIONS_SOURCE]).toHaveLength(1);
+    m.swap();
+    setRegionData(m.map, [adsb(), ais()]); // the commit lands mid-rebuild
+    expect(m.writes[REGIONS_SOURCE]).toHaveLength(1); // queued, not written
+    m.reload();
+    const after = m.writes[REGIONS_SOURCE];
+    expect(after).toHaveLength(2);
+    expect((after[1] as { features: unknown[] }).features).toHaveLength(2);
+  });
+
+  it("multiple commits dropped in one window replay only the latest, once", () => {
+    const m = swapMap();
+    m.live();
+    m.swap();
+    setRegionData(m.map, [adsb()]);
+    setRegionData(m.map, [adsb(), ais()]);
+    m.reload();
+    const after = m.writes[REGIONS_SOURCE];
+    expect(after).toHaveLength(1);
+    expect((after[0] as { features: unknown[] }).features).toHaveLength(2);
+  });
+
+  it("the preview queues through the same window, latest-wins (rect then clear)", () => {
+    const m = swapMap();
+    m.live();
+    m.swap();
+    setRegionPreview(m.map, [[1, 2], [3, 4]], "#4fc3f7");
+    setRegionPreview(m.map, null, "#4fc3f7");
+    m.reload();
+    const writes = m.writes[REGIONS_PREVIEW_SOURCE];
+    expect(writes).toHaveLength(1);
+    expect(previewFc(writes).features).toHaveLength(0);
+  });
+
+  it("addRegionLayers itself flushes (covers the load event firing past style.load)", () => {
+    const m = swapMap();
+    m.live();
+    m.swap();
+    setRegionData(m.map, [ais()]);
+    addRegionLayers(m.map); // re-add WITHOUT dispatching style.load
+    const after = m.writes[REGIONS_SOURCE];
+    expect(after).toHaveLength(1); // the queued replay, written by the re-add
+    expect((after[0] as { features: unknown[] }).features).toHaveLength(1);
+  });
+
+  it("a paint with the source present writes straight through and never re-paints", () => {
+    const m = swapMap();
+    m.live();
+    setRegionData(m.map, [adsb()]);
+    expect(m.writes[REGIONS_SOURCE]).toHaveLength(1);
+    m.swap();
+    m.reload();
+    expect(m.writes[REGIONS_SOURCE]).toHaveLength(1); // no phantom replay
   });
 });
 

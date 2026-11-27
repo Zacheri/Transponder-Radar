@@ -53,6 +53,36 @@ function debouncedNumber(input: HTMLInputElement, apply: (n: number) => void): (
   };
 }
 
+/**
+ * Typed-number inputs commit on Enter only — an input listener posting
+ * debounced keystrokes applies half-typed values (user report: it "applied
+ * the first digit"). Escape and blur restore the committed value; the display
+ * reformats only on a committed Enter. The returned hook records values
+ * pushed in from outside (status echo) as the committed baseline.
+ */
+function commitOnEnter(input: HTMLInputElement, apply: (n: number) => void): (sent: number) => void {
+  let committed: number | null = null;
+  const restore = (): void => {
+    if (committed != null) input.value = String(committed);
+  };
+  input.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      restore();
+      return;
+    }
+    if (e.key !== "Enter") return;
+    const v = Number(input.value);
+    if (input.value === "" || !Number.isFinite(v)) return;
+    committed = v;
+    input.value = String(v);
+    apply(v);
+  });
+  input.addEventListener("blur", restore);
+  return (sent) => {
+    committed = sent;
+  };
+}
+
 export function createSettings(
   root: HTMLElement,
   opts: {
@@ -284,7 +314,7 @@ export function createSettings(
     }
   });
 
-  const markStorageSent = debouncedNumber(storageInput, (v) => opts.update({ storageCapGb: v }));
+  const markStorageSent = commitOnEnter(storageInput, (v) => opts.update({ storageCapGb: v }));
 
   const markCacheSent = debouncedNumber(cacheInput, (v) => opts.update({ ramCacheGb: v }));
 

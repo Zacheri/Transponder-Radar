@@ -8,7 +8,7 @@ import type { Region } from "../src/data/regions.js";
 // dataset, value/type/checked, child ops incl. replaceChildren and the
 // textContent-clears-children idiom, listeners, window.setTimeout).
 
-type Listener = () => void;
+type Listener = (e?: unknown) => void;
 
 class FakeEl {
   value = "";
@@ -75,8 +75,8 @@ class FakeEl {
   removeEventListener(t: string, fn: Listener): void {
     this.listeners.set(t, (this.listeners.get(t) ?? []).filter((f) => f !== fn));
   }
-  fire(t: string): void {
-    for (const fn of [...(this.listeners.get(t) ?? [])]) fn();
+  fire(t: string, e?: unknown): void {
+    for (const fn of [...(this.listeners.get(t) ?? [])]) fn(e);
   }
 }
 
@@ -128,8 +128,26 @@ const STATS: SettingsStats = {
   pins: [],
 };
 
-function setup(motionOn = true) {
+// Fresh storage per drawer: boot collapse state and toggle persistence read
+// this key, so it must not leak between tests.
+function makeStorage(initial: Record<string, string> = {}): {
+  getItem: (k: string) => string | null;
+  setItem: (k: string, v: string) => void;
+  map: Map<string, string>;
+} {
+  const map = new Map(Object.entries(initial));
+  return {
+    getItem: (k) => map.get(k) ?? null,
+    setItem: (k, v) => {
+      map.set(k, v);
+    },
+    map,
+  };
+}
+
+function setup(motionOn = true, storage = makeStorage()) {
   const root = new FakeEl("div");
+  Object.assign(globalThis as object, { localStorage: storage });
   const opts = {
     update: vi.fn(),
     removePin: vi.fn(),
@@ -160,6 +178,12 @@ function setup(motionOn = true) {
     ui,
     opts,
     root,
+    storage,
+    head: must(byClass(root, "drawer-head"), "drawer head"),
+    cap: must(
+      find(root, (el) => el.tag === "input" && el.type === "number"),
+      "storage-cap input",
+    ),
     park,
     clear,
     homeVal,
@@ -314,5 +338,111 @@ describe("settings drawer Map sections arm buttons", () => {
     ui.setRegionArmed(null);
     expect(attr(armAis, "aria-pressed")).toBe("false");
     expect(armAis.className.split(" ")).not.toContain("settings-btn-armed");
+  });
+});
+
+// User report 2026-11-27: the storage cap auto-applied mid-typing ("it
+// applied the first digit"). The input now commits on Enter only; Escape and
+// blur restore; the display reformats only on a committed Enter.
+describe("settings storage-cap commits on Enter", () => {
+  it("typing posts nothing; Enter posts one settings.update", () => {
+    const { ui, opts, cap } = setup();
+    ui.setStats({ ...STATS, storageCapGb: 10 });
+    expect(cap.value).toBe("10");
+    cap.value = "1";
+    cap.fire("input");
+    cap.value = "12";
+    cap.fire("input");
+    expect(opts.update).not.toHaveBeenCalled();
+    cap.fire("keydown", { key: "Enter" });
+    expect(opts.update).toHaveBeenCalledTimes(1);
+    expect(opts.update).toHaveBeenCalledWith({ storageCapGb: 12 });
+    expect(cap.value).toBe("12");
+  });
+
+  it("the display reformats only on commit: '012.50' commits 12.5 and rewrites", () => {
+    const { ui, opts, cap } = setup();
+    ui.setStats({ ...STATS, storageCapGb: 10 });
+    cap.value = "012.50";
+    expect(cap.value).toBe("012.50");
+    expect(opts.update).not.toHaveBeenCalled();
+    cap.fire("keydown", { key: "Enter" });
+    expect(opts.update).toHaveBeenCalledWith({ storageCapGb: 12.5 });
+    expect(cap.value).toBe("12.5");
+  });
+
+  it("Escape posts nothing and restores the committed value", () => {
+    const { ui, opts, cap } = setup();
+    ui.setStats({ ...STATS, storageCapGb: 10 });
+    cap.value = "1099";
+    cap.fire("keydown", { key: "Escape" });
+    expect(opts.update).not.toHaveBeenCalled();
+    expect(cap.value).toBe("10");
+  });
+
+  it("blur restores without posting; a later Enter still commits", () => {
+    const { ui, opts, cap } = setup();
+    ui.setStats({ ...STATS, storageCapGb: 10 });
+    cap.value = "7";
+    cap.fire("blur");
+    expect(opts.update).not.toHaveBeenCalled();
+    expect(cap.value).toBe("10");
+    cap.value = "8";
+    cap.fire("keydown", { key: "Enter" });
+    expect(opts.update).toHaveBeenCalledTimes(1);
+    expect(opts.update).toHaveBeenCalledWith({ storageCapGb: 8 });
+  });
+
+  it("Enter on empty or non-numeric input posts nothing and keeps the text", () => {
+    const { ui, opts, cap } = setup();
+    ui.setStats({ ...STATS, storageCapGb: 10 });
+    cap.value = "";
+    cap.fire("keydown", { key: "Enter" });
+    cap.value = "abc";
+    cap.fire("keydown", { key: "Enter" });
+    expect(opts.update).not.toHaveBeenCalled();
+    expect(cap.value).toBe("abc");
+  });
+
+  it("setStats does not overwrite a focused input mid-typing", () => {
+    const { ui, cap } = setup();
+    ui.setStats({ ...STATS, storageCapGb: 10 });
+    const doc = globalThis.document as unknown as { activeElement: unknown };
+    doc.activeElement = cap;
+    cap.value = "4";
+    ui.setStats({ ...STATS, storageCapGb: 10 });
+    expect(cap.value).toBe("4");
+    doc.activeElement = null;
+  });
+});
+
+// Item 2 regression pin: the settings drawer collapses from the same header
+// bar that opened it (filters-drawer idiom), with aria-expanded round-tripping.
+describe("settings drawer header toggle", () => {
+  const isCollapsed = (root: FakeEl) =>
+    must(byClass(root, "drawer-settings"), "drawer").className.split(" ").includes("collapsed");
+
+  it("header click expands and collapses from the same area, round-tripping aria-expanded", () => {
+    const { root, head, storage } = setup();
+    expect(attr(head, "aria-expanded")).toBe("false"); // boot: collapsed
+    expect(isCollapsed(root)).toBe(true);
+    head.fire("click");
+    expect(isCollapsed(root)).toBe(false);
+    expect(attr(head, "aria-expanded")).toBe("true");
+    expect(storage.map.get("radar.settingsCollapsed")).toBe("0");
+    head.fire("click");
+    expect(isCollapsed(root)).toBe(true);
+    expect(attr(head, "aria-expanded")).toBe("false");
+    expect(storage.map.get("radar.settingsCollapsed")).toBe("1");
+  });
+
+  it("Enter and Space toggle on the header; other keys do not", () => {
+    const { root, head } = setup();
+    head.fire("keydown", { key: "x" });
+    expect(isCollapsed(root)).toBe(true);
+    head.fire("keydown", { key: "Enter" });
+    expect(isCollapsed(root)).toBe(false);
+    head.fire("keydown", { key: " ", preventDefault: () => {} });
+    expect(isCollapsed(root)).toBe(true);
   });
 });

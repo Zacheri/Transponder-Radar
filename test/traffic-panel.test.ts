@@ -228,6 +228,28 @@ describe("traffic panel persistence (radar.trafficPanel)", () => {
   });
 });
 
+describe("traffic panel header toggle (close from the opener, 2026-11-27)", () => {
+  it("header click toggles collapse/expand and round-trips aria-expanded", () => {
+    const { root, head } = setup({ collapsed: true });
+    expect(byClass(root, "traffic-panel").classList.contains("collapsed")).toBe(true);
+    expect(head.attr("aria-expanded")).toBe("false");
+    head.fire("click");
+    expect(byClass(root, "traffic-panel").classList.contains("collapsed")).toBe(false);
+    expect(head.attr("aria-expanded")).toBe("true");
+    head.fire("click");
+    expect(byClass(root, "traffic-panel").classList.contains("collapsed")).toBe(true);
+    expect(head.attr("aria-expanded")).toBe("false");
+  });
+  it("an expanded panel collapses from its header and the compact readout keeps updating", () => {
+    const { ui, root, head } = setup({ collapsed: false });
+    ui.update(SAMPLE);
+    head.fire("click"); // close from the same area that opened it
+    expect(byClass(root, "traffic-panel").classList.contains("collapsed")).toBe(true);
+    ui.update({ ...SAMPLE, device: null });
+    expect(byClass(root, "traffic-compact").textContent).toBe("u:200 B/s d:100 KB/s");
+  });
+});
+
 describe("traffic panel watch lifecycle (panel-lifetime, 2026-11-26 ruling)", () => {
   it("creation fires watch(true) once; toggling never re-fires", () => {
     const { head, watch } = setup();

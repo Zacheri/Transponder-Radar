@@ -81,6 +81,7 @@ export function addRegionLayers(map: maplibregl.Map, beforeId?: string): void {
     }
   }
   for (const layer of [...regionDefs(), ...regionPreviewDefs()]) map.addLayer(layer, before);
+  flushPending(map);
 }
 
 type RegionFC = {
@@ -112,21 +113,53 @@ const feature = (b: RegionBox, color: string): RegionFC["features"][number] => (
 });
 
 export function setRegionData(map: maplibregl.Map, regions: Region[]): void {
-  const src = map.getSource(REGIONS_SOURCE) as maplibregl.GeoJSONSource | undefined;
-  if (!src) return;
   const fc: RegionFC = {
     type: "FeatureCollection",
     features: regions.map((r) => feature(r.b, REGION_COLORS[r.kind])),
   };
-  src.setData(fc as never);
+  writeOrQueue(map, REGIONS_SOURCE, fc);
 }
 
 /** The in-progress drag rect; null clears. color = REGION_COLORS[armed kind]. */
 export function setRegionPreview(map: maplibregl.Map, rect: RegionBox | null, color: string): void {
-  const src = map.getSource(REGIONS_PREVIEW_SOURCE) as maplibregl.GeoJSONSource | undefined;
-  if (!src) return;
   const fc: RegionFC = rect ? { type: "FeatureCollection", features: [feature(rect, color)] } : emptyFc();
-  src.setData(fc as never);
+  writeOrQueue(map, REGIONS_PREVIEW_SOURCE, fc);
+}
+
+// Insurance for paints that land while this module's sources are absent
+// (e.g. a commit before the first style.load): setData on a missing source
+// would drop silently, so the latest payload per source is remembered here
+// (latest-wins) and replayed
+// when the style comes back — addRegionLayers flushes, and a one-shot
+// style.load listener covers swaps that complete outside it.
+type PaintQueue = Map<string, RegionFC>;
+const pendingPaints = new WeakMap<maplibregl.Map, PaintQueue>();
+const flushArmed = new WeakSet<maplibregl.Map>();
+
+function writeOrQueue(map: maplibregl.Map, sourceId: string, fc: RegionFC): void {
+  const src = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
+  if (src) {
+    src.setData(fc as never);
+    return;
+  }
+  let q = pendingPaints.get(map);
+  if (!q) {
+    q = new Map();
+    pendingPaints.set(map, q);
+  }
+  q.set(sourceId, fc);
+  if (flushArmed.has(map)) return;
+  flushArmed.add(map);
+  map.once("style.load", () => flushPending(map));
+}
+
+function flushPending(map: maplibregl.Map): void {
+  const q = pendingPaints.get(map);
+  if (!q || q.size === 0) return;
+  flushArmed.delete(map);
+  const items = [...q.entries()];
+  q.clear();
+  for (const [sourceId, fc] of items) writeOrQueue(map, sourceId, fc);
 }
 
 export interface RegionDrawerOpts {
