@@ -178,9 +178,11 @@ describe("setRegionData", () => {
   });
 });
 
-// Paint-race regression (user report 2026-11-27): a full setStyle swap (the
-// globe/flat toggle, the fallback-boot rebuild) removes the sources until the
-// next style.load — a paint landing in that window must replay, not drop.
+// Paint-race regression (user report 2026-11-27, 4.x era): a style swap
+// removes the sources until the next style.load — a paint landing in that
+// window must replay, not drop. Kept as insurance on v5, where the in-place
+// projection toggle no longer evicts sources but early paints (before the
+// first style.load adds them) still hit the same missing-source path.
 // The stub models the swap: sources exist only while the style is live;
 // reload() mirrors the real ordering (setupStyleLayers re-adds first — it
 // registers as a style.load listener before any queue can arm — then the

@@ -148,9 +148,10 @@ const settingsUi = createSettings(document.getElementById("app") as HTMLElement,
 });
 settingsUi.setRegions(regions);
 
-// Both registrars are created once and survive style rebuilds: each holds
-// its registered-key set and re-adds every image on style.load, so the
-// projection toggle's full rebuild never loses craft art.
+// Both registrars are created once and survive style reloads: each holds
+// its registered-key set and re-adds every image on style.load — insurance
+// kept from the 4.x full-rebuild era; the v5 in-place toggle no longer
+// loses craft art.
 const kindRegistrar = createKindIconRegistrar(map);
 const packLoader = createPackIconLoader(map);
 // Color-keyed names registered on the map by the last refresh(); playback
