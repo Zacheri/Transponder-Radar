@@ -780,6 +780,55 @@ body {
   background: rgba(79, 195, 247, 0.12);
 }
 
+/* Traffic boost + section boost editors (spec 2026-11-27 §F). */
+.settings-boost-today {
+  margin-left: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.settings-row-disabled {
+  opacity: 0.45;
+}
+.settings-row input[type="range"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+.settings-region-expand {
+  flex: none;
+  padding: 0 6px;
+  line-height: 1.4;
+}
+.settings-region-editor {
+  margin: 0 0 4px 16px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  font-size: 12px;
+}
+.settings-region-editor .settings-row {
+  padding: 2px 0;
+}
+.settings-region-readout {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.settings-region-live {
+  margin-left: 8px;
+}
+.settings-region-live:not(:empty)::before {
+  content: "· ";
+}
+.settings-region-live.active {
+  color: var(--accent);
+}
+/* Filters drawer pointer line (rate editing moved to settings). */
+.drawer-zones-hint {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 0 0 2px 2px;
+}
+
 /* Traffic panel (spec 2026-11-25-traffic-monitor R6): left-docked beside the
    settings drawer (12 + 260 + 12 = 284). Flush bottom alignment comes from
    both drawers anchoring bottom: 60px; the collapsed header pins height: 38

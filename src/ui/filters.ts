@@ -1,6 +1,6 @@
 import type { CraftKind } from "../../shared/craft.js";
 import { KINDS, AIR_KINDS, SEA_KINDS } from "../../shared/craft.js";
-import { clampZonesBoost, ZONES_BOOST_MAX_MS, ZONES_BOOST_MIN_MS, type ZonesCfg } from "./zones-cfg.js";
+import type { ZonesCfg } from "./zones-cfg.js";
 
 const VISIBLE_KEY = "radar.visibleKinds";
 const COLLAPSED_KEY = "radar.drawerCollapsed";
@@ -27,6 +27,10 @@ export interface FilterColorApi {
 
 export interface ZonesControlOpts {
   initial: ZonesCfg;
+  // Live-config getter (main owns the single source): emits merge ONLY kinds
+  // onto this, so boostMs/auto edits made in Settings can never be clobbered
+  // by a creation-time snapshot (spec 2026-11-27 §F clobber guard).
+  getLive: () => ZonesCfg;
   onZonesChange: (cfg: ZonesCfg) => void;
 }
 
@@ -160,17 +164,17 @@ export function createFilters(
     h.className = "drawer-group";
     h.textContent = "Boost zones";
     body.appendChild(h);
+    // Rate + auto tuning live in Settings → Traffic boost (spec 2026-11-27 §F);
+    // this drawer keeps only the activation-kind selectors.
+    const hint = document.createElement("div");
+    hint.className = "drawer-zones-hint";
+    hint.textContent = "rate + options: Settings → Traffic boost";
+    body.appendChild(hint);
     const zChecked = new Set<CraftKind>(zc.initial.kinds);
-    let zBoostMs = clampZonesBoost(zc.initial.boostMs);
-    const zval = document.createElement("span");
-    zval.className = "drawer-count";
     function emitZones(): void {
-      // Spread initial so the auto block rides through untouched (the drawer
-      // does not own it; T4 moves rate/auto editing to settings).
-      zc.onZonesChange({ ...zc.initial, kinds: AIR_KINDS.filter((k) => zChecked.has(k)), boostMs: zBoostMs });
-    }
-    function renderZval(): void {
-      zval.textContent = `${zBoostMs / 1000} s`;
+      // Merge onto the LIVE config (getLive): kinds is all this drawer owns;
+      // boostMs and the auto block ride through exactly as they are now.
+      zc.onZonesChange({ ...zc.getLive(), kinds: AIR_KINDS.filter((k) => zChecked.has(k)) });
     }
     for (const k of AIR_KINDS) {
       const label = document.createElement("label");
@@ -195,27 +199,6 @@ export function createFilters(
       label.append(cb, sw, txt);
       body.appendChild(label);
     }
-    const row = document.createElement("label");
-    row.className = "drawer-item";
-    const rl = document.createElement("span");
-    rl.textContent = "Interval";
-    const slider = document.createElement("input");
-    slider.type = "range";
-    slider.min = String(ZONES_BOOST_MIN_MS);
-    slider.max = String(ZONES_BOOST_MAX_MS);
-    slider.step = "5000";
-    slider.value = String(zBoostMs);
-    slider.setAttribute("aria-label", "Boost interval");
-    slider.addEventListener("input", () => {
-      // Self-clamping (a programmatic out-of-range value must not leak out).
-      zBoostMs = clampZonesBoost(Number(slider.value));
-      slider.value = String(zBoostMs);
-      renderZval();
-      emitZones();
-    });
-    renderZval();
-    row.append(rl, slider, zval);
-    body.appendChild(row);
   }
 
   let collapsed = false;

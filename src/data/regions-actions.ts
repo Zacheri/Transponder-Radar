@@ -5,6 +5,7 @@ import {
   removeRegion,
   serializeRegions,
   type Region,
+  type RegionBoost,
   type RegionBox,
   type RegionKind,
 } from "./regions.js";
@@ -57,6 +58,28 @@ export function commitRegion(
 export function dropRegion(state: Region[], id: string, storage: StorageLike): Region[] {
   const list = removeRegion(state, id);
   if (list.length === state.length) return state;
+  persist(list, storage);
+  return list;
+}
+
+/**
+ * Set/clear one section's boost (spec 2026-11-27 §F): null clears it
+ * (boost-off default), otherwise the entry is replaced. An unknown id
+ * returns the input list and writes nothing.
+ */
+export function setRegionBoost(
+  state: Region[],
+  id: string,
+  boost: RegionBoost | null,
+  storage: StorageLike,
+): Region[] {
+  const idx = state.findIndex((r) => r.id === id);
+  if (idx === -1) return state;
+  const list = state.slice();
+  const next: Region = { ...list[idx] };
+  if (boost === null) delete next.boost;
+  else next.boost = boost;
+  list[idx] = next;
   persist(list, storage);
   return list;
 }

@@ -28,7 +28,7 @@ import { greatCircle, destinationPoint } from "../shared/geo.js";
 import type { LonLat } from "../shared/geo.js";
 import { effectiveColor, loadIconColors, saveIconColors, setKindColor, type IconColorState } from "./data/icon-colors.js";
 import { loadMotion, saveMotion } from "./data/motion-cfg.js";
-import { bootRegions, commitRegion, dropRegion } from "./data/regions-actions.js";
+import { bootRegions, commitRegion, dropRegion, setRegionBoost } from "./data/regions-actions.js";
 import type { Region, RegionKind } from "./data/regions.js";
 import { addRegionLayers, createRegionDrawer, setRegionData } from "./map/regions.js";
 import {
@@ -125,6 +125,17 @@ function armRegion(kind: RegionKind | null): void {
     },
   });
 }
+// Hot-zone boost config (spec R3, v2): restored at boot, before the socket
+// exists AND before the settings drawer is built (it renders the auto
+// controls from this value). main owns persistence; the drawers only edit
+// the value, keeping the config's single source here.
+let zonesCfg: ZonesCfg =
+  parseZonesCfg(localStorage.getItem(ZONES_CFG_KEY)) ?? {
+    kinds: [],
+    boostMs: ZONES_BOOST_DEFAULT_MS,
+    auto: DEFAULT_ZONES_AUTO,
+  };
+zonesCfg.boostMs = clampZonesBoost(zonesCfg.boostMs);
 const settingsUi = createSettings(document.getElementById("app") as HTMLElement, {
   update: (p) => socket?.sendSettingsUpdate(p),
   removePin: (id) => socket?.sendPinRemove(id),
@@ -149,6 +160,19 @@ const settingsUi = createSettings(document.getElementById("app") as HTMLElement,
     syncRegionUi();
     refreshZonesSend();
   },
+  // Traffic boost (spec 2026-11-27 §F): settings owns the auto knobs + rate
+  // and the per-section editors; every change persists (zonesCfg /
+  // radar.regions) and re-sends the wire config. No syncRegionUi from
+  // onRegionBoost on purpose — the drawer keeps its own optimistic mirror,
+  // and a rebuild mid-slider-drag would yank the control.
+  zonesInitial: zonesCfg,
+  getZones: () => zonesCfg,
+  onZonesChange: applyZonesCfg,
+  onRegionBoost: (id, boost) => {
+    regions = setRegionBoost(regions, id, boost, localStorage);
+    refreshZonesSend();
+  },
+  kindColor: (k) => iconColorFor(k),
 });
 settingsUi.setRegions(regions);
 
@@ -180,16 +204,6 @@ let histTo: number | null = null;
 // with histFrom/histTo on every call, so status frames refresh it for free.
 let viewSel: ViewSel = parseViewSel(localStorage.getItem("radar.viewSel")) ?? DEFAULT_VIEW_SEL;
 const viewWindow = () => computeViewWindow(histFrom, histTo, viewSel);
-// Hot-zone boost config (spec R3): restored at boot, before the socket
-// exists, so the first open can send it. main owns persistence; the drawer
-// only edits the value, keeping the config's single source here.
-let zonesCfg: ZonesCfg =
-  parseZonesCfg(localStorage.getItem(ZONES_CFG_KEY)) ?? {
-    kinds: [],
-    boostMs: ZONES_BOOST_DEFAULT_MS,
-    auto: DEFAULT_ZONES_AUTO,
-  };
-zonesCfg.boostMs = clampZonesBoost(zonesCfg.boostMs);
 // Rebuild + send the v2 zones config (auto knobs + section boosts). main
 // calls it on every config change, on every section-list change and on
 // every socket open (server state is memory-only); the settings UI calls it
@@ -223,6 +237,34 @@ let openSkyPollMs = 90000;
 // Latest status mirror: gate the aiscast follow-tile sends on the server's
 // real secondary-enabled field (optional chain guards pre-secondary frames).
 let aiscastEnabled = false;
+// T2 (parallel) owns the ws.ts status mirrors; at this commit they may still
+// mirror v1, so the v2 fields consumed here are typed locally against spec
+// 2026-11-27 §C/§D (exact names). Compiles against either; simplify when
+// T2's ws.ts lands in the baseline.
+type HotzoneV2 = {
+  center: LonLat;
+  halfW: number;
+  halfH: number;
+  count: number;
+  kind: AirKind;
+  id?: string;
+  manual?: boolean;
+  active?: boolean;
+};
+interface BoostV2 {
+  active: boolean;
+  count: number;
+  intervalMs: number | null;
+  paused: "credits" | "standdown" | null;
+  zones: number;
+  sectionsActive?: number;
+  sectionsIdle?: number;
+  creditsToday?: number;
+}
+// Latches once any status frame carries the T2 id/manual fields: rows then
+// get live active/idle on every frame (empty set = all idle). Frames without
+// either field never flip it — rows degrade silently to idle-unknown.
+let sawManualZones = false;
 let trackSeq = 0;
 let appliedTrackSeq = 0;
 let contextSeq = 0;
@@ -643,16 +685,30 @@ socket = new RadarSocket(wsUrl, {
     hud.setIcons(s.icons ?? null); // ?? — legacy frames carry no icons
     // One rect per hot zone, each in its own dominant kind's icon color
     // (<= 2, slot-stable order); empty/legacy clears them.
+    const hz = (s.hotzones ?? []) as HotzoneV2[];
+    // Manual (section) entries paint nothing here — the regions layer
+    // already strokes those rects; the hotzone layer stays auto-only.
     setHotzones(
       map,
-      (s.hotzones ?? []).map((z) => ({
-        center: z.center,
-        halfW: z.halfW,
-        halfH: z.halfH,
-        count: z.count,
-        color: iconColorFor(z.kind),
-      })),
+      hz
+        .filter((z) => !z.manual)
+        .map((z) => ({
+          center: z.center,
+          halfW: z.halfW,
+          halfH: z.halfH,
+          count: z.count,
+          color: iconColorFor(z.kind),
+        })),
     );
+    // Section live state (spec §D): manual hotzones ship only while active,
+    // so the manual-active set is exactly the ids present; legacy frames
+    // (no id/manual anywhere) leave the rows idle-unknown.
+    if (!sawManualZones && hz.some((z) => z.id != null || z.manual != null)) sawManualZones = true;
+    if (sawManualZones) {
+      const activeIds = new Set<string>();
+      for (const z of hz) if (z.manual && z.active !== false && z.id) activeIds.add(z.id);
+      settingsUi.setRegionActivity(activeIds);
+    }
     // AIS fill tile outlines; boxes: [] (disabled fill) clears from status,
     // and legacy frames without boxes clear via the ?? null.
     setAisTileBoxes(map, s.feeds?.ais?.secondary?.boxes ?? null);
@@ -691,6 +747,7 @@ socket = new RadarSocket(wsUrl, {
       pins: s.pins ?? [],
       homeRegion: s.settings?.homeRegion ?? null,
       secondaryEnabled: s.feeds.ais.secondary?.enabled ?? true, // legacy absent → enabled
+      boostCreditsToday: (s.feeds.opensky.boost as BoostV2 | null | undefined)?.creditsToday,
     };
     settingsUi.setStats(lastStats);
   },
@@ -809,7 +866,7 @@ filters = createFilters(
       void refresh();
     },
   },
-  { initial: zonesCfg, onZonesChange: applyZonesCfg },
+  { initial: zonesCfg, getLive: () => zonesCfg, onZonesChange: applyZonesCfg },
 );
 
 // Craft interactions and the aiscast follow-tile also live outside the

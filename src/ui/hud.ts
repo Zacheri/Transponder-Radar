@@ -6,6 +6,20 @@ export type ConnStatus = "connecting" | "open" | "closed";
 const OPENSKY_STALE_MS = 72000;
 const AIS_STALE_MS = 180000;
 
+// BoostStatus v2 consumption (spec 2026-11-27 §C) — ws.ts is T2-owned and
+// may still mirror v1 at this commit; the widened local type compiles
+// against either. Delete once the ws.ts v2 mirror is in the baseline.
+interface BoostV2 {
+  active: boolean;
+  count: number;
+  intervalMs: number | null;
+  paused: "credits" | "standdown" | null;
+  zones: number;
+  sectionsActive?: number;
+  sectionsIdle?: number;
+  creditsToday?: number;
+}
+
 export function createHud(root: HTMLElement): {
   setCounts(air: number, sea: number): void;
   setStatus(s: ConnStatus): void;
@@ -77,25 +91,41 @@ export function createHud(root: HTMLElement): {
       ai = age <= AIS_STALE_MS ? "AIS: ok" : `AIS: stale ${Math.max(1, Math.round(age / 60000))}m`;
     }
     let boostSeg = "";
-    let paused = false;
-    const boost = feeds.opensky.boost;
+    let boostTitle: string | null = null;
+    // v2 fields via the widened local type (ws.ts is T2-owned; may still
+    // mirror v1 at this commit — the cast compiles against either).
+    const boost = feeds.opensky.boost as BoostV2 | null | undefined;
     if (boost?.active) {
-      if (boost.paused != null) {
+      if (boost.paused === "standdown") {
+        boostSeg = " · Boost: sections only";
+        boostTitle = "Auto zones stand down while you run sections";
+      } else if (boost.paused === "credits") {
         boostSeg = " · Boost paused";
-        paused = true;
-      } else if (boost.intervalMs != null) boostSeg = ` · Boost: ${boost.count} @${Math.round(boost.intervalMs / 1000)}s`;
+        boostTitle = "Slow the Aircraft-poll slider to fund zone polling";
+      } else {
+        const segs: string[] = [];
+        if ((boost.sectionsActive ?? 0) > 0) segs.push(`${boost.sectionsActive} sec`);
+        if ((boost.zones ?? 0) > 0) segs.push(`${boost.zones} auto`);
+        // Nothing up (and not paused) → no segment, even with credits spent.
+        if (segs.length) {
+          if ((boost.creditsToday ?? 0) > 0) segs.push(`${boost.creditsToday} cr`);
+          boostSeg = ` · Boost: ${segs.join(" · ")}`;
+        }
+      }
     }
     feedsEl.textContent = `${os} · ${ai}`;
-    if (paused) {
-      // The paused segment is a titled span so the hover tooltip explains
-      // the fix; the rendered feeds line stays byte-identical to the plain
+    if (boostSeg) {
+      // Paused variants are titled spans so the hover tooltip explains the
+      // fix; the rendered feeds line stays byte-identical to the plain
       // string it used to be.
-      const seg = document.createElement("span");
-      seg.textContent = boostSeg;
-      seg.setAttribute("title", "Slow the Aircraft-poll slider to fund zone polling");
-      feedsEl.appendChild(seg);
-    } else if (boostSeg) {
-      feedsEl.textContent += boostSeg;
+      if (boostTitle != null) {
+        const seg = document.createElement("span");
+        seg.textContent = boostSeg;
+        seg.setAttribute("title", boostTitle);
+        feedsEl.appendChild(seg);
+      } else {
+        feedsEl.textContent += boostSeg;
+      }
     }
     // Attribution credit line (below the pill via CSS); hidden while the
     // fill feed is off or down. ?. guards legacy frames without secondary.

@@ -163,57 +163,94 @@ describe("hud ais-fill line", () => {
   });
 });
 
+// spec 2026-11-27 §F (T4): the boost segment is the v2 rendering — sections,
+// auto zones and today's credits, each conditional. Fixtures are typed
+// against the local BoostV2 shape (ws.ts mirrors v1 until T2 lands).
 describe("hud boost segment", () => {
-  // Full-shape fixtures (wave-10 Boost): the HUD renders count/interval/
-  // paused; zones rides along unrendered.
   type Boost = NonNullable<FeedStatus["opensky"]["boost"]>;
+  interface BoostV2 {
+    active: boolean;
+    count: number;
+    intervalMs: number | null;
+    paused: "credits" | "standdown" | null;
+    zones: number;
+    sectionsActive?: number;
+    sectionsIdle?: number;
+    creditsToday?: number;
+  }
 
-  function withBoost(boost?: Boost | null) {
+  function withBoost(boost?: BoostV2 | null) {
     const { setFeeds, feeds } = setup();
     const f = makeFeeds({}) as FeedStatus;
     const os = f.opensky as { boost?: Boost | null };
     if (boost === undefined) delete os.boost;
-    else os.boost = boost;
+    else os.boost = boost as unknown as Boost;
     setFeeds(f, 1000);
     return feeds.textContent;
   }
 
-  it("appends count + effective interval when active with an interval", () => {
-    const t = withBoost({ active: true, count: 4, intervalMs: 30000, paused: null, zones: 1 });
-    expect(t).toMatch(/^OpenSky: ok · AIS: ok · Boost: 4 @30s$/);
+  const B = (o: Partial<BoostV2>): BoostV2 => ({
+    active: true,
+    count: 0,
+    intervalMs: null,
+    paused: null,
+    zones: 0,
+    sectionsActive: 0,
+    sectionsIdle: 0,
+    creditsToday: 0,
+    ...o,
   });
 
-  it("shows a stretched interval verbatim (65s)", () => {
-    const t = withBoost({ active: true, count: 2, intervalMs: 65000, paused: null, zones: 1 });
-    expect(t).toContain(" · Boost: 2 @65s");
+  it("renders sections, then auto zones, then credits", () => {
+    const t = withBoost(B({ zones: 1, sectionsActive: 2, creditsToday: 143 }));
+    expect(t).toBe("OpenSky: ok · AIS: ok · Boost: 2 sec · 1 auto · 143 cr");
   });
 
-  it("shows paused (no count) when active and paused, even if an interval lingers", () => {
-    expect(withBoost({ active: true, count: 4, intervalMs: null, paused: "credits", zones: 1 })).toContain(" · Boost paused");
-    expect(withBoost({ active: true, count: 4, intervalMs: 30000, paused: "credits", zones: 2 })).toContain(" · Boost paused");
+  it("0 sections → auto only; 0 zones → sections only", () => {
+    expect(withBoost(B({ zones: 1, sectionsActive: 0 }))).toBe("OpenSky: ok · AIS: ok · Boost: 1 auto");
+    expect(withBoost(B({ zones: 0, sectionsActive: 3, creditsToday: 9 }))).toBe(
+      "OpenSky: ok · AIS: ok · Boost: 3 sec · 9 cr",
+    );
   });
 
-  it("shows nothing while active but not yet ticking (no interval, no pause)", () => {
-    const t = withBoost({ active: true, count: 0, intervalMs: null, paused: null, zones: 1 });
-    expect(t).not.toContain("Boost");
+  it("credits segment only when creditsToday > 0", () => {
+    expect(withBoost(B({ zones: 1, creditsToday: 0 }))).not.toContain("cr");
+    expect(withBoost(B({ zones: 1, creditsToday: 143 }))).toContain("· 143 cr");
+  });
+
+  it("nothing when nothing is up — even with credits spent (not paused)", () => {
+    expect(withBoost(B({ zones: 0, sectionsActive: 0, creditsToday: 143 }))).toBe("OpenSky: ok · AIS: ok");
+  });
+
+  it("the v1 count@interval rendering is gone", () => {
+    expect(withBoost(B({ zones: 1, intervalMs: 30000, count: 4 }))).not.toContain("@30s");
   });
 
   it("shows nothing for inactive, null, or a legacy frame without the field", () => {
-    expect(withBoost({ active: false, count: 0, intervalMs: null, paused: null, zones: 0 })).not.toContain("Boost");
+    expect(withBoost(B({ active: false }))).not.toContain("Boost");
     expect(withBoost(null)).not.toContain("Boost");
     const t = withBoost(undefined);
     expect(t).toBe("OpenSky: ok · AIS: ok");
   });
 });
 
-describe("hud boost-paused tooltip", () => {
-  const PAUSE_TITLE = "Slow the Aircraft-poll slider to fund zone polling";
+describe("hud boost paused tooltips", () => {
   type Boost = NonNullable<FeedStatus["opensky"]["boost"]>;
+  interface BoostV2 {
+    active: boolean;
+    count: number;
+    intervalMs: number | null;
+    paused: "credits" | "standdown" | null;
+    zones: number;
+    sectionsActive?: number;
+    sectionsIdle?: number;
+    creditsToday?: number;
+  }
 
-  function withBoost(boost: Boost) {
+  function withBoost(boost: BoostV2) {
     const { setFeeds, feeds } = setup();
     const f = makeFeeds({}) as FeedStatus;
-    (f.opensky as { boost?: Boost }).boost = boost;
+    (f.opensky as { boost?: Boost }).boost = boost as unknown as Boost;
     setFeeds(f, 1000);
     return feeds;
   }
@@ -221,17 +258,27 @@ describe("hud boost-paused tooltip", () => {
   const titled = (el: FakeEl) =>
     find(el, (e) => (e as unknown as Record<string, unknown>)["attr:title"] != null);
 
-  it("carries the guidance title on the paused segment, text unchanged", () => {
+  const titleOf = (el: FakeEl) =>
+    (titled(el) as unknown as Record<string, unknown> | undefined)?.["attr:title"] as string | undefined;
+
+  const CREDITS_TITLE = "Slow the Aircraft-poll slider to fund zone polling";
+  const STANDDOWN_TITLE = "Auto zones stand down while you run sections";
+
+  it("paused:credits keeps its exact text and tooltip", () => {
     const feeds = withBoost({ active: true, count: 4, intervalMs: 30000, paused: "credits", zones: 1 });
     expect(feeds.textContent).toBe("OpenSky: ok · AIS: ok · Boost paused");
-    const seg = must(titled(feeds), "titled paused segment");
-    expect((seg as unknown as Record<string, unknown>)["attr:title"]).toBe(PAUSE_TITLE);
-    expect(seg.textContent).toContain("Boost paused");
+    expect(titleOf(feeds)).toBe(CREDITS_TITLE);
   });
 
-  it("adds no title while boosting on a real interval, or with no boost", () => {
-    const running = withBoost({ active: true, count: 4, intervalMs: 30000, paused: null, zones: 1 });
-    expect(running.textContent).toBe("OpenSky: ok · AIS: ok · Boost: 4 @30s");
+  it("paused:standdown renders 'sections only' with the stand-down tooltip", () => {
+    const feeds = withBoost({ active: true, count: 0, intervalMs: null, paused: "standdown", zones: 0, sectionsActive: 2 });
+    expect(feeds.textContent).toBe("OpenSky: ok · AIS: ok · Boost: sections only");
+    expect(titleOf(feeds)).toBe(STANDDOWN_TITLE);
+  });
+
+  it("adds no title while boosting normally, or with no boost", () => {
+    const running = withBoost({ active: true, count: 0, intervalMs: null, paused: null, zones: 1, sectionsActive: 2, creditsToday: 143 });
+    expect(running.textContent).toBe("OpenSky: ok · AIS: ok · Boost: 2 sec · 1 auto · 143 cr");
     expect(titled(running)).toBeUndefined();
     const idle = withBoost({ active: false, count: 0, intervalMs: null, paused: null, zones: 0 });
     expect(idle.textContent).toBe("OpenSky: ok · AIS: ok");

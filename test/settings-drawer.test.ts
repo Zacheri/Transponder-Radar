@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSettings } from "../src/ui/settings.js";
 import type { SettingsStats } from "../src/ui/settings.js";
+import { DEFAULT_ZONES_AUTO, type ZonesCfg } from "../src/ui/zones-cfg.js";
 import type { Region } from "../src/data/regions.js";
 
 // Node-env Vitest without jsdom: a minimal DOM shim covering exactly what
@@ -119,6 +120,16 @@ function allByClass(root: FakeEl, cls: string): FakeEl[] {
 const attr = (el: FakeEl, k: string): string | undefined =>
   (el as unknown as Record<string, unknown>)[`attr:${k}`] as string | undefined;
 
+const findInputs = (root: FakeEl): FakeEl[] => {
+  const out: FakeEl[] = [];
+  const walk = (el: FakeEl): void => {
+    if (el.tag === "input") out.push(el);
+    for (const c of el.children) walk(c);
+  };
+  walk(root);
+  return out;
+};
+
 const STATS: SettingsStats = {
   storageCapGb: 10,
   ramCacheGb: 1,
@@ -145,9 +156,14 @@ function makeStorage(initial: Record<string, string> = {}): {
   };
 }
 
-function setup(motionOn = true, storage = makeStorage()) {
+const DEFAULT_CFG: ZonesCfg = { kinds: [], boostMs: 30000, auto: DEFAULT_ZONES_AUTO };
+
+function setup(motionOn = true, storage = makeStorage(), zonesInitial: ZonesCfg = DEFAULT_CFG) {
   const root = new FakeEl("div");
   Object.assign(globalThis as object, { localStorage: storage });
+  // Live-config holder: getZones() reads it, and tests mutate it to prove
+  // every emit merges onto the CURRENT config (the auto-clobber guard).
+  let live: ZonesCfg = zonesInitial;
   const opts = {
     update: vi.fn(),
     removePin: vi.fn(),
@@ -157,8 +173,16 @@ function setup(motionOn = true, storage = makeStorage()) {
     setMotion: vi.fn(),
     onArmRegion: vi.fn(),
     removeRegion: vi.fn(),
+    zonesInitial,
+    getZones: () => live,
+    onZonesChange: vi.fn(),
+    onRegionBoost: vi.fn(),
+    kindColor: (k: string) => (k === "military" ? "#ff1122" : "#223344"),
   };
   const ui = createSettings(root as unknown as HTMLElement, opts);
+  const setLive = (cfg: ZonesCfg): void => {
+    live = cfg;
+  };
   const park = must(
     find(root, (el) => el.tag === "button" && el.textContent.includes("Park")),
     "park button",
@@ -169,16 +193,22 @@ function setup(motionOn = true, storage = makeStorage()) {
   );
   const homeVal = must(byClass(root, "settings-home-value"), "home value display");
   const motion = must(
-    find(root, (el) => el.tag === "input" && el.type === "checkbox"),
+    find(root, (el) => el.tag === "input" && el.type === "checkbox" && attr(el, "aria-label") === "Smooth motion"),
     "smooth-motion checkbox",
   );
   const arm = (label: string) =>
     must(find(root, (el) => el.tag === "button" && el.textContent === label), `${label} button`);
+  const byAria = (label: string, tag?: string) =>
+    must(
+      find(root, (el) => attr(el, "aria-label") === label && (tag === undefined || el.tag === tag)),
+      `${label} control`,
+    );
   return {
     ui,
     opts,
     root,
     storage,
+    setLive,
     head: must(byClass(root, "drawer-head"), "drawer head"),
     cap: must(
       find(root, (el) => el.tag === "input" && el.type === "number"),
@@ -191,6 +221,11 @@ function setup(motionOn = true, storage = makeStorage()) {
     armAds: arm("+ ADS-B area"),
     armAis: arm("+ AIS area"),
     rows: () => allByClass(root, "settings-region-row"),
+    autoCb: () => byAria("Auto hot zones", "input"),
+    minSlider: () => byAria("Auto zone formation minimum", "input"),
+    rateSlider: () => byAria("Auto poll interval", "input"),
+    standdown: () => byAria("Auto stand-down", "select"),
+    today: () => must(byClass(root, "settings-boost-today"), "cr-today span"),
   };
 }
 
@@ -444,5 +479,250 @@ describe("settings drawer header toggle", () => {
     expect(isCollapsed(root)).toBe(false);
     head.fire("keydown", { key: " ", preventDefault: () => {} });
     expect(isCollapsed(root)).toBe(true);
+  });
+});
+
+// spec 2026-11-27 §F: the Traffic boost group (auto knobs + moved rate
+// slider) sits above Map sections, and EVERY emit merges onto the live
+// config — the auto-clobber guard (T3 warning).
+const LIVE_CFG: ZonesCfg = {
+  kinds: ["military"],
+  boostMs: 45000,
+  auto: { enabled: true, createMin: 4, standdownAt: 1 },
+};
+
+describe("settings Traffic boost group", () => {
+  it("renders above Map sections with auto, form-≥N, rate and stand-down controls", () => {
+    const { root } = setup();
+    const titles = allByClass(root, "settings-group-title").map((t) => t.textContent);
+    expect(titles).toContain("Traffic boost");
+    expect(titles.indexOf("Traffic boost")).toBeLessThan(titles.indexOf("Map sections"));
+  });
+
+  it("auto checkbox change emits auto.enabled merged onto the LIVE config", () => {
+    const { opts, setLive, autoCb } = setup();
+    setLive(LIVE_CFG);
+    autoCb().checked = false;
+    autoCb().fire("change");
+    expect(opts.onZonesChange).toHaveBeenCalledTimes(1);
+    expect(opts.onZonesChange.mock.calls[0][0]).toEqual({
+      kinds: ["military"],
+      boostMs: 45000,
+      auto: { enabled: false, createMin: 4, standdownAt: 1 },
+    });
+  });
+
+  it("form-≥N slider emits a rounded createMin, rewrites its value, updates the span", () => {
+    const { opts, setLive, minSlider } = setup(true, undefined, {
+      ...DEFAULT_CFG,
+      auto: { enabled: true, createMin: 4, standdownAt: 0 },
+    });
+    setLive({ ...DEFAULT_CFG, auto: { enabled: true, createMin: 4, standdownAt: 0 } });
+    const s = minSlider();
+    s.value = "7";
+    s.fire("input");
+    expect((opts.onZonesChange.mock.calls.at(-1)![0] as ZonesCfg).auto.createMin).toBe(7);
+    // Out-of-range programmatic values self-heal (clamp 2–10, round).
+    s.value = "12.6";
+    s.fire("input");
+    expect(s.value).toBe("10");
+    expect((opts.onZonesChange.mock.calls.at(-1)![0] as ZonesCfg).auto.createMin).toBe(10);
+    const val = must(find(s.parent!, (el) => el.className.split(" ").includes("settings-value")), "N span");
+    expect(val.textContent).toBe("10");
+  });
+
+  it("form-≥N slider is disabled with aria-disabled while auto is off, live on toggle", () => {
+    const { minSlider, autoCb } = setup(true, undefined, {
+      ...DEFAULT_CFG,
+      auto: { enabled: false, createMin: 2, standdownAt: 0 },
+    });
+    expect((minSlider() as unknown as { disabled?: boolean }).disabled).toBe(true);
+    expect(attr(minSlider(), "aria-disabled")).toBe("true");
+    const row = must(minSlider().parent ?? undefined, "form row");
+    expect(row.className.split(" ")).toContain("settings-row-disabled");
+    autoCb().checked = true;
+    autoCb().fire("change");
+    expect((minSlider() as unknown as { disabled?: boolean }).disabled).toBe(false);
+    expect(attr(minSlider(), "aria-disabled")).toBe("false");
+  });
+
+  it("auto poll rate slider (moved from filters) emits a clamped boostMs", () => {
+    const { opts, setLive, rateSlider } = setup();
+    setLive({ ...LIVE_CFG, boostMs: 30000 });
+    const s = rateSlider();
+    s.value = "5000";
+    s.fire("input");
+    expect((opts.onZonesChange.mock.calls.at(-1)![0] as ZonesCfg).boostMs).toBe(10000);
+    expect(s.value).toBe("10000");
+    s.value = "500000";
+    s.fire("input");
+    expect((opts.onZonesChange.mock.calls.at(-1)![0] as ZonesCfg).boostMs).toBe(120000);
+    expect(s.value).toBe("120000");
+    // Kinds and auto are NOT this control's to change: they ride through.
+    expect(opts.onZonesChange.mock.calls.at(-1)![0]).toEqual({
+      kinds: ["military"],
+      boostMs: 120000,
+      auto: LIVE_CFG.auto,
+    });
+  });
+
+  it("stand-down select maps its three options to 0/1/2", () => {
+    const { opts, setLive, standdown } = setup();
+    setLive(LIVE_CFG);
+    const sel = standdown();
+    const options = sel.children.map((o) => [o.value, o.textContent]);
+    expect(options).toEqual([
+      ["0", "never"],
+      ["1", "after 1 boosted section"],
+      ["2", "after 2 boosted sections"],
+    ]);
+    sel.value = "2";
+    sel.fire("change");
+    expect((opts.onZonesChange.mock.calls.at(-1)![0] as ZonesCfg).auto.standdownAt).toBe(2);
+  });
+
+  it("group header shows 'N cr today' from stats and hides at zero/absent", () => {
+    const { ui, today } = setup();
+    ui.setStats({ ...STATS, boostCreditsToday: 143 });
+    expect(today().textContent).toBe("143 cr today");
+    ui.setStats({ ...STATS, boostCreditsToday: 0 });
+    expect(today().textContent).toBe("");
+    ui.setStats(STATS);
+    expect(today().textContent).toBe("");
+  });
+});
+
+// Section boost editors (spec §F): chevron vs remove-click split, per-section
+// enable/kinds/rate, and the money readout from shared/credits.
+const BOOST_SEED: Region[] = [
+  { id: "a", kind: "adsb", b: [[10, 100], [17, 112]] }, // 12° × 7° → cost 2
+  { id: "b", kind: "adsb", b: [[0, 0], [4, 4]], boost: { enabled: true, kinds: ["military"], boostMs: 30000 } },
+  { id: "c", kind: "ais", b: [[1, 1], [2, 2]] },
+];
+
+const chevrons = (row: FakeEl) =>
+  row.children.filter((el) => el.className.split(" ").includes("settings-region-expand"));
+
+const clickEvt = () => {
+  let stopped = false;
+  return { evt: { stopPropagation: () => (stopped = true) }, wasStopped: () => stopped };
+};
+
+describe("settings section boost editor", () => {
+  it("ADS-B rows get a chevron (aria-expanded), AIS rows do not", () => {
+    const { ui, rows } = setup();
+    ui.setRegions(BOOST_SEED);
+    const r = rows();
+    expect(chevrons(r[0]).length).toBe(1);
+    expect(chevrons(r[1]).length).toBe(1);
+    expect(chevrons(r[2]).length).toBe(0);
+    expect(attr(chevrons(r[0])[0], "aria-expanded")).toBe("false");
+  });
+
+  it("chevron click stops propagation, expands the editor, and never removes", () => {
+    const { ui, opts, rows, root } = setup();
+    ui.setRegions(BOOST_SEED);
+    const { evt, wasStopped } = clickEvt();
+    chevrons(rows()[0])[0].fire("click", evt);
+    expect(wasStopped()).toBe(true);
+    expect(opts.removeRegion).not.toHaveBeenCalled();
+    expect(attr(chevrons(rows()[0])[0], "aria-expanded")).toBe("true");
+    expect(byClass(root, "settings-region-editor")).toBeDefined();
+    // Row click still removes.
+    rows()[0].fire("click");
+    expect(opts.removeRegion).toHaveBeenCalledWith("a");
+  });
+
+  it("editor shows enable, air-kind checkboxes (data-boost-kind, tinted, never data-kind) and rate", () => {
+    const { ui, root, rows } = setup();
+    ui.setRegions(BOOST_SEED);
+    chevrons(rows()[0])[0].fire("click", clickEvt().evt);
+    const ed = must(byClass(root, "settings-region-editor"), "editor");
+    const cbs = findInputs(ed).filter((el) => el.type === "checkbox");
+    const enable = cbs.find((el) => attr(el, "aria-label") === "Enable boost");
+    expect(enable).toBeDefined();
+    expect(enable!.checked).toBe(false);
+    const kindCbs = cbs.filter((el) => el.dataset.boostKind !== undefined);
+    expect(kindCbs.map((el) => el.dataset.boostKind)).toEqual(["commercial", "business", "military", "general"]);
+    for (const el of cbs) expect(el.dataset.kind).toBeUndefined();
+    expect(kindCbs.find((el) => el.dataset.boostKind === "military")!.style.accentColor).toBe("#ff1122");
+    const slider = must(find(ed, (el) => el.tag === "input" && el.type === "range"), "rate slider");
+    expect(attr(slider, "aria-label")).toBe("Section boost interval");
+    // The stored-boost row seeds checked/enabled state from Region.boost.
+    chevrons(rows()[1])[0].fire("click", clickEvt().evt);
+    const eds = allByClass(root, "settings-region-editor");
+    const ed2 = eds[eds.length - 1];
+    const enable2 = must(find(ed2, (el) => attr(el, "aria-label") === "Enable boost"), "enable cb");
+    expect(enable2.checked).toBe(true);
+    const mil2 = must(find(ed2, (el) => el.dataset.boostKind === "military"), "military cb");
+    expect(mil2.checked).toBe(true);
+  });
+
+  it("enable change emits {enabled:true, kinds:[], boostMs:30000} via onRegionBoost", () => {
+    const { ui, opts, root, rows } = setup();
+    ui.setRegions(BOOST_SEED);
+    chevrons(rows()[0])[0].fire("click", clickEvt().evt);
+    const ed = must(byClass(root, "settings-region-editor"), "editor");
+    const enable = must(find(ed, (el) => attr(el, "aria-label") === "Enable boost"), "enable cb");
+    enable.checked = true;
+    enable.fire("change");
+    expect(opts.onRegionBoost).toHaveBeenCalledWith("a", { enabled: true, kinds: [], boostMs: 30000 });
+  });
+
+  it("kind checkbox change emits canonical-order kinds preserving enable + rate", () => {
+    const { ui, opts, root, rows } = setup();
+    ui.setRegions(BOOST_SEED);
+    chevrons(rows()[1])[0].fire("click", clickEvt().evt);
+    const eds = allByClass(root, "settings-region-editor");
+    const ed = eds[eds.length - 1];
+    const gen = must(find(ed, (el) => el.dataset.boostKind === "general"), "general cb");
+    gen.checked = true;
+    gen.fire("change");
+    const last = opts.onRegionBoost.mock.calls.at(-1)!;
+    expect(last[0]).toBe("b");
+    expect(last[1]).toEqual({ enabled: true, kinds: ["military", "general"], boostMs: 30000 });
+  });
+
+  it("rate slider emits a clamped boostMs and updates the ~cr/day readout", () => {
+    const { ui, opts, root, rows } = setup();
+    ui.setRegions(BOOST_SEED);
+    chevrons(rows()[0])[0].fire("click", clickEvt().evt);
+    const ed = must(byClass(root, "settings-region-editor"), "editor");
+    const readout = must(byClass(ed, "settings-region-readout"), "readout");
+    const cr = readout.children[0]; // shim: a parent's own textContent excludes children
+    // 12° × 7° → area 84 → cost 2; 86 400 000/30 000 × 2 = 5 760.
+    expect(cr.textContent).toBe("~5,760 cr/day");
+    const slider = must(find(ed, (el) => el.tag === "input" && el.type === "range"), "rate slider");
+    slider.value = "15000";
+    slider.fire("input");
+    expect(opts.onRegionBoost).toHaveBeenLastCalledWith("a", { enabled: false, kinds: [], boostMs: 15000 });
+    expect(cr.textContent).toBe("~11,520 cr/day");
+    slider.value = "900000";
+    slider.fire("input");
+    expect((opts.onRegionBoost.mock.calls.at(-1)![1] as { boostMs: number }).boostMs).toBe(120000);
+  });
+
+  it("setRegionActivity badges boosted ADS-B rows active/idle; unknown until first call", () => {
+    const { ui, root, rows } = setup();
+    ui.setRegions(BOOST_SEED);
+    chevrons(rows()[1])[0].fire("click", clickEvt().evt);
+    let lives = allByClass(root, "settings-region-live");
+    expect(lives[lives.length - 1].textContent).toBe(""); // legacy frames: idle-unknown
+    ui.setRegionActivity(new Set(["zz"]));
+    lives = allByClass(root, "settings-region-live");
+    expect(lives[lives.length - 1].textContent).toBe("idle");
+    ui.setRegionActivity(new Set(["b"]));
+    lives = allByClass(root, "settings-region-live");
+    expect(lives[lives.length - 1].textContent).toBe("active");
+  });
+
+  it("setStats creditsToday does not disturb the editor's expansion", () => {
+    const { ui, rows, root } = setup();
+    ui.setRegions(BOOST_SEED);
+    chevrons(rows()[0])[0].fire("click", clickEvt().evt);
+    expect(byClass(root, "settings-region-editor")).toBeDefined();
+    ui.setRegions(BOOST_SEED); // re-render path keeps the component-local set
+    expect(byClass(root, "settings-region-editor")).toBeDefined();
+    expect(byClass(root, "settings-boost-today")).toBeDefined();
   });
 });

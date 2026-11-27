@@ -118,14 +118,19 @@ function must(el: FakeEl | undefined, what: string): FakeEl {
 
 const boostCb = (root: FakeEl, kind: string) => must(find(root, (el) => el.dataset.zkind === kind), `boost ${kind}`);
 const filterCb = (root: FakeEl, kind: string) => must(find(root, (el) => el.dataset.kind === kind), `filter ${kind}`);
-const slider = (root: FakeEl) => must(find(root, (el) => el.tag === "input" && el.type === "range"), "slider");
 
 const DEFAULT_CFG: ZonesCfg = { kinds: [], boostMs: 30000, auto: DEFAULT_ZONES_AUTO };
 
-function setup(opts?: { initial?: ZonesCfg; color?: boolean }) {
+function setup(opts?: { initial?: ZonesCfg; live?: ZonesCfg; color?: boolean }) {
   const root = new FakeEl("div");
   const onZonesChange = vi.fn();
-  const zones = opts?.initial ? { initial: opts.initial, onZonesChange } : undefined;
+  const initial = opts?.initial;
+  // getLive is what emitZones merges onto; `live` lets a test model an
+  // out-of-drawer edit (e.g. settings changing auto) and pin the merge.
+  const live = opts?.live ?? initial;
+  const zones = initial
+    ? { initial, getLive: () => live!, onZonesChange }
+    : undefined;
   const color = opts?.color
     ? {
         getColor: (k: CraftKind) => (k === "military" ? "#ff1122" : "#223344"),
@@ -144,7 +149,7 @@ describe("filters drawer zones section", () => {
     expect(find(root, (el) => el.dataset.zkind !== undefined)).toBeUndefined();
   });
 
-  it("a restored config seeds the controls (boot path: storage → parse → initial)", () => {
+  it("a restored config seeds the checkboxes and the pointer hint renders (no slider here anymore)", () => {
     const storage = new FakeStorage();
     storage.setItem(ZONES_CFG_KEY, serializeZonesCfg({ kinds: ["military"], boostMs: 45000, auto: DEFAULT_ZONES_AUTO }));
     Object.assign(globalThis as object, { localStorage: storage });
@@ -153,8 +158,9 @@ describe("filters drawer zones section", () => {
     const { root } = setup({ initial: initial! });
     expect(boostCb(root, "military").checked).toBe(true);
     expect(boostCb(root, "general").checked).toBe(false);
-    expect(slider(root).value).toBe("45000");
-    expect(find(root, (el) => el.textContent === "45 s")).toBeTruthy();
+    expect(find(root, (el) => el.textContent === "rate + options: Settings → Traffic boost")).toBeTruthy();
+    // The rate slider MOVED to Settings → Traffic boost: no range input left.
+    expect(find(root, (el) => el.tag === "input" && el.type === "range")).toBeUndefined();
   });
 
   it("checkbox change emits the checked kinds in AIR_KINDS order", () => {
@@ -173,18 +179,25 @@ describe("filters drawer zones section", () => {
     expect((onZonesChange.mock.calls[0][0] as ZonesCfg).boostMs).toBe(30000);
   });
 
-  it("slider change emits a clamped boostMs and rewrites its own value", () => {
+  it("checkbox change merges kinds onto the LIVE config — auto edits from settings survive", () => {
     Object.assign(globalThis as object, { localStorage: new FakeStorage() });
-    const { root, onZonesChange } = setup({ initial: DEFAULT_CFG });
-    const s = slider(root);
-    s.value = "5000";
-    s.fire("input");
-    expect((onZonesChange.mock.calls.at(-1)![0] as ZonesCfg).boostMs).toBe(10000);
-    expect(s.value).toBe("10000");
-    s.value = "500000";
-    s.fire("input");
-    expect((onZonesChange.mock.calls.at(-1)![0] as ZonesCfg).boostMs).toBe(120000);
-    expect(s.value).toBe("120000");
+    // The T3 clobber hazard: emitZones used to spread a creation-time
+    // snapshot, so a kinds edit after an auto change reverted it.
+    const live: ZonesCfg = {
+      kinds: [],
+      boostMs: 45000,
+      auto: { enabled: false, createMin: 7, standdownAt: 2 },
+    };
+    const { root, onZonesChange } = setup({ initial: DEFAULT_CFG, live });
+    const gen = boostCb(root, "general");
+    gen.checked = true;
+    gen.fire("change");
+    expect(onZonesChange).toHaveBeenCalledTimes(1);
+    expect(onZonesChange.mock.calls[0][0]).toEqual({
+      kinds: ["general"],
+      boostMs: 45000,
+      auto: { enabled: false, createMin: 7, standdownAt: 2 },
+    });
   });
 
   it("filter actions (All/Sea-only/…) leave the boost checkboxes alone", () => {

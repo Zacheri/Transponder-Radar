@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bootRegions, commitRegion, dropRegion } from "../src/data/regions-actions.js";
-import { serializeRegions, type Region, type RegionBox } from "../src/data/regions.js";
+import { bootRegions, commitRegion, dropRegion, setRegionBoost } from "../src/data/regions-actions.js";
+import { serializeRegions, type Region, type RegionBoost, type RegionBox } from "../src/data/regions.js";
 
 // radar.regions is the spec-level contract (spec 2026-11-26 §B), so the
 // storage fake is asserted through the literal key.
@@ -123,5 +123,39 @@ describe("dropRegion", () => {
 
   it("a throwing storage still returns the reduced list", () => {
     expect(dropRegion(state, "b", thrower).map((r) => r.id)).toEqual(["a"]);
+  });
+});
+
+// spec 2026-11-27 §F: the settings section editor's persistence path.
+describe("setRegionBoost", () => {
+  const state: Region[] = [
+    { id: "a", kind: "adsb", b: RECT },
+    { id: "b", kind: "ais", b: [[0, 0], [2, 2]], boost: { enabled: true, kinds: ["military"], boostMs: 30000 } },
+  ];
+  const BOOST: RegionBoost = { enabled: true, kinds: ["general"], boostMs: 45000 };
+
+  it("sets a boost, persists, and never mutates the input list", () => {
+    const st = fakeStorage();
+    const next = setRegionBoost(state, "a", BOOST, st);
+    expect(next.find((r) => r.id === "a")?.boost).toEqual(BOOST);
+    expect(state[0].boost).toBeUndefined();
+    expect(JSON.parse(st.data.get(KEY) ?? "null")).toEqual(next);
+  });
+
+  it("null clears an existing boost (and persists)", () => {
+    const st = fakeStorage();
+    const next = setRegionBoost(state, "b", null, st);
+    expect("boost" in (next.find((r) => r.id === "b") ?? {})).toBe(false);
+    expect(JSON.parse(st.data.get(KEY) ?? "null")).toEqual(next);
+  });
+
+  it("an unknown id changes nothing and writes nothing", () => {
+    const st = fakeStorage();
+    expect(setRegionBoost(state, "zzz", BOOST, st)).toBe(state);
+    expect(st.data.has(KEY)).toBe(false);
+  });
+
+  it("a throwing storage still returns the updated list", () => {
+    expect(setRegionBoost(state, "a", BOOST, thrower).find((r) => r.id === "a")?.boost).toEqual(BOOST);
   });
 });
