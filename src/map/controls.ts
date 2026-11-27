@@ -8,20 +8,19 @@ import type { StorageLike } from "../data/icon-colors.js";
 //
 // 4.7.1 exposes no zoomBy/resetPitch, so zoom uses the public zoomIn/
 // zoomOut and the compass resets via one easeTo({bearing: 0, pitch: 0}).
-// There is also no public map.setProjection(), and switching it through a
-// style-diff is a trap: the diff EMITS a setProjection command but
-// Style#setState has no applier for it, so applying it throws (caught
-// TypeError), surfacing as an "Unable to perform style diff" warning and a
-// full style rebuild.
-// The toggle therefore requests that rebuild directly with diff:false
-// (verified against the installed maplibre-gl 4.7.1: setStyle routes
-// straight to _updateStyle, no diff attempted, deterministic and silent)
+//
+// Projection switching is the in-place public API (maplibre-gl 5.x):
+// map.setProjection({type}) swaps the live projection, migrates the
+// camera, and reloads tiles — sources, layers and registered images
+// survive untouched and no style.load re-fires. (4.7.1 had no public
+// setProjection and no style-diff applier for it, so the toggle there
+// needed a full setStyle rebuild. The style.load-idempotence guards in
+// main.ts, the region repaint insurance and the socket-outside-style-
+// events wiring stay as cheap insurance against any future style swap.)
 // — see toggleProjection.
 
 const GLOBE_ICON = "\u{1F310}"; // 🌐
 const FLAT_ICON = "\u25A6"; // ▦
-
-export type ControlStyle = { projection?: { type?: string }; [key: string]: unknown };
 
 /** The map surface this module touches (the real Map satisfies it). */
 export type ControlMap = {
@@ -29,16 +28,18 @@ export type ControlMap = {
   zoomOut(): unknown;
   easeTo(options: { bearing: number; pitch: number }): unknown;
   getBearing(): number;
-  // Style#serialize returns undefined before the style is loaded and never
-  // includes `projection` — hence the closure-tracked state below.
-  getStyle(): ControlStyle | undefined;
-  setStyle(style: ControlStyle | string | null, options?: { diff?: boolean }): unknown;
-  // isStyleLoaded(), NOT loaded(): loaded() also requires every visible
-  // tile, which on slow connections is almost never true and silently
-  // no-oped every toggle click (user report 2026-11-26). isStyleLoaded
-  // covers what setStyle actually needs — a fully applied style — and is
-  // false during a style transition, so mid-rebuild clicks are ignored.
-  // (Declared boolean|void to match the 4.7.1 d.ts signature.)
+  // Declared unknown so the real setProjection(projection:
+  // ProjectionSpecification) (whose `type` may be an expression in
+  // style-spec 24) stays structurally assignable.
+  setProjection(projection: unknown): unknown;
+  // isStyleLoaded(), NOT loaded(): Style#setProjection _checkLoaded()s
+  // and THROWS before the style has finished applying (verified against
+  // the 5.24.1 source), and a toggle click must never throw. loaded()
+  // additionally requires every visible tile, which on slow connections
+  // is almost never true and silently no-oped every toggle click (user
+  // report 2026-11-26); isStyleLoaded covers exactly what setProjection
+  // needs — a fully applied style. The gate predates v5; v5 is the
+  // reason it MUST stay.
   isStyleLoaded(): boolean | void;
   once(type: "style.load", fn: () => void): unknown;
   on(type: string, fn: () => void): unknown;
@@ -71,7 +72,10 @@ export function createMapControls(storage: StorageLike = globalThis.localStorage
     let projBtn: HTMLButtonElement | null = null;
 
     // aria-label/title name what a click switches TO; the icon and
-    // aria-pressed reflect the current projection.
+    // aria-pressed reflect the current projection. The closure-tracked
+    // `projection` is the button truth: it holds the wanted projection
+    // even before the style applies (map.getProjection() serializes
+    // nothing until then), and every mutation site updates it.
     const sync = (): void => {
       if (!projBtn) return;
       const label = projection === "globe" ? "Flat view" : "Globe view";
@@ -81,19 +85,10 @@ export function createMapControls(storage: StorageLike = globalThis.localStorage
       projBtn.title = label;
     };
     const toggleProjection = (): void => {
-      // Pre-load getStyle() serializes nothing, so a toggle there would
-      // apply setStyle to an undefined style and brick the map; a click
-      // during a style transition (rebuild in flight) is likewise ignored.
       if (!map.isStyleLoaded()) return;
-      const style = map.getStyle();
-      if (!style) return;
       const next: ProjectionKind = projection === "globe" ? "mercator" : "globe";
-      // Full rebuild with the projection set on a copy of the serialized
-      // style (sources/layers come along); diff:false takes the direct
-      // route — the same rebuild the failed diff falls back to, minus the
-      // warning (see header). main.ts re-adds every custom layer/source on
-      // the resulting style.load, and both icon registrars re-add images.
-      map.setStyle({ ...style, projection: { type: next } }, { diff: false });
+      // One in-place call; camera migration and tile reload are internal.
+      map.setProjection({ type: next });
       projection = next;
       saveProjection(projection, storage);
       sync();
@@ -137,17 +132,16 @@ export function createMapControls(storage: StorageLike = globalThis.localStorage
 /**
  * Style-URL basemap fallback only: an inline style object carries the
  * remembered projection at creation (map.ts), but a style URL cannot be
- * touched before the map fetches it, so apply it once after the first full
- * load. Style#serialize never round-trips projection, so the live style
- * cannot be read back and compared — a projection-less style renders
- * mercator, and only a globe wish needs the one-time full rebuild.
+ * touched before the map fetches it, so apply it once after the first
+ * load with a single in-place setProjection (no rebuild — v5). Applied
+ * unconditionally: setProjection on a style that already has that
+ * projection is a documented no-op (5.24.1 Style#setProjection returns
+ * early when the name matches), so a globe-declaring remote style is
+ * overridden when the user wants flat, and vice versa, for free.
  */
 export function applyStoredProjection(map: ControlMap, storage: StorageLike): void {
   const apply = (): void => {
-    const want = loadProjection(storage);
-    const style = map.getStyle();
-    if (want === "mercator" || !style) return;
-    map.setStyle({ ...style, projection: { type: "globe" } }, { diff: false });
+    map.setProjection({ type: loadProjection(storage) });
   };
   if (map.isStyleLoaded()) {
     apply();

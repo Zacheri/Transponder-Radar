@@ -549,12 +549,13 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-// Style-scoped setup: runs on the first load AND on every style rebuild —
-// the projection toggle is a full setStyle rebuild, and style.load fires
-// each time it finishes. Every adder below guards existing source/layer
-// ids, so the double call on the first boot (style.load then load) is
-// idempotent. Registered before the socket connects so no rebuild can
-// race past it.
+// Style-scoped setup: registered on BOTH style.load and load as
+// idempotence insurance. The v5 projection toggle is in-place
+// (setProjection — no setStyle rebuild), so style.load fires exactly
+// once, but every adder below guards existing source/layer ids, so the
+// double call on the first boot (style.load then load) stays harmless
+// and a future style swap would still be covered. Registered before the
+// socket connects so no style event can race past it.
 function setupStyleLayers(): void {
   addCraftSource(map);
   addCraftLayers(map, buildIconFilter(visible));
@@ -578,8 +579,8 @@ function setupStyleLayers(): void {
 map.on("style.load", setupStyleLayers);
 map.on("load", setupStyleLayers);
 
-// The socket is created once, at module scope: a style rebuild (the
-// projection toggle) must never skip or duplicate the connection.
+// The socket is created once, at module scope: no style event (and
+// nothing else) may ever skip or duplicate the connection.
 socket = new RadarSocket(wsUrl, {
   onSnapshot: (crafts) => {
     replay.onSnapshot();

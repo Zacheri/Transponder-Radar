@@ -75,3 +75,26 @@ describe("full style validation (filter variants)", () => {
     expect(validateStyleMin(style as any)).toEqual([]);
   });
 });
+
+describe("full style validation (globe projection)", () => {
+  // The boot path carries projection on the inline style (map.ts) and
+  // setProjection writes the same shape; style-spec 24 must accept it
+  // with our full layer stack aboard (v5 renders raster/symbol/line/fill
+  // on the sphere).
+  it("basemap + full layer stack validates with projection globe", () => {
+    const carto = cartoStyle("test-key") as any;
+    const style = {
+      ...carto,
+      projection: { type: "globe" },
+      sources: { ...carto.sources, [CRAFT_SOURCE_ID]: craftSource, ...trackSources },
+      layers: withBounds([
+        ...(carto.layers ?? []),
+        ...trackLayerDefs(),
+        ...hotzoneDefs(),
+        ...aisTileDefs(),
+        ...craftLayerDefs(buildIconFilter(ALL_KINDS)),
+      ]),
+    };
+    expect(validateStyleMin(style as any)).toEqual([]);
+  });
+});
