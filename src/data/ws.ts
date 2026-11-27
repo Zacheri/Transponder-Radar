@@ -7,10 +7,20 @@ export interface FeedStatus {
     lastOkAt: number | null;
     lastError: string | null;
     pollMs: number;
-    // Mirror of server FeedStatus.boost; null = no zones config live, absent
-    // on legacy frames — every read optional-chained. zones = live zone
-    // count (wave 10), count = craft across zones.
-    boost?: { active: boolean; count: number; intervalMs: number | null; paused: "credits" | null; zones: number } | null;
+    // Mirror of server FeedStatus.boost v2; null = no zones config live, absent
+    // on legacy frames — every read optional-chained. zones = live auto zone
+    // count, sectionsActive/Idle the manual side, creditsToday the memory-only
+    // UTC-day zone spend, count = craft across live polled zones.
+    boost?: {
+      active: boolean;
+      count: number;
+      intervalMs: number | null;
+      paused: "credits" | "standdown" | null;
+      zones: number;
+      sectionsActive: number;
+      sectionsIdle: number;
+      creditsToday: number;
+    } | null;
   };
   ais: {
     connected: boolean;
@@ -137,10 +147,21 @@ export interface StatusMessage {
   settings?: { storageCapGb: number; ramCacheGb: number; cacheUsedBytes: number; homeRegion?: { lat: number; lon: number } | null };
   pins?: Pin[];
   staleMs?: number;
-  // Broadcast-geometry hot-zone copies (mirror of server StatusPayload.hotzones;
-  // <= 2, slot-stable order). Absent on legacy frames (the old single-hotzone
-  // field was dropped in wave 10 — both ends ship together).
-  hotzones?: { center: LonLat; halfW: number; halfH: number; count: number; kind: AirKind }[];
+  // Broadcast-geometry zone copies (mirror of server StatusPayload.hotzones;
+  // auto zones id "auto:<n>", manual sections only while active with
+  // manual/active true). Absent on legacy frames (the old single-hotzone
+  // field was dropped in wave 10 — both ends ship together); id/manual/active
+  // absent on pre-section-boost frames (extra fields ignored, both directions).
+  hotzones?: {
+    center: LonLat;
+    halfW: number;
+    halfH: number;
+    count: number;
+    kind: AirKind;
+    id?: string;
+    manual?: boolean;
+    active?: boolean;
+  }[];
 }
 
 export type RadarMessage =

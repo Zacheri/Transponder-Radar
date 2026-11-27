@@ -20,10 +20,21 @@ export interface FeedStatus {
     lastOkAt: number | null;
     lastError: string | null;
     pollMs: number;
-    // Mirror of the poller's BoostStatus (import-free by hub convention); the
-    // poller sends it once a zones.config is live, null/absent = legacy.
-    // zones = live zone count (wave-10 additive); count = craft across zones.
-    boost?: { active: boolean; count: number; intervalMs: number | null; paused: "credits" | null; zones: number } | null;
+    // Mirror of the poller's BoostStatus v2 (import-free by hub convention);
+    // the poller sends it once a zones.config is live, null/absent = legacy.
+    // zones = live auto zone count; sectionsActive/Idle split the manual
+    // side; creditsToday is the memory-only UTC-day zone spend (spec §C).
+    // count = craft across live polled zones. Mirrored in src/data/ws.ts.
+    boost?: {
+      active: boolean;
+      count: number;
+      intervalMs: number | null;
+      paused: "credits" | "standdown" | null;
+      zones: number;
+      sectionsActive: number;
+      sectionsIdle: number;
+      creditsToday: number;
+    } | null;
   };
   ais: {
     connected: boolean;
@@ -57,6 +68,57 @@ export const TRAFFIC_REPORT_MAX_BYTES = 50_000_000;
 // Fixed internal tick; per-feed windows decide when a domain drains.
 const TICK_MS = 250;
 
+// zones.config v2 wire blocks (spec 2026-11-27 §D). The hub validates SHAPE
+// only (strict-style like kinds: a bad auto/sections shape drops the whole
+// frame); field VALUES — createMin/standdownAt ranges, per-section kinds
+// membership, box extents, the ≤6 cap and id dedup — are the poller's, which
+// clamps or drops that SECTION (ruling: per-section drop, never whole-frame,
+// for value-level garbage the hub cannot judge). Mirrored in src/data/ws.ts.
+export interface ZonesAutoWire {
+  enabled: boolean;
+  createMin: number;
+  standdownAt: number;
+}
+
+export interface ZonesSectionWire {
+  id: string;
+  kinds: CraftKind[];
+  boostMs: number;
+  b: [[number, number], [number, number]];
+}
+
+const zonesAutoShapeOk = (a: unknown): boolean =>
+  a === undefined ||
+  (typeof a === "object" &&
+    a !== null &&
+    !Array.isArray(a) &&
+    typeof (a as ZonesAutoWire).enabled === "boolean" &&
+    typeof (a as ZonesAutoWire).createMin === "number" &&
+    Number.isFinite((a as ZonesAutoWire).createMin) &&
+    typeof (a as ZonesAutoWire).standdownAt === "number" &&
+    Number.isFinite((a as ZonesAutoWire).standdownAt));
+
+const sectionBoxShapeOk = (b: unknown): boolean =>
+  Array.isArray(b) &&
+  b.length === 2 &&
+  b.every((p) => Array.isArray(p) && p.length === 2 && p.every((v) => typeof v === "number" && Number.isFinite(v)));
+
+const zonesSectionsShapeOk = (s: unknown): boolean =>
+  s === undefined ||
+  (Array.isArray(s) &&
+    s.every(
+      (el) =>
+        typeof el === "object" &&
+        el !== null &&
+        !Array.isArray(el) &&
+        typeof (el as ZonesSectionWire).id === "string" &&
+        Array.isArray((el as ZonesSectionWire).kinds) &&
+        (el as ZonesSectionWire).kinds.every((k) => typeof k === "string") &&
+        typeof (el as ZonesSectionWire).boostMs === "number" &&
+        Number.isFinite((el as ZonesSectionWire).boostMs) &&
+        sectionBoxShapeOk((el as ZonesSectionWire).b),
+    ));
+
 export type ClientMessage =
   | { type: "feed.rate"; feed: FeedId; ms: number }
   | { type: "timeline.seek"; time: number; seq?: number }
@@ -64,7 +126,13 @@ export type ClientMessage =
   | { type: "aircraft.info"; id: string }
   | { type: "settings.update"; patch: { storageCapGb?: number; ramCacheGb?: number; homeRegion?: TileCenter | null } }
   | { type: "ais.tile"; lat: number; lon: number }
-  | { type: "zones.config"; kinds: CraftKind[]; boostMs: number }
+  | {
+      type: "zones.config";
+      kinds: CraftKind[];
+      boostMs: number;
+      auto?: ZonesAutoWire;
+      sections?: ZonesSectionWire[];
+    }
   | { type: "pin.add"; from: number; to: number }
   | { type: "pin.remove"; id: string }
   | { type: "flight.track"; id: string; seq?: number; auto?: boolean }
@@ -108,13 +176,17 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return m;
     // zones.config carries what it carries: one invalid kind member drops the
     // whole frame; the poller clamps boostMs and duplicate kinds are made
-    // inert by its membership checks.
+    // inert by its membership checks. v2: a bad auto/sections SHAPE drops the
+    // whole frame too (strict-style); v1 frames (fields absent) pass verbatim
+    // — the poller supplies the v1 defaults.
     if (
       m.type === "zones.config" &&
       Array.isArray(m.kinds) &&
       m.kinds.every((k) => typeof k === "string" && (AIR_KINDS as readonly string[]).includes(k)) &&
       typeof m.boostMs === "number" &&
-      Number.isFinite(m.boostMs)
+      Number.isFinite(m.boostMs) &&
+      zonesAutoShapeOk(m.auto) &&
+      zonesSectionsShapeOk(m.sections)
     )
       return m;
     if (
@@ -178,11 +250,21 @@ export interface StatusPayload {
   staleMs: number;
   faa: FaaStatus;
   icons: IconStatus;
-  // Broadcast-geometry copies of the live hot zones, length <= 2, slot-stable
-  // order (densest first as formed; R4 hysteresis; the poller's dominantKind
-  // ships as `kind`). Empty array when nothing is configured/formed (wave 10:
-  // was a hotzone object-or-null).
-  hotzones: { center: LonLat; halfW: number; halfH: number; count: number; kind: AirKind }[];
+  // Broadcast-geometry copies of the zones being polled right now (design §D,
+  // section boost): auto zones (slot-stable order, densest at formation,
+  // <= MAX_ZONES, dominantKind renamed `kind`, id "auto:<n>") plus MANUAL
+  // sections — sections ship ONLY while active, carrying manual/active true.
+  // Empty array when nothing is configured/formed.
+  hotzones: {
+    center: LonLat;
+    halfW: number;
+    halfH: number;
+    count: number;
+    kind: AirKind;
+    id: string;
+    manual?: boolean;
+    active?: boolean;
+  }[];
 }
 
 export interface HubOpts {

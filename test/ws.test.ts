@@ -582,24 +582,53 @@ describe("zones.config client protocol mirror", () => {
   it("parses a status frame carrying boost + hotzones (wire fields)", () => {    const raw = JSON.stringify({
       type: "status",
       feeds: {
-        opensky: { lastOkAt: 1000, lastError: null, pollMs: 90000, boost: { active: true, count: 4, intervalMs: 30000, paused: null, zones: 1 } },
+        opensky: { lastOkAt: 1000, lastError: null, pollMs: 90000, boost: { active: true, count: 4, intervalMs: 30000, paused: "standdown", zones: 1, sectionsActive: 1, sectionsIdle: 1, creditsToday: 7 } },
         ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 900, flushMs: 120000 },
       },
       history,
       faa,
       serverTime: 2000,
       hotzones: [
-        { center: { lon: -74, lat: 40 }, halfW: 2.5, halfH: 2, count: 4, kind: "military" },
-        { center: { lon: 10, lat: -40 }, halfW: 1, halfH: 1, count: 2, kind: "general" },
+        { center: { lon: -74, lat: 40 }, halfW: 2.5, halfH: 2, count: 4, kind: "military", id: "r1", manual: true, active: true },
+        { center: { lon: 10, lat: -40 }, halfW: 1, halfH: 1, count: 2, kind: "general", id: "auto:0" },
       ],
     });
     const msg = parseRadarMessage(raw);
     expect(msg?.type).toBe("status");
     if (msg?.type === "status") {
-      expect(msg.feeds.opensky.boost).toEqual({ active: true, count: 4, intervalMs: 30000, paused: null, zones: 1 });
+      expect(msg.feeds.opensky.boost).toEqual({
+        active: true, count: 4, intervalMs: 30000, paused: "standdown", zones: 1,
+        sectionsActive: 1, sectionsIdle: 1, creditsToday: 7,
+      });
       expect(msg.hotzones).toHaveLength(2);
       expect(msg.hotzones?.[0].kind).toBe("military");
+      expect(msg.hotzones?.[0].id).toBe("r1");
+      expect(msg.hotzones?.[0].manual).toBe(true);
+      expect(msg.hotzones?.[0].active).toBe(true);
       expect(msg.hotzones?.[1].kind).toBe("general");
+      expect(msg.hotzones?.[1].id).toBe("auto:0");
+      expect(msg.hotzones?.[1].manual).toBeUndefined();
+    }
+  });
+
+  it("parses a pre-section-boost status frame (id/manual/active absent, additive both ways)", () => {
+    const raw = JSON.stringify({
+      type: "status",
+      feeds: {
+        opensky: { lastOkAt: 1000, lastError: null, pollMs: 90000, boost: { active: true, count: 4, intervalMs: 30000, paused: null, zones: 1 } },
+        ais: { connected: true, enabled: true, lastError: null, lastMessageAt: 900, flushMs: 120000 },
+      },
+      history,
+      faa,
+      serverTime: 2000,
+      hotzones: [{ center: { lon: -74, lat: 40 }, halfW: 2.5, halfH: 2, count: 4, kind: "military" }],
+    });
+    const msg = parseRadarMessage(raw);
+    expect(msg?.type).toBe("status");
+    if (msg?.type === "status") {
+      expect(msg.feeds.opensky.boost?.creditsToday).toBeUndefined();
+      expect(msg.hotzones?.[0].id).toBeUndefined();
+      expect(msg.hotzones?.[0].manual).toBeUndefined();
     }
   });
 

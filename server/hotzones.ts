@@ -312,6 +312,10 @@ export interface PolledZone {
   intervalMs: number | null;
   source: "section" | "auto";
   kind: AirKind;
+  // Members behind the zone: auto = the zone's own count; section = the
+  // activation count (matching kind members inside the rect). The poller
+  // sums these for the boost status `count`.
+  count: number;
 }
 
 export interface PollPlanInput {
@@ -402,6 +406,7 @@ export function buildPollPlan(input: PollPlanInput): PolledZone[] {
       intervalMs: clampBoostMs(s.boostMs),
       source: "section",
       kind: dominantKindAmong(matching) ?? "general",
+      count: matching.length,
     });
   }
 
@@ -416,6 +421,7 @@ export function buildPollPlan(input: PollPlanInput): PolledZone[] {
         intervalMs: null,
         source: "auto",
         kind: z.dominantKind,
+        count: z.count,
       });
     });
   }

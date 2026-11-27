@@ -241,17 +241,21 @@ export async function buildApp(deps: ServerDeps = {}) {
     log,
     traffic,
   });
-  // Wire copies of the live hot zones (design §D, wave 10): slot-stable order
-  // (densest at formation), <= MAX_ZONES, dominantKind renamed `kind`;
-  // injected stubs without the getter read as an empty array (old
-  // null-passthrough posture).
+  // Wire copies of the zones being polled right now (design §D, section
+  // boost): auto zones keep the legacy shape plus id "auto:<n>"; manual
+  // sections ship only while active, with manual/active flags (the poller's
+  // zonesStatus already filters). Injected stubs without the getter read as
+  // an empty array (old null-passthrough posture).
   const hotzonesWire = () =>
     (opensky.zonesStatus ?? []).map((z) => ({
       center: z.center,
       halfW: z.halfW,
       halfH: z.halfH,
       count: z.count,
-      kind: z.dominantKind,
+      kind: z.kind,
+      id: z.id,
+      ...(z.manual ? { manual: true } : {}),
+      ...(z.active ? { active: true } : {}),
     }));
   const hub =
     deps.hub ??
@@ -360,9 +364,15 @@ export async function buildApp(deps: ServerDeps = {}) {
           break;
         }
         case "zones.config":
-          // Full replace, no reply frame (ais.tile posture); validation is the
-          // hub's, clamping the poller's.
-          opensky.setZonesConfig({ kinds: msg.kinds as AirKind[], boostMs: msg.boostMs });
+          // Full replace, no reply frame (ais.tile posture); shape validation
+          // is the hub's, clamping and per-section drops the poller's. v1
+          // frames simply omit auto/sections (poller defaults apply).
+          opensky.setZonesConfig({
+            kinds: msg.kinds as AirKind[],
+            boostMs: msg.boostMs,
+            auto: msg.auto,
+            sections: msg.sections?.map((s) => ({ ...s, kinds: s.kinds as AirKind[] })),
+          });
           break;
         case "timeline.seek": {
           const r = recorder;

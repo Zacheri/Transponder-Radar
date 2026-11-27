@@ -470,6 +470,56 @@ describe("parseClientMessage (zones.config)", () => {
     expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["military"], boostMs: NaN }))).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: "zones.config", kinds: ["military"], boostMs: Infinity }))).toBeNull();
   });
+
+  it("passes v2 frames verbatim (auto/sections present, well-shaped)", () => {
+    const v2 = {
+      type: "zones.config",
+      kinds: ["military"],
+      boostMs: 30000,
+      auto: { enabled: true, createMin: 4, standdownAt: 1 },
+      sections: [{ id: "r1", kinds: ["military"], boostMs: 20000, b: [[0, 0], [1, 1]] }],
+    };
+    expect(parseClientMessage(JSON.stringify(v2))).toEqual(v2);
+    // Values the poller clamps/drops ride through untouched (per-section-drop
+    // ruling: bad VALUES drop that section in the poller, never the frame).
+    const odd = {
+      type: "zones.config",
+      kinds: [],
+      boostMs: 30000,
+      auto: { enabled: false, createMin: 99, standdownAt: 7 },
+      sections: [
+        { id: "", kinds: ["military"], boostMs: 20000, b: [[0, 0], [1, 1]] },
+        { id: "sea", kinds: ["cargo"], boostMs: 20000, b: [[0, 0], [1, 1]] },
+        { id: "flip", kinds: ["military"], boostMs: 20000, b: [[1, 1], [0, 0]] },
+      ],
+    };
+    expect(parseClientMessage(JSON.stringify(odd))).toEqual(odd);
+  });
+
+  it("drops the whole v2 frame on a bad auto/sections SHAPE (strict-style like kinds)", () => {
+    const base = { type: "zones.config", kinds: ["military"], boostMs: 30000 };
+    const bad = (over: Record<string, unknown>) =>
+      parseClientMessage(JSON.stringify({ ...base, ...over }));
+    // auto: non-object forms, missing/wrong-typed members.
+    expect(bad({ auto: "on" })).toBeNull();
+    expect(bad({ auto: [] })).toBeNull();
+    expect(bad({ auto: { enabled: 1, createMin: 2, standdownAt: 0 } })).toBeNull();
+    expect(bad({ auto: { enabled: true, createMin: "4", standdownAt: 0 } })).toBeNull();
+    expect(bad({ auto: { enabled: true, createMin: 2 } })).toBeNull();
+    expect(bad({ auto: { createMin: 2, standdownAt: 0 } })).toBeNull();
+    // sections: non-array, non-object entries, bad id/kinds/boostMs/box shape.
+    expect(bad({ sections: "r1" })).toBeNull();
+    expect(bad({ sections: ["r1"] })).toBeNull();
+    expect(bad({ sections: [{ kinds: ["military"], boostMs: 20000, b: [[0, 0], [1, 1]] }] })).toBeNull();
+    expect(bad({ sections: [{ id: 1, kinds: ["military"], boostMs: 20000, b: [[0, 0], [1, 1]] }] })).toBeNull();
+    expect(bad({ sections: [{ id: "r", kinds: "military", boostMs: 20000, b: [[0, 0], [1, 1]] }] })).toBeNull();
+    expect(bad({ sections: [{ id: "r", kinds: [1], boostMs: 20000, b: [[0, 0], [1, 1]] }] })).toBeNull();
+    expect(bad({ sections: [{ id: "r", kinds: [], boostMs: "20000", b: [[0, 0], [1, 1]] }] })).toBeNull();
+    expect(bad({ sections: [{ id: "r", kinds: ["military"], boostMs: 20000, b: [[0, 0]] }] })).toBeNull();
+    expect(bad({ sections: [{ id: "r", kinds: ["military"], boostMs: 20000, b: [[0, 0], [1]] }] })).toBeNull();
+    expect(bad({ sections: [{ id: "r", kinds: ["military"], boostMs: 20000, b: [[0, "x"], [1, 1]] }] })).toBeNull();
+    expect(bad({ sections: [{ id: "r", kinds: ["military"], boostMs: 20000 }] })).toBeNull();
+  });
 });
 
 describe("Hub (legacy status shape)", () => {

@@ -21,7 +21,7 @@ import type { IconSources } from "../server/iconpack-sources.js";
 import type { AirKind } from "../shared/craft.js";
 import type { Craft } from "../shared/craft.js";
 import { PACK_COLORS } from "../shared/pack-transforms.js";
-import { waitFor } from "./util.js";
+import { sleep, waitFor } from "./util.js";
 
 const PLANE: (string | number | boolean | null)[] = [
   "ac4963", "DAL539", "United States", 1700000000, 1700000000,
@@ -1313,14 +1313,66 @@ describe("hot-zone boost wiring (zones.config frame + status)", () => {
       halfH: 0.25,
       count: 2,
       kind: "military", // dominantKind renamed on the wire
+      id: "auto:0", // v2 identity; auto entries carry no manual/active flags
     });
-    // boost rides opensky.feedStatus untouched (Task 2 shape; no duplication).
-    expect(st.feeds.opensky.boost).toEqual({ active: true, count: 2, intervalMs: null, paused: "credits", zones: 1 });
+    // boost rides opensky.feedStatus untouched (BoostStatus v2; no duplication).
+    expect(st.feeds.opensky.boost).toEqual({
+      active: true, count: 2, intervalMs: null, paused: "credits", zones: 1,
+      sectionsActive: 0, sectionsIdle: 0, creditsToday: 0,
+    });
 
     // Full replace with an empty kind set: the new config voids the zones.
     ws.send(JSON.stringify({ type: "zones.config", kinds: [], boostMs: 30000 }));
     await waitFor(() => server.opensky.zonesStatus.length === 0, 3000);
     await waitFor(() => statusFrames(frames).at(-1)?.hotzones?.length === 0, 3000);
+    ws.close();
+  });
+
+  it("v2 frame: a manual section rides the full wire to status.hotzones (id + manual + active)", async () => {
+    // The two military rows from the previous case are still in the stub
+    // payload (and the store); no x-rate-limit-remaining header is served, so
+    // nothing FUNDS — but the plan/activation layer runs before the credit
+    // gate, so the active section still surfaces on the wire, unspent.
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const frames: any[] = [];
+    ws.on("message", (d) => frames.push(JSON.parse(d.toString())));
+    let opened = false;
+    ws.on("open", () => {
+      opened = true;
+    });
+    await waitFor(() => opened, 3000);
+
+    ws.send(
+      JSON.stringify({
+        type: "zones.config",
+        kinds: ["military"],
+        boostMs: 30000,
+        auto: { enabled: true, createMin: 2, standdownAt: 0 },
+        sections: [{ id: "sec-1", kinds: ["military"], boostMs: 30000, b: [[39.5, -100.5], [40.5, -99.5]] }],
+      }),
+    );
+    // Real async wait: drive plan builds and give the hub's 250 ms status
+    // tick time to broadcast (the frame lands async; the armed zone tick
+    // would be too late). test/util's waitFor is sync-predicate only, hence
+    // the explicit loop.
+    let armed = false;
+    for (let i = 0; i < 60 && !armed; i++) {
+      await server.opensky.pollZoneOnce();
+      const hz = statusFrames(frames).at(-1)?.hotzones ?? [];
+      armed = hz.some((z: any) => z.id === "sec-1" && z.manual === true && z.active === true);
+      if (!armed) await sleep(50);
+    }
+    const st = statusFrames(frames).at(-1)!;
+    expect(st.hotzones.find((z: any) => z.id === "sec-1")).toMatchObject({
+      count: 2,
+      kind: "military",
+      manual: true,
+      active: true,
+    });
+    expect(st.hotzones.some((z: any) => z.id === "auto:0")).toBe(true); // auto rides along
+    expect(st.feeds.opensky.boost.sectionsActive).toBe(1);
+    expect(st.feeds.opensky.boost.sectionsIdle).toBe(0);
+    expect(st.feeds.opensky.boost.creditsToday).toBe(0); // unfunded tick spent nothing
     ws.close();
   });
 });

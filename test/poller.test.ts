@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
 import { OpenSkyPoller, BACKOFF_CAP_MS, POLL_MIN_MS, POLL_MAX_MS } from "../server/opensky.js";
+import type { PollSectionWire } from "../server/opensky.js";
 import { CraftStore } from "../server/store.js";
 
 const PLANE: (string | number | boolean | null)[] = [
@@ -445,6 +446,7 @@ describe("OpenSkyPoller hot-zone boost", () => {
     expect(r.upserted).toBe(0);
     expect(poller.feedStatus.boost).toEqual({
       active: true, count: 3, intervalMs: null, paused: "credits", zones: 1,
+      sectionsActive: 0, sectionsIdle: 0, creditsToday: 0,
     });
 
     // No header ever seen -> surplus 0 -> boost stays off as well.
@@ -507,7 +509,15 @@ describe("OpenSkyPoller hot-zone boost", () => {
     poller.setZonesConfig({ kinds: ["military"], boostMs: 10000 });
     await poller.pollZoneOnce();
     expect(poller.zonesStatus).toHaveLength(1);
-    expect(poller.zonesStatus[0].dominantKind).toBe("military");
+    expect(poller.zonesStatus[0]).toEqual({
+      // Legacy auto shape, unchanged apart from the v2 id (no manual/active).
+      center: { lat: 40, lon: -100 },
+      halfW: 0.5,
+      halfH: 0.5,
+      count: 3,
+      kind: "military",
+      id: "auto:0",
+    });
     expect(poller.feedStatus.boost?.active).toBe(true);
     expect(poller.feedStatus.boost?.count).toBe(3);
     expect(poller.feedStatus.boost?.zones).toBe(1);
@@ -761,5 +771,383 @@ describe("OpenSkyPoller start() re-establishes boost enablement", () => {
     expect(poller.feedStatus.lastError).toBe("malformed body");
     expect(counted).toHaveLength(2);
     expect(counted[1]).toEqual({ dir: "in", bytes: Buffer.byteLength(bad) });
+  });
+});
+
+// --- section boost v2 (design 2026-11-27 §C: cost-aware funding, sections) ---
+
+describe("OpenSkyPoller section boost v2", () => {
+  // 60 s to UTC midnight: reserve = 1 due globe poll x 4 + 100 = 104.
+  const AT_2359 = Date.parse("2026-11-22T23:59:00.000Z");
+
+  const makeStub =
+    (urls: string[], respond: (url: string, calls: number) => Response) =>
+    ((async (url: string) => {
+      urls.push(url);
+      return respond(url, urls.length);
+    }) as unknown) as typeof fetch;
+
+  const funded = (remaining: string) =>
+    jsonResponse({ states: [] }, 200, { "x-rate-limit-remaining": remaining });
+
+  it("cost-aware funding: a 3-credit section starves a later zone a 1-credit budget funds", async () => {
+    const store = new CraftStore();
+    let t = AT_2359;
+    const urls: string[] = [];
+    const seed = (s: CraftStore) =>
+      seedInto(s, [["c1", 0, 0], ["c2", 0.5, 0.5], ["c3", -0.5, -0.5]]);
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, () => funded("107")), // surplus exactly 3
+    });
+    await poller.pollOnce();
+    seed(store);
+    poller.setZonesConfig({
+      kinds: ["military"],
+      boostMs: 10000,
+      sections: [{ id: "big", kinds: ["military"], boostMs: 10000, b: [[-10, -10], [10, 10]] }],
+    });
+    await poller.pollZoneOnce();
+    const z = zoneUrls(urls);
+    expect(z).toHaveLength(1); // the auto zone gets nothing
+    expect(z[0]).toContain("lamin=-10"); // the 20x20 deg (400 sq° = cost 3) section goes first
+    expect(poller.feedStatus.boost).toEqual({
+      active: true, count: 6, intervalMs: null, paused: "credits", zones: 1,
+      sectionsActive: 1, sectionsIdle: 0,
+      creditsToday: 3, // charged the zone's COST, not 1
+    });
+
+    // One more credit funds the whole plan: section (3) + auto zone (1).
+    const urls2: string[] = [];
+    const store2 = new CraftStore();
+    const funded4 = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store: store2, now: () => t,
+      fetchImpl: makeStub(urls2, () => funded("108")), // surplus exactly 4
+    });
+    await funded4.pollOnce();
+    seed(store2);
+    funded4.setZonesConfig({
+      kinds: ["military"],
+      boostMs: 10000,
+      sections: [{ id: "big", kinds: ["military"], boostMs: 10000, b: [[-10, -10], [10, 10]] }],
+    });
+    await funded4.pollZoneOnce();
+    expect(zoneUrls(urls2).map((u) => u.includes("lamin=-10"))).toEqual([true, false]);
+    expect(zoneUrls(urls2)[1]).toContain("lamin=-0.5"); // auto zone funded off the remainder
+    expect(funded4.feedStatus.boost?.paused).toBeNull();
+    expect(funded4.feedStatus.boost?.creditsToday).toBe(4);
+    expect(funded4.feedStatus.boost?.intervalMs).toBe(15000); // auto stretch max(10000, 60000/4)
+    poller.setZonesConfig(null);
+    funded4.setZonesConfig(null);
+  });
+
+  it("skip-vs-pause: an unfunded section (no auto leg) reads idle, never paused", async () => {
+    const store = new CraftStore();
+    const t = 0;
+    const urls: string[] = [];
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, () => funded("100")), // surplus 0
+    });
+    await poller.pollOnce();
+    store.upsert([airCraft("s1", "military", 41, -73)], 0);
+    poller.setZonesConfig({
+      kinds: [],
+      boostMs: 10000,
+      auto: { enabled: false },
+      sections: [{ id: "s", kinds: ["military"], boostMs: 10000, b: [[40, -74], [42, -72]] }],
+    });
+    const r = await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(0); // budget skip, not pause
+    expect(r.upserted).toBe(0);
+    expect(poller.feedStatus.boost).toEqual({
+      active: true, count: 1, intervalMs: null, paused: null, zones: 0,
+      sectionsActive: 1, sectionsIdle: 0, creditsToday: 0,
+    });
+    poller.setZonesConfig(null);
+  });
+
+  it("creditsToday charges COST not 1 and resets at UTC midnight", async () => {
+    const store = new CraftStore();
+    let t = Date.parse("2026-11-22T23:00:00.000Z");
+    const urls: string[] = [];
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, () => funded("100000")),
+    });
+    await poller.pollOnce();
+    store.upsert([airCraft("s1", "military", 0, 0)], 0);
+    poller.setZonesConfig({
+      kinds: [],
+      boostMs: 10000,
+      auto: { enabled: false },
+      sections: [{ id: "big", kinds: ["military"], boostMs: 10000, b: [[-10, -10], [10, 10]] }],
+    });
+    await poller.pollZoneOnce(); // cost-3 success at 23:00
+    expect(poller.feedStatus.boost?.creditsToday).toBe(3);
+
+    // Past UTC midnight the counter rolls; this day's first success starts it
+    // at the COST again (3) — without the roll it would read 6.
+    t = Date.parse("2026-11-23T00:00:30.000Z");
+    await poller.pollZoneOnce();
+    expect(poller.feedStatus.boost?.creditsToday).toBe(3);
+    poller.setZonesConfig(null);
+  });
+
+  it("stand-down gate: auto zones drop while boosted sections poll, pause reads standdown", async () => {
+    const store = new CraftStore();
+    const t = 0;
+    const urls: string[] = [];
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, () => funded("4000")),
+    });
+    await poller.pollOnce();
+    seedCluster(store); // would form an auto zone at (40,-100) — must stay quiet
+    store.upsert([airCraft("sec", "military", 41, -73)], 0); // section traffic
+    poller.setZonesConfig({
+      kinds: ["military"],
+      boostMs: 10000,
+      auto: { enabled: true, createMin: 2, standdownAt: 1 },
+      sections: [{ id: "sec1", kinds: ["military"], boostMs: 10000, b: [[40.5, -73.5], [41.5, -72.5]] }],
+    });
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(1);
+    expect(zoneUrls(urls)[0]).toContain("lamin=40.5"); // the section polls
+    expect(urls.every((u) => !u.includes("lamin=39.5"))).toBe(true); // no auto-zone fetch
+    expect(poller.feedStatus.boost).toEqual({
+      active: true, count: 1, intervalMs: null, paused: "standdown", zones: 0,
+      sectionsActive: 1, sectionsIdle: 0, creditsToday: 1,
+    });
+
+    // Drop the section: standdown lifts, and the auto engine — zoneState
+    // never touched by the sections-only edit — polls the formed zone at once.
+    poller.setZonesConfig({
+      kinds: ["military"],
+      boostMs: 10000,
+      auto: { enabled: true, createMin: 2, standdownAt: 1 },
+    });
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls)[1]).toContain("lamin=39.5");
+    expect(poller.feedStatus.boost?.paused).toBeNull();
+    expect(poller.feedStatus.boost?.zones).toBe(1);
+    poller.setZonesConfig(null);
+  });
+
+  it("activation gate: a section polls only while matching-kind traffic is inside", async () => {
+    const store = new CraftStore();
+    const t = 0;
+    const urls: string[] = [];
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, () => funded("4000")),
+    });
+    await poller.pollOnce();
+    store.upsert([airCraft("g1", "general", 41, -73)], 0); // inside, wrong kind
+    poller.setZonesConfig({
+      kinds: [],
+      boostMs: 10000,
+      auto: { enabled: false },
+      sections: [{ id: "s", kinds: ["military"], boostMs: 10000, b: [[40, -74], [42, -72]] }],
+    });
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(0); // idle section: zero fetches, zero credits
+    expect(poller.feedStatus.boost).toEqual({
+      active: true, count: 0, intervalMs: null, paused: null, zones: 0,
+      sectionsActive: 0, sectionsIdle: 1, creditsToday: 0,
+    });
+
+    store.upsert([airCraft("m1", "military", 41.2, -73.2)], 0); // traffic arrives
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(1);
+    expect(zoneUrls(urls)[0]).toContain("lamin=40");
+    expect(poller.feedStatus.boost?.sectionsActive).toBe(1);
+    expect(poller.feedStatus.boost?.sectionsIdle).toBe(0);
+    expect(poller.feedStatus.boost?.creditsToday).toBe(1);
+    poller.setZonesConfig(null);
+  });
+
+  it("a 429 pauses only its section: the other section keeps polling, the 429 spends nothing", async () => {
+    const store = new CraftStore();
+    let t = 0;
+    const urls: string[] = [];
+    let mode = "ok";
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, (url) => {
+        if (mode === "a429" && url.includes("lamin=0")) return jsonResponse(null, 429, { "retry-after": "30" });
+        return funded("4000");
+      }),
+    });
+    await poller.pollOnce();
+    store.upsert(
+      [airCraft("s1", "military", 0.5, 0.5), airCraft("s2", "military", 10.5, 10.5)],
+      0,
+    );
+    poller.setZonesConfig({
+      kinds: [],
+      boostMs: 10000,
+      auto: { enabled: false },
+      sections: [
+        { id: "a", kinds: ["military"], boostMs: 10000, b: [[0, 0], [1, 1]] },
+        { id: "b", kinds: ["military"], boostMs: 10000, b: [[10, 10], [11, 11]] },
+      ],
+    });
+
+    mode = "a429";
+    await poller.pollZoneOnce(); // both due: a 429s (pause max(pollMs, 30 s) = 120000), b succeeds
+    expect(zoneUrls(urls)).toHaveLength(2);
+    expect(poller.feedStatus.boost?.paused).toBe("credits"); // aggregate while a is windowed
+    expect(poller.feedStatus.boost?.creditsToday).toBe(1); // a's 429 spent nothing
+
+    await poller.pollZoneOnce(); // same instant: a windowed, b between due times
+    expect(zoneUrls(urls)).toHaveLength(2);
+
+    t = 10_001; // b's own 10 s rate is due; a is still paused
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls).filter((u) => u.includes("lamin=10"))).toHaveLength(2);
+    expect(zoneUrls(urls).filter((u) => u.includes("lamin=0"))).toHaveLength(1);
+
+    mode = "ok";
+    t = 120_001; // a's pause over -> both poll again, pause clears
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls).filter((u) => u.includes("lamin=0"))).toHaveLength(2);
+    expect(poller.feedStatus.boost?.paused).toBeNull();
+    expect(poller.feedStatus.boost?.creditsToday).toBe(4);
+    poller.setZonesConfig(null);
+  });
+
+  it("a sections-only edit never voids auto zones (scoped sledgehammer)", async () => {
+    const store = new CraftStore();
+    let t = 0;
+    const urls: string[] = [];
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, () => funded("4000")),
+    });
+    await poller.pollOnce();
+    seedCluster(store);
+    poller.setZonesConfig({ kinds: ["military"], boostMs: 10000 });
+    await poller.pollZoneOnce(); // zone forms and polls once (nextAt 84706)
+    expect(zoneUrls(urls)[0]).toContain("lamin=39.5");
+
+    // Members thin to 1 — a VOIDED engine would not reform (createMin 2) —
+    // but the held broadcast copy must survive a sections-only config edit.
+    store.pruneAir(new Set(["m1"]), 1, 0);
+    poller.setZonesConfig({
+      kinds: ["military"],
+      boostMs: 10000,
+      sections: [{ id: "far", kinds: ["military"], boostMs: 10000, b: [[50, 10], [51, 11]] }],
+    });
+    t = 84_707;
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls).some((u) => u.includes("lamin=39.5"))).toBe(true); // geometry survived
+    expect(zoneUrls(urls).some((u) => u.includes("lamin=50"))).toBe(false); // idle section never polls
+    expect(poller.feedStatus.boost?.sectionsIdle).toBe(1);
+    poller.setZonesConfig(null);
+  });
+
+  it("an auto-relevant edit preserves section runs (a 429 pause survives a kinds change)", async () => {
+    const store = new CraftStore();
+    let t = 0;
+    const urls: string[] = [];
+    let mode = "ok";
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, (url) => {
+        if (mode === "a429" && url.includes("lamin=0")) return jsonResponse(null, 429, { "retry-after": "30" });
+        return funded("4000");
+      }),
+    });
+    await poller.pollOnce();
+    store.upsert([airCraft("s1", "military", 0.5, 0.5)], 0);
+    const sections = (): PollSectionWire[] => [
+      { id: "a", kinds: ["military"], boostMs: 10000, b: [[0, 0], [1, 1]] },
+    ];
+    poller.setZonesConfig({ kinds: ["military"], boostMs: 10000, sections: sections() });
+    mode = "a429";
+    await poller.pollZoneOnce(); // section 429s -> pausedUntil 120000
+    expect(zoneUrls(urls)).toHaveLength(1);
+
+    // kinds change = auto-relevant sledgehammer; the section run must ride it out.
+    poller.setZonesConfig({ kinds: ["military", "commercial"], boostMs: 10000, sections: sections() });
+    t = 1;
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(1); // pause survived: no new section fetch
+
+    mode = "ok";
+    t = 120_001; // pause expired -> polled again
+    await poller.pollZoneOnce();
+    expect(zoneUrls(urls)).toHaveLength(2);
+    poller.setZonesConfig(null);
+  });
+
+  it("server-side normalization: createMin clamp, standdownAt garbage -> 0, bad sections dropped, >6 truncated", async () => {
+    const store = new CraftStore();
+    const t = 0;
+    const urls: string[] = [];
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, () => funded("4000")),
+    });
+    await poller.pollOnce();
+    seedCluster(store); // 3 military — under a clamped createMin of 10
+    store.upsert([airCraft("s1", "military", 60.5, 0.5)], 0);
+    const box = (x: number): [[number, number], [number, number]] => [[x, 0], [x + 1, 1]];
+    poller.setZonesConfig({
+      kinds: ["military"],
+      boostMs: 10000,
+      auto: { enabled: true, createMin: 99, standdownAt: 7 },
+      sections: [
+        { id: "", kinds: ["military"], boostMs: 10000, b: box(0) }, // empty id dropped
+        { id: "sea", kinds: ["cargo"] as unknown as AirKind[], boostMs: 10000, b: box(2) }, // sea kind dropped
+        { id: "flip", kinds: ["military"], boostMs: 10000, b: [[1, 1], [0, 0]] }, // inverted dropped
+        { id: "oob", kinds: ["military"], boostMs: 10000, b: [[-91, 0], [1, 1]] }, // |lat|>90 dropped
+        { id: "s1", kinds: ["military"], boostMs: 10000, b: box(60) }, // survives (active)
+        { id: "s2", kinds: ["military"], boostMs: 10000, b: box(20) }, // survives (idle)
+        { id: "s3", kinds: ["military"], boostMs: 10000, b: box(30) }, // truncated by the 6 cap
+        { id: "s1", kinds: ["military"], boostMs: 10000, b: box(40) }, // dup id dropped
+      ],
+    });
+    await poller.pollZoneOnce();
+    // createMin 99 -> 10: the 3-member cluster cannot form; standdownAt 7 -> 0
+    // would allow auto, but only once createMin is back in range.
+    expect(poller.feedStatus.boost?.zones).toBe(0);
+    // 4 bad dropped, cap 6 leaves s1+s2: the later dup and s3 never land.
+    expect(poller.feedStatus.boost?.sectionsActive).toBe(1);
+    expect(poller.feedStatus.boost?.sectionsIdle).toBe(1);
+    expect(zoneUrls(urls)).toHaveLength(1);
+    expect(zoneUrls(urls)[0]).toContain("lamin=60"); // s1's box only
+
+    // createMin back in range -> auto forms beside the section; standdownAt 0
+    // (the garbage value) means they coexist.
+    poller.setZonesConfig({
+      kinds: ["military"],
+      boostMs: 10000,
+      auto: { enabled: true, createMin: 2, standdownAt: 7 },
+      sections: [{ id: "s1", kinds: ["military"], boostMs: 10000, b: box(60) }],
+    });
+    await poller.pollZoneOnce();
+    expect(poller.feedStatus.boost?.zones).toBe(1);
+    expect(zoneUrls(urls).some((u) => u.includes("lamin=39.5"))).toBe(true);
+    expect(poller.feedStatus.boost?.paused).toBeNull();
+    poller.setZonesConfig(null);
+  });
+
+  it("boost.active reflects configuration: auto-off with no sections is inactive", () => {
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store: new CraftStore(),
+      fetchImpl: (async () => jsonResponse({ states: [] })) as typeof fetch,
+    });
+    poller.setZonesConfig({ kinds: ["military"], boostMs: 10000, auto: { enabled: false }, sections: [] });
+    expect(poller.feedStatus.boost?.active).toBe(false);
+    poller.setZonesConfig({
+      kinds: [],
+      boostMs: 10000,
+      auto: { enabled: false },
+      sections: [{ id: "s", kinds: ["military"], boostMs: 10000, b: [[0, 0], [1, 1]] }],
+    });
+    expect(poller.feedStatus.boost?.active).toBe(true);
+    poller.setZonesConfig(null);
   });
 });

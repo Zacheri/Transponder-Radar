@@ -582,7 +582,22 @@ describe("buildPollPlan", () => {
       intervalMs: null,
       source: "auto",
       kind: "military",
+      count: 3,
     });
+  });
+
+  it("counts each polled zone: auto its own count, sections the activation count", () => {
+    const plan = poll({
+      sections: [section({ kinds: ["military", "general"] })],
+      members: [
+        m("a", "military", 41, -73),
+        m("b", "general", 41.1, -73),
+        m("out", "military", 9, 9), // outside the rect — not counted
+        m("sea", "commercial", 41.2, -73), // kind not in the section
+      ],
+      autoZones: [AUTO],
+    });
+    expect(plan.map((p) => p.count)).toEqual([2, 3]);
   });
 
   it("gates auto zones on the stand-down rule", () => {
