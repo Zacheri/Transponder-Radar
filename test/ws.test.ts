@@ -504,12 +504,34 @@ describe("zones.config client protocol mirror", () => {
     try {
       const socket = new RadarSocket("ws://127.0.0.1:2001/ws", { onSnapshot: () => {}, onUpdate: () => {} });
       socket.connect();
-      socket.sendZonesConfig(["military", "general"], 45000);
-      socket.sendZonesConfig([], 30000);
+      socket.sendZonesConfig({
+        kinds: ["military", "general"],
+        boostMs: 45000,
+        auto: { enabled: true, createMin: 2, standdownAt: 0 },
+        sections: [],
+      });
+      socket.sendZonesConfig({
+        kinds: [],
+        boostMs: 30000,
+        auto: { enabled: false, createMin: 5, standdownAt: 1 },
+        sections: [{ id: "r1", kinds: ["military"], boostMs: 20000, b: [[0, 0], [1, 1]] }],
+      });
       socket.close();
       expect(frames).toHaveLength(2);
-      expect(JSON.parse(frames[0])).toEqual({ type: "zones.config", kinds: ["military", "general"], boostMs: 45000 });
-      expect(JSON.parse(frames[1])).toEqual({ type: "zones.config", kinds: [], boostMs: 30000 });
+      expect(JSON.parse(frames[0])).toEqual({
+        type: "zones.config",
+        kinds: ["military", "general"],
+        boostMs: 45000,
+        auto: { enabled: true, createMin: 2, standdownAt: 0 },
+        sections: [],
+      });
+      expect(JSON.parse(frames[1])).toEqual({
+        type: "zones.config",
+        kinds: [],
+        boostMs: 30000,
+        auto: { enabled: false, createMin: 5, standdownAt: 1 },
+        sections: [{ id: "r1", kinds: ["military"], boostMs: 20000, b: [[0, 0], [1, 1]] }],
+      });
       // The sender-side frame must survive the server validator untouched.
       expect(frames.map((f) => parseClientMessage(f)?.type)).toEqual(["zones.config", "zones.config"]);
     } finally {

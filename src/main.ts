@@ -33,12 +33,14 @@ import type { Region, RegionKind } from "./data/regions.js";
 import { addRegionLayers, createRegionDrawer, setRegionData } from "./map/regions.js";
 import {
   clampZonesBoost,
+  DEFAULT_ZONES_AUTO,
   parseZonesCfg,
   serializeZonesCfg,
   ZONES_BOOST_DEFAULT_MS,
   ZONES_CFG_KEY,
   type ZonesCfg,
 } from "./ui/zones-cfg.js";
+import { buildZonesConfig } from "./data/zones-assembly.js";
 import { RAM_CACHE_GB_DEFAULT, STORAGE_CAP_GB_DEFAULT } from "../shared/limits.js";
 import { createPanel, type TrailBudget } from "./ui/panel.js";
 import { createFilters } from "./ui/filters.js";
@@ -114,6 +116,7 @@ function armRegion(kind: RegionKind | null): void {
       regions = res.list; // rejected commit → same list; repaint is a no-op
       paintRegions();
       syncRegionUi();
+      refreshZonesSend();
     },
     onCancel: () => {
       regionDrawer = null;
@@ -144,6 +147,7 @@ const settingsUi = createSettings(document.getElementById("app") as HTMLElement,
     regions = dropRegion(regions, id, localStorage);
     paintRegions();
     syncRegionUi();
+    refreshZonesSend();
   },
 });
 settingsUi.setRegions(regions);
@@ -180,8 +184,19 @@ const viewWindow = () => computeViewWindow(histFrom, histTo, viewSel);
 // exists, so the first open can send it. main owns persistence; the drawer
 // only edits the value, keeping the config's single source here.
 let zonesCfg: ZonesCfg =
-  parseZonesCfg(localStorage.getItem(ZONES_CFG_KEY)) ?? { kinds: [], boostMs: ZONES_BOOST_DEFAULT_MS };
+  parseZonesCfg(localStorage.getItem(ZONES_CFG_KEY)) ?? {
+    kinds: [],
+    boostMs: ZONES_BOOST_DEFAULT_MS,
+    auto: DEFAULT_ZONES_AUTO,
+  };
 zonesCfg.boostMs = clampZonesBoost(zonesCfg.boostMs);
+// Rebuild + send the v2 zones config (auto knobs + section boosts). main
+// calls it on every config change, on every section-list change and on
+// every socket open (server state is memory-only); the settings UI calls it
+// when a section's boost is edited.
+export function refreshZonesSend(): void {
+  socket?.sendZonesConfig(buildZonesConfig(regions, zonesCfg));
+}
 function applyZonesCfg(cfg: ZonesCfg): void {
   zonesCfg = cfg;
   try {
@@ -189,7 +204,7 @@ function applyZonesCfg(cfg: ZonesCfg): void {
   } catch {
     // storage unavailable
   }
-  socket?.sendZonesConfig(cfg.kinds, cfg.boostMs);
+  refreshZonesSend();
 }
 let lastSeekT: number | null = null;
 // Monotonic seek seq echoed on timeline.state replies: a reply whose seq is
@@ -603,7 +618,7 @@ socket = new RadarSocket(wsUrl, {
     hud.setStatus(s);
     // The server keeps the zones config in memory only: re-send the local
     // config on every open (first, reconnect, server restart).
-    if (s === "open") socket?.sendZonesConfig(zonesCfg.kinds, zonesCfg.boostMs);
+    if (s === "open") refreshZonesSend();
     if (s === "open" && trafficWatched) socket?.sendTrafficWatch(true);
     if (s === "open" && !browserTx) {
       browserTx = createBrowserTx({ send: (down) => socket?.sendTrafficReport(down) });

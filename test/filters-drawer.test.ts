@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { createFilters } from "../src/ui/filters.js";
-import { parseZonesCfg, serializeZonesCfg, ZONES_CFG_KEY, type ZonesCfg } from "../src/ui/zones-cfg.js";
+import {
+  DEFAULT_ZONES_AUTO,
+  parseZonesCfg,
+  serializeZonesCfg,
+  ZONES_CFG_KEY,
+  type ZonesCfg,
+} from "../src/ui/zones-cfg.js";
 import type { CraftKind } from "../shared/craft.js";
 
 // Node-env Vitest without jsdom: a DOM shim covering exactly what
@@ -114,7 +120,7 @@ const boostCb = (root: FakeEl, kind: string) => must(find(root, (el) => el.datas
 const filterCb = (root: FakeEl, kind: string) => must(find(root, (el) => el.dataset.kind === kind), `filter ${kind}`);
 const slider = (root: FakeEl) => must(find(root, (el) => el.tag === "input" && el.type === "range"), "slider");
 
-const DEFAULT_CFG: ZonesCfg = { kinds: [], boostMs: 30000 };
+const DEFAULT_CFG: ZonesCfg = { kinds: [], boostMs: 30000, auto: DEFAULT_ZONES_AUTO };
 
 function setup(opts?: { initial?: ZonesCfg; color?: boolean }) {
   const root = new FakeEl("div");
@@ -140,7 +146,7 @@ describe("filters drawer zones section", () => {
 
   it("a restored config seeds the controls (boot path: storage → parse → initial)", () => {
     const storage = new FakeStorage();
-    storage.setItem(ZONES_CFG_KEY, serializeZonesCfg({ kinds: ["military"], boostMs: 45000 }));
+    storage.setItem(ZONES_CFG_KEY, serializeZonesCfg({ kinds: ["military"], boostMs: 45000, auto: DEFAULT_ZONES_AUTO }));
     Object.assign(globalThis as object, { localStorage: storage });
     const initial = parseZonesCfg(storage.getItem(ZONES_CFG_KEY));
     expect(initial).not.toBeNull();
@@ -183,7 +189,7 @@ describe("filters drawer zones section", () => {
 
   it("filter actions (All/Sea-only/…) leave the boost checkboxes alone", () => {
     Object.assign(globalThis as object, { localStorage: new FakeStorage() });
-    const { root } = setup({ initial: { kinds: ["military"], boostMs: 30000 } });
+    const { root } = setup({ initial: { kinds: ["military"], boostMs: 30000, auto: DEFAULT_ZONES_AUTO } });
     const seaOnly = must(find(root, (el) => el.tag === "button" && el.textContent === "Sea-only"), "Sea-only");
     seaOnly.fire("click");
     expect(boostCb(root, "military").checked).toBe(true);

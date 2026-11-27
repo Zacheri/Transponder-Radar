@@ -154,3 +154,71 @@ describe("labels, colors, size", () => {
     expect(sizeDeg(region("a"))).toEqual({ lon: 20, lat: 20 });
   });
 });
+
+describe("Region.boost round-trip (hazard 3)", () => {
+  const rawWithBoost = JSON.stringify([
+    {
+      id: "a",
+      kind: "adsb",
+      b: [
+        [0, 0],
+        [1, 1],
+      ],
+      boost: { enabled: true, kinds: ["military", "general"], boostMs: 15000 },
+    },
+    {
+      id: "b",
+      kind: "ais",
+      b: [
+        [2, 3],
+        [4, 5],
+      ],
+    },
+  ]);
+
+  it("parse → serialize → parse preserves boost (identity)", () => {
+    const once = parseRegions(rawWithBoost);
+    expect(once[0].boost).toEqual({ enabled: true, kinds: ["military", "general"], boostMs: 15000 });
+    expect(once[1].boost).toBeUndefined();
+    const again = parseRegions(serializeRegions(once));
+    expect(again).toEqual(once);
+    expect(serializeRegions(again)).toBe(serializeRegions(once));
+  });
+
+  it("old rows (no boost) parse unchanged — no boost key", () => {
+    const [r] = parseRegions(JSON.stringify([{ id: "a", kind: "adsb", b: [[0, 0], [1, 1]] }]));
+    expect(Object.prototype.hasOwnProperty.call(r, "boost")).toBe(false);
+  });
+
+  it("garbage boost drops the boost but keeps the entry", () => {
+    for (const boost of [5, "x", null, [], {}, { boostMs: NaN }, { boostMs: "15000" }]) {
+      const list = parseRegions(JSON.stringify([{ id: "a", kind: "adsb", b: [[0, 0], [1, 1]], boost }]));
+      expect(list).toHaveLength(1);
+      expect(list[0].id).toBe("a");
+      expect(list[0].boost).toBeUndefined();
+    }
+  });
+
+  it("kinds are filtered to AIR_KINDS, deduped and canonically ordered; enabled defaults false", () => {
+    const [r] = parseRegions(
+      JSON.stringify([
+        {
+          id: "a",
+          kind: "adsb",
+          b: [[0, 0], [1, 1]],
+          boost: { kinds: ["general", "military", "military", "cargo", 1], boostMs: 30000 },
+        },
+      ]),
+    );
+    expect(r.boost).toEqual({ enabled: false, kinds: ["military", "general"], boostMs: 30000 });
+  });
+
+  it("non-array kinds coerce to []; boostMs is stored verbatim (assembly clamps)", () => {
+    const [r] = parseRegions(
+      JSON.stringify([
+        { id: "a", kind: "adsb", b: [[0, 0], [1, 1]], boost: { kinds: "military", boostMs: 500000 } },
+      ]),
+    );
+    expect(r.boost).toEqual({ enabled: false, kinds: [], boostMs: 500000 });
+  });
+});

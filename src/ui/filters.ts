@@ -165,7 +165,9 @@ export function createFilters(
     const zval = document.createElement("span");
     zval.className = "drawer-count";
     function emitZones(): void {
-      zc.onZonesChange({ kinds: AIR_KINDS.filter((k) => zChecked.has(k)), boostMs: zBoostMs });
+      // Spread initial so the auto block rides through untouched (the drawer
+      // does not own it; T4 moves rate/auto editing to settings).
+      zc.onZonesChange({ ...zc.initial, kinds: AIR_KINDS.filter((k) => zChecked.has(k)), boostMs: zBoostMs });
     }
     function renderZval(): void {
       zval.textContent = `${zBoostMs / 1000} s`;

@@ -1,3 +1,5 @@
+import { AIR_KINDS } from "../../shared/craft.js";
+import type { AirKind } from "../../shared/craft.js";
 import type { LonLat } from "../../shared/geo.js";
 
 // User-drawn highlight regions (spec 2026-11-26 §B): client-only, persisted
@@ -10,10 +12,23 @@ export type RegionKind = "adsb" | "ais";
 /** [[minLat,minLon],[maxLat,maxLon]] — the server AIS-box wire shape. */
 export type RegionBox = [[number, number], [number, number]];
 
+/**
+ * Per-section boost (spec 2026-11-27 §E): activation kinds + poll cadence
+ * for an ADS-B section. Absent = boost off. kinds hold canonical
+ * AIR_KINDS order; boostMs is stored verbatim (zones-assembly clamps the
+ * wire value).
+ */
+export interface RegionBoost {
+  enabled: boolean;
+  kinds: AirKind[];
+  boostMs: number;
+}
+
 export interface Region {
   id: string;
   kind: RegionKind;
   b: RegionBox;
+  boost?: RegionBoost;
 }
 
 export const REGION_KINDS: readonly RegionKind[] = ["adsb", "ais"];
@@ -66,6 +81,27 @@ const isSane = (b: RegionBox): boolean => {
 const isKind = (v: unknown): v is RegionKind =>
   typeof v === "string" && REGION_KINDS.includes(v as RegionKind);
 
+/** Box shape + range sanity; exported for pure consumers that re-validate
+ * (zones-assembly). */
+export const isValidBox = (v: unknown): v is RegionBox => isBox(v) && isSane(v);
+
+// boost coercion (spec 2026-11-27 §E): garbage → drop the boost, keep the
+// entry. kinds filter to AIR_KINDS (unknown members dropped, dedup,
+// canonical order); non-array kinds → [] (an empty set never activates).
+// boostMs must be finite — a rateless boost is meaningless, drop it.
+// enabled is only ever true when exactly true.
+function parseRegionBoost(v: unknown): RegionBoost | undefined {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return undefined;
+  const o = v as Record<string, unknown>;
+  if (typeof o.boostMs !== "number" || !Number.isFinite(o.boostMs)) return undefined;
+  const raw = Array.isArray(o.kinds) ? o.kinds : [];
+  return {
+    enabled: o.enabled === true,
+    kinds: AIR_KINDS.filter((k): k is AirKind => raw.includes(k)),
+    boostMs: o.boostMs,
+  };
+}
+
 /** Total garbage (bad JSON, non-array, empty string, null) → []; bad entries drop. */
 export function parseRegions(raw: string | null): Region[] {
   if (raw === null || raw === "") return [];
@@ -80,8 +116,11 @@ export function parseRegions(raw: string | null): Region[] {
   for (const entry of obj) {
     if (typeof entry !== "object" || entry === null) continue;
     const { id, kind, b } = entry as Partial<Region>;
-    if (typeof id !== "string" || id === "" || !isKind(kind) || !isBox(b) || !isSane(b)) continue;
-    out.push({ id, kind, b });
+    if (typeof id !== "string" || id === "" || !isKind(kind) || !isValidBox(b)) continue;
+    // Rebuild with boost when present (a plain {id,kind,b} rebuild would
+    // silently wipe it on every boot-persist cycle).
+    const boost = parseRegionBoost((entry as { boost?: unknown }).boost);
+    out.push(boost ? { id, kind, b, boost } : { id, kind, b });
   }
   return out;
 }

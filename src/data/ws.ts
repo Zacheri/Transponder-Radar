@@ -1,5 +1,6 @@
 import type { AirKind, Craft, CraftKind } from "../../shared/craft.js";
 import type { LonLat } from "../../shared/geo.js";
+import type { RegionBox } from "./regions.js";
 
 export interface FeedStatus {
   opensky: {
@@ -154,6 +155,23 @@ export type RadarMessage =
   | { type: "flight.context"; id: string; seq?: number; route: FlightRoute | null }
   | ({ type: "traffic" } & TrafficSample);
 
+// zones.config v2 (spec 2026-11-27 §D) — mirror of the server ZonesConfig,
+// full-replace frame. sections carry enabled ADS-B boosts only (the client
+// filters AIS: push feed, nothing to poll) and are capped by the assembler.
+export interface ZonesSectionWire {
+  id: string;
+  kinds: AirKind[];
+  boostMs: number;
+  b: RegionBox;
+}
+
+export interface ZonesConfigV2Wire {
+  kinds: CraftKind[];
+  boostMs: number;
+  auto: { enabled: boolean; createMin: number; standdownAt: 0 | 1 | 2 };
+  sections: ZonesSectionWire[];
+}
+
 const trafficRatesOk = (r: unknown): boolean =>
   r != null &&
   typeof r === "object" &&
@@ -282,8 +300,8 @@ export class RadarSocket {
   }
 
   // Hot-zone boost config: full replace, no reply frame (ais.tile posture).
-  sendZonesConfig(kinds: CraftKind[], boostMs: number): void {
-    this.send({ type: "zones.config", kinds, boostMs });
+  sendZonesConfig(cfg: ZonesConfigV2Wire): void {
+    this.send({ type: "zones.config", ...cfg });
   }
 
   sendPinAdd(from: number, to: number): void {
