@@ -546,6 +546,28 @@ describe("settings Traffic boost group", () => {
     expect(attr(minSlider(), "aria-disabled")).toBe("false");
   });
 
+  it("auto-off disables the poll-rate slider and the stand-down select too, both directions", () => {
+    const { rateSlider, standdown, autoCb } = setup(true, undefined, {
+      ...DEFAULT_CFG,
+      auto: { enabled: false, createMin: 2, standdownAt: 0 },
+    });
+    // Same treatment the form-≥N slider gets: disabled + aria-disabled + dim.
+    for (const el of [rateSlider(), standdown()]) {
+      expect((el as unknown as { disabled?: boolean }).disabled).toBe(true);
+      expect(attr(el, "aria-disabled")).toBe("true");
+      const row = must(el.parent ?? undefined, "boost control row");
+      expect(row.className.split(" ")).toContain("settings-row-disabled");
+    }
+    autoCb().checked = true;
+    autoCb().fire("change");
+    for (const el of [rateSlider(), standdown()]) {
+      expect((el as unknown as { disabled?: boolean }).disabled).toBe(false);
+      expect(attr(el, "aria-disabled")).toBe("false");
+      const row = must(el.parent ?? undefined, "boost control row");
+      expect(row.className.split(" ")).not.toContain("settings-row-disabled");
+    }
+  });
+
   it("auto poll rate slider (moved from filters) emits a clamped boostMs", () => {
     const { opts, setLive, rateSlider } = setup();
     setLive({ ...LIVE_CFG, boostMs: 30000 });
@@ -708,12 +730,17 @@ describe("settings section boost editor", () => {
     chevrons(rows()[1])[0].fire("click", clickEvt().evt);
     let lives = allByClass(root, "settings-region-live");
     expect(lives[lives.length - 1].textContent).toBe(""); // legacy frames: idle-unknown
+    expect(lives[lives.length - 1].classList.contains("active")).toBe(false);
     ui.setRegionActivity(new Set(["zz"]));
     lives = allByClass(root, "settings-region-live");
     expect(lives[lives.length - 1].textContent).toBe("idle");
+    expect(lives[lives.length - 1].classList.contains("active")).toBe(false);
     ui.setRegionActivity(new Set(["b"]));
     lives = allByClass(root, "settings-region-live");
     expect(lives[lives.length - 1].textContent).toBe("active");
+    // The CSS accent is `.settings-region-live.active` — the renderer must
+    // toggle the class, not just swap the text.
+    expect(lives[lives.length - 1].classList.contains("active")).toBe(true);
   });
 
   it("setStats creditsToday does not disturb the editor's expansion", () => {

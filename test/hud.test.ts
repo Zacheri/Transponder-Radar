@@ -165,7 +165,7 @@ describe("hud ais-fill line", () => {
 
 // spec 2026-11-27 §F (T4): the boost segment is the v2 rendering — sections,
 // auto zones and today's credits, each conditional. Fixtures are typed
-// against the local BoostV2 shape (ws.ts mirrors v1 until T2 lands).
+// against the local BoostV2 shape.
 describe("hud boost segment", () => {
   type Boost = NonNullable<FeedStatus["opensky"]["boost"]>;
   interface BoostV2 {

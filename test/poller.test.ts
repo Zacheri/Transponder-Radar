@@ -571,7 +571,7 @@ describe("OpenSkyPoller hot-zone boost", () => {
     expect(zoneUrls(urls)).toHaveLength(2); // both due zones funded off one surplus
     expect(r.upserted).toBe(0);
     expect(poller.feedStatus.boost?.zones).toBe(2);
-    expect(poller.feedStatus.boost?.count).toBe(6); // craft summed across zones
+    expect(poller.feedStatus.boost?.count).toBe(6); // union across the two disjoint zones
     expect(poller.feedStatus.boost?.paused).toBeNull();
     expect(zoneUrls(urls)[0]).toContain("lamin=39.5"); // the dense cluster
     expect(zoneUrls(urls)[1]).toContain("lamin=-30.5"); // the far pair
@@ -812,7 +812,9 @@ describe("OpenSkyPoller section boost v2", () => {
     expect(z).toHaveLength(1); // the auto zone gets nothing
     expect(z[0]).toContain("lamin=-10"); // the 20x20 deg (400 sq° = cost 3) section goes first
     expect(poller.feedStatus.boost).toEqual({
-      active: true, count: 6, intervalMs: null, paused: "credits", zones: 1,
+      // Union, not sum: the three seeded craft ride BOTH the 400 sq° section
+      // box and the auto zone, so the shared members count once.
+      active: true, count: 3, intervalMs: null, paused: "credits", zones: 1,
       sectionsActive: 1, sectionsIdle: 0,
       creditsToday: 3, // charged the zone's COST, not 1
     });
@@ -839,6 +841,33 @@ describe("OpenSkyPoller section boost v2", () => {
     expect(funded4.feedStatus.boost?.intervalMs).toBe(15000); // auto stretch max(10000, 60000/4)
     poller.setZonesConfig(null);
     funded4.setZonesConfig(null);
+  });
+
+  it("boost.count is the UNION across overlapping zones: a craft in section ∩ auto counts once", async () => {
+    const store = new CraftStore();
+    const t = 0;
+    const urls: string[] = [];
+    const poller = new OpenSkyPoller({
+      pollMs: 120000, graceMs: 30000, store, now: () => t,
+      fetchImpl: makeStub(urls, () => funded("4000")),
+    });
+    await poller.pollOnce();
+    seedCluster(store); // auto zone (40,-100)±0.5, count 3
+    // x1 is general (outside the auto tracker's kinds) inside the section box,
+    // OUTSIDE the auto box — the section's own kind set must still count it.
+    store.upsert([airCraft("x1", "general", 41, -99.2)], 0);
+    poller.setZonesConfig({
+      kinds: ["military"],
+      boostMs: 10000,
+      auto: { enabled: true, createMin: 2, standdownAt: 0 },
+      sections: [{ id: "s", kinds: ["military", "general"], boostMs: 10000, b: [[39.5, -100.5], [41.5, -99]] }],
+    });
+    await poller.pollZoneOnce();
+    // Wire stays per-zone: section counts 4 (m1-m3 + x1), auto counts 3.
+    expect(poller.zonesStatus.map((z) => z.count)).toEqual([4, 3]);
+    // The sum would be 7; m1-m3 sit inside BOTH boxes, so the union is 4.
+    expect(poller.feedStatus.boost?.count).toBe(4);
+    poller.setZonesConfig(null);
   });
 
   it("skip-vs-pause: an unfunded section (no auto leg) reads idle, never paused", async () => {

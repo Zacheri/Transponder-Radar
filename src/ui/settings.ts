@@ -314,13 +314,18 @@ export function createSettings(
   minVal.textContent = String(zc.auto.createMin);
   minRow.append(minLabel, minInput, minVal);
 
-  // Auto-enable off makes the formation dial meaningless: disabled + dimmed
-  // (aria-disabled for AT, the class for the visual).
+  // Auto-enable off makes every auto-specific control meaningless: disabled
+  // + dimmed (aria-disabled for AT, the class for the visual).
   function syncAutoEnabled(): void {
     const off = !autoCb.checked;
-    minInput.disabled = off;
-    minInput.setAttribute("aria-disabled", String(off));
-    minRow.classList.toggle("settings-row-disabled", off);
+    const apply = (ctl: HTMLInputElement | HTMLSelectElement, row: HTMLElement): void => {
+      ctl.disabled = off;
+      ctl.setAttribute("aria-disabled", String(off));
+      row.classList.toggle("settings-row-disabled", off);
+    };
+    apply(minInput, minRow);
+    apply(rateInput, rateRow);
+    apply(sdSel, sdRow);
   }
 
   // Auto poll rate — moved from the filters drawer (spec §F).
@@ -503,7 +508,11 @@ export function createSettings(
     function renderReadout(): void {
       const est = Math.round(creditsPerDay(d.lon, d.lat, curMs));
       crText.textContent = `~${est.toLocaleString("en-US")} cr/day`;
-      liveText.textContent = enCb.checked && activeIds ? (activeIds.has(r.id) ? "active" : "idle") : "";
+      const state = !enCb.checked || activeIds === null ? null : activeIds.has(r.id);
+      liveText.textContent = state === null ? "" : state ? "active" : "idle";
+      // The CSS accent is `.settings-region-live.active` — class follows the
+      // text, or the rule never applies.
+      liveText.classList.toggle("active", state === true);
     }
     renderReadout();
 

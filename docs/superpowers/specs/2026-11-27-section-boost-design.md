@@ -61,20 +61,34 @@ itself, which this now derives as >400 → 4).
   count toward due/skip bookkeeping.
 - `feedStatus.boost` v2: `{ active, count, intervalMs, paused:
   "credits"|"standdown"|null, zones, sectionsActive, sectionsIdle,
-  creditsToday }` (legacy fields keep semantics: count = craft across live
-  polled zones incl. active sections; intervalMs = auto cadence or null).
+  creditsToday }` (legacy fields keep semantics: intervalMs = auto cadence or
+  null). **Shipped ruling:** `count` = *distinct* craft in the union of the
+  live polled zone boxes — zone boxes overlap (a section can contain an auto
+  cluster), so the plan's per-zone counts are never summed; `pollZoneOnce`
+  point-tests its member set against each planned box once per tick. Section
+  `count`s in the `status.hotzones` wire stay per-zone (kind-matched).
 
 ## D. Wire (four mirrors as usual)
 
 - `zones.config` v2 (full replace, old-shape-tolerant): new optional fields
-  `auto` + `sections` (≤6; each section id non-empty string, kinds ⊆
-  AIR_KINDS, boostMs finite, b = valid box — any bad member drops the whole
-  frame, matching existing validator style). Old client ⇒ server defaults
+  `auto` + `sections`. Old client ⇒ server defaults
   `{ enabled: true, createMin: 2, standdownAt: 0, sections: [] }` = today.
-- `status.hotzones[]` gains optional `id?: string` and `manual?: boolean`
-  (auto elements unchanged). **Manual zones ship ONLY while active** —
-  the array means "being polled right now"; clients render active sections
-  with a brighter tint. Legacy clients keep working (extra fields ignored).
+  **Shipped ruling (validation split):** the hub validates SHAPE only —
+  malformed structure (bad `auto`/`sections` shape, bad `kinds` member) drops
+  the WHOLE frame, matching existing validator style — but value-level
+  per-section garbage (empty id, garbage box, duplicate id) is dropped
+  PER-SECTION by the poller's `setZonesConfig`: one rotten section never
+  takes the frame, or its siblings, down. **Shipped ruling (cap order):**
+  the ≤6 cap `slice(0, 6)` runs BEFORE the value-drops/dedup, so garbage
+  entries can consume cap budget and squeeze real sections out of a 7+-entry
+  array — accepted (garbage senders already lost their own section).
+- `status.hotzones[]` gains optional `id?: string` and `manual?: boolean`.
+  **Shipped ruling:** auto elements are not unchanged — every entry carries
+  an `id`, auto ones ship `id: "auto:<slot>"` (the array is the last poll
+  plan, so slot-stable identity is always known). **Manual zones ship
+  ONLY while active** — the array means "being polled right now"; clients
+  render active sections with a brighter tint. Legacy clients keep working
+  (extra fields ignored).
 
 ## E. Client
 

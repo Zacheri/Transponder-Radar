@@ -100,7 +100,7 @@ export interface ZoneStatusWire {
 
 export interface BoostStatus {
   active: boolean; // any configured boost (sections present or auto enabled)
-  count: number; // craft across live polled zones (plan: auto + active sections)
+  count: number; // distinct craft in the union of live polled zone boxes
   intervalMs: number | null; // auto cadence (stretched); null with no auto zones
   paused: "credits" | "standdown" | null;
   zones: number; // live auto zone count (<= MAX_ZONES)
@@ -184,6 +184,10 @@ export class OpenSkyPoller {
   // Last buildPollPlan output; drives the boost/hotzones status surfaces and
   // is replaced every zone tick (null between a config change and the tick).
   private lastPlan: PolledZone[] | null = null;
+  // boost.count: distinct craft inside ANY planned zone's box, recomputed
+  // with the plan every tick. The plan's per-zone counts OVERLAP (a craft in
+  // a section ∩ an auto zone sits in two counts), so they are never summed.
+  private boostCount = 0;
   private boostPaused: "credits" | "standdown" | null = null;
   private boostIntervalMs: number | null = null;
   // Zone credits spent this UTC day (memory-only — restart resets to 0;
@@ -205,7 +209,7 @@ export class OpenSkyPoller {
     const boost = cfg
       ? {
           active: this.zoneActive,
-          count: plan.reduce((n, z) => n + z.count, 0),
+          count: this.boostCount,
           intervalMs: this.boostPaused ? null : this.boostIntervalMs,
           paused: this.boostPaused,
           zones: plan.reduce((n, z) => n + (z.source === "auto" ? 1 : 0), 0),
@@ -264,6 +268,7 @@ export class OpenSkyPoller {
       this.zoneRuns = [freshRun(), freshRun()];
       this.sectionRuns.clear();
       this.lastPlan = null;
+      this.boostCount = 0;
       this.boostPaused = null;
       this.boostIntervalMs = null;
       this.clearZoneTimer();
@@ -302,6 +307,7 @@ export class OpenSkyPoller {
       this.boostPaused = null;
       this.boostIntervalMs = null;
       this.lastPlan = null;
+      this.boostCount = 0;
       this.armZoneTimer(boostMs); // enabling starts the zone timer machinery
       return;
     }
@@ -322,6 +328,7 @@ export class OpenSkyPoller {
     this.zonesCfg = { kinds, boostMs, auto, sections };
     this.zoneActive = auto.enabled || sections.length > 0;
     this.lastPlan = null; // the wire reflects the new config from the next tick
+    this.boostCount = 0;
     this.armZoneTimer(boostMs);
   }
 
@@ -532,6 +539,23 @@ export class OpenSkyPoller {
       standdownAt: cfg.auto.standdownAt,
     });
     this.lastPlan = plan;
+    // boost.count = distinct craft inside ANY polled zone's box (point-in-box
+    // per zone over the same all-air member set the plan matched against —
+    // section wire counts stay kind-matched per zone in zonesStatus).
+    const covered = new Set<string>();
+    for (const z of plan) {
+      const { center, halfW, halfH } = z.box;
+      for (const m of allMembers) {
+        if (
+          m.lat >= center.lat - halfH &&
+          m.lat <= center.lat + halfH &&
+          m.lon >= center.lon - halfW &&
+          m.lon <= center.lon + halfW
+        )
+          covered.add(m.id);
+      }
+    }
+    this.boostCount = covered.size;
     const sectionsActive = plan.reduce((n, z) => n + (z.source === "section" ? 1 : 0), 0);
     const hasAuto = plan.some((z) => z.source === "auto");
     // Stand-down gate suppressed the auto leg (mirrors buildPollPlan's rule):

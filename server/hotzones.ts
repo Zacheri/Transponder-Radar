@@ -313,8 +313,9 @@ export interface PolledZone {
   source: "section" | "auto";
   kind: AirKind;
   // Members behind the zone: auto = the zone's own count; section = the
-  // activation count (matching kind members inside the rect). The poller
-  // sums these for the boost status `count`.
+  // activation count (matching kind members inside the rect). Zones overlap,
+  // so the poller NEVER sums these — boost status `count` is a union of the
+  // zones' box members, computed where the plan is built.
   count: number;
 }
 
