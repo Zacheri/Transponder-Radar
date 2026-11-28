@@ -371,7 +371,7 @@ Counting caveats (verified Nov 2026):
   sailing, pleasure, tug_work, service, other), `AIR_KINDS`/`SEA_KINDS`,
   `Craft.icon?` (MapLibre image name), `AirKind`, `KIND_FALLBACK_ICON`,
   `PACK_NAME_PREFIXES`/`isPackIconName` (pack name registry).
-  `shared/pack-transforms.ts` — pack silhouette transforms (line→fill,
+  `shared/credits.ts` — the OpenSky `/states/*` credit law: `statesCallCost(w,h)` (≤25 sq°=1, ≤100=2, ≤400=3, else 4) + `creditsPerDay` — one table shared by the funding loop and the UI readouts; `shared/pack-transforms.ts` — pack silhouette transforms (line→fill,
   near‑white‑only recolor, image‑type sniff): pure string/byte surgery,
   Node‑testable, shared by the catalog page and the browser loader.
   Sea icon names are 1:1 with kinds; air icon names are shape families
@@ -381,18 +381,30 @@ Counting caveats (verified Nov 2026):
   static serving, clean shutdown), `config.ts` (env), `store.ts`
   (CraftStore: upsert/prune/sweep), `hub.ts` (WS broadcast: `snapshot`,
    `update`, `status` frames), `opensky.ts` (poller; setTimeout chain; live
-   `setPollInterval`; hot-zone boost — `setZonesConfig`, own zone tick
-   (1-credit bbox call funded from the `X-Rate-Limit-Remaining` captured in
-   `pollOnce`; zone ticks fund greedily densest-slot-first from the surplus
-   (zone 2 needs surplus ≥ 1 after zone 1's due poll); a zone 429 pauses
-   that zone only), `feedStatus.boost` +
-   `zonesStatus`),
-  `hotzones.ts` (pure: `planZones` 2°-grid clustering → up to TWO zones,
-  slot-stable (≤5° centroid match keeps identity; densest at formation;
-  zone 2 = densest non-overlapping remainder; box cap 5°×5°,
-  create ≥2/hold ≥1/expire 5 min per slot, broadcast copy moves only on
-  >0.5° centroid drift) + scheduler `surplusCredits`/`zoneIntervalFor`
-  (stretch model per-zone-conservative: two funded zones burn ~2×)),
+   `setPollInterval`; section boost (wave 12) — `setZonesConfig` takes
+    zones.config v2 (auto block + per-section entries); scoped sledgehammer:
+    auto-relevant change resets auto state, a sections-only edit reconciles
+    `sectionRuns` by id (per-section 429 pauses survive unrelated edits);
+    zone tick funds `buildPollPlan` output cost-aware via `shared/credits.ts`
+    (`statesCallCost` tiers — sections pay their area, auto zones 1;
+    sections fund first id-asc then auto; unfunded section = silent skip,
+    unfunded auto = `paused:"credits"`; a 429 refunds its cost, pauses one
+    zone; `creditsToday` cost-weighted, UTC-day rolled, memory-only),
+    `feedStatus.boost` = BoostStatus v2 (`sectionsActive`, `sectionsIdle`,
+    `creditsToday`, `paused:"standdown"|null`) + `zonesStatus` = last plan
+    (sections id-asc then `auto:<slot>`; section entries carry
+    id/manual/active flags),
+   `hotzones.ts` (pure: `planZones` 2°-grid clustering → up to TWO auto
+   zones, slot-stable (≤5° centroid match keeps identity; densest at
+   formation; zone 2 = densest non-overlapping remainder; box cap 5°×5°,
+   create ≥`createMin` (2–10, user-tunable)/hold ≥1/expire 5 min per slot,
+   broadcast copy moves only on >0.5° centroid drift) + section layer
+   `sectionActivity` (kinds ∩ box, inclusive edges; empty kinds never
+   active) + `buildPollPlan` (active+enabled sections id-asc, then auto;
+   stand-down gate: auto suppressed once boostedSectionCount ≥
+   standdownAt ∈ {1,2}, 0 = never) + scheduler
+   `surplusCredits`/`zoneIntervalFor` (stretch model per-zone-conservative:
+   funded zones burn ~2×)),
   `opensky-auth.ts` (OAuth2 token provider), `ais.ts` (parameterized AIS WS
   client — url/name/boxesProvider/attribution injectable; index.ts runs two
   instances: primary aisstream + the `aiscast` fill client aimed by
@@ -441,9 +453,12 @@ Counting caveats (verified Nov 2026):
   flight-trail selection + credit-guarded refresh loop
   `clamp(pollMs/2, 30 s, 300 s)` — paused while hidden/rewound, seq-guarded
   replies, layers cleared on selection close/change; hot zone — restores
-  `radar.zonesCfg` at boot, re-sends the config on every socket open
-  (server-side state is memory-only), paints `status.hotzones` via
-  `setHotzones` (one rect per zone) and the aiscast tile rects via `setAisTileBoxes` (status
+  `radar.zonesCfg` at boot, assembles every boost send with
+  `buildZonesConfig(regions, cfg)` (zones-cfg + regions-actions v2) and
+  re-sends on every change and every socket open (server-side state is
+  memory-only); paints `status.hotzones` auto entries only (manual ones are
+  the regions layer's rects, which glow from the active-id latch →
+  `setRegionActivity`) plus the aiscast tile rects via `setAisTileBoxes` (status
   `secondary.boxes`, straight through — no client heuristics); traffic panel
   — `createTrafficPanel` + watch re-send on open + `createBrowserTx` WAN-down
   harvest started on first open; smooth motion — restores `radar.motion` at boot, `refresh()`
@@ -484,13 +499,15 @@ Counting caveats (verified Nov 2026):
   rows; air: dep/arr route chips `IATA · city` → fly-to + dest marker,
   trail refresh button, R2 budget note, ETA row (`ETA ~HH:MM` local, from
   `etaMs` when airborne + speed + dest coords)), filters (+ the "Boost zones"
-  section: air-kind checkboxes tinted via the color api + a 10–120 s slider,
-  `ZonesControlOpts` 5th arg → `zones.config`), `zones-cfg.ts` (pure
-  parse/serialize of `radar.zonesCfg`; corrupt → null, caller defaults
-  `{kinds:[], 30000}`), HUD (` · Boost: <count> @<s>s` / ` · Boost paused`
-  appended to the feeds line from `feeds.opensky.boost`; the paused segment
-  is a titled span — tooltip "Slow the Aircraft-poll slider to fund zone
-  polling", paused-only), `timeline.ts` (scrubber + REPLAY badge + LIVE +
+  section: auto-tracker air-kind checkboxes tinted via the color api — the
+  10–120 s slider moved to Settings in wave 12; emits kinds merged onto
+  `getLive()` so the live auto block is never clobbered;
+  `ZonesControlOpts` 5th arg), `zones-cfg.ts` (pure parse/serialize of
+  `radar.zonesCfg` v2 incl. the `auto` block — mixed strictness:
+  shape-corrupt → null, out-of-set numerics self-heal; corrupt → full
+  defaults), HUD (` · Boost: 2 sec · 1 auto · 143 cr` from BoostStatus v2,
+  segments conditional; `paused:"credits"` → "Boost paused" with the
+  Aircraft-poll tooltip, `paused:"standdown"` → "Boost: sections only"), `timeline.ts` (scrubber + REPLAY badge + LIVE +
   view-window row — preset/custom range select over `ViewSel` (`format.ts`),
   persisted to the `radar.viewSel` localStorage key; scrubber and playback
   follow the view, no protocol change),
@@ -507,10 +524,17 @@ Counting caveats (verified Nov 2026):
   button renders disabled as "Needs AISCAST_API_KEY" while status
   `secondary.enabled === false` — server-sourced truth re-applied on every
   `setStats`, legacy frames without the field treated as enabled; the
-  "Map sections" group arms rectangle drawing per kind (+ ADS-B area /
-  + AIS area, `aria-pressed` armed state) and lists regions as
-  chip+label+size rows — clicking a row removes it (client-only,
-  `radar.regions`).
+  "Traffic boost" group (wave 12: Auto hot zones enable, Form-when-≥N
+  2–10, Auto poll rate 10–120 s, Stand-down select 0/1/2 — the latter
+  three disabled while auto is off) sits above the "Map sections" group,
+  which arms rectangle drawing per kind (+ ADS-B area / + AIS area,
+  `aria-pressed`) and lists regions as chip+label+size rows — row click
+  removes, and ADS-B rows carry a chevron (never on AIS rows) revealing the
+  per-section boost editor (enable, activation kinds, rate, `~X cr/day`
+  via `creditsPerDay`, live `active/idle` badge, section rows also surface
+  `Y cr today` in the group title). Settings and filters both merge onto
+  the live config from main (single source; `radar.regions`/`radar.zonesCfg`
+  each have exactly one writer).
 - WS protocol (both ends mirror it, no shared file):
   client → server: `{type:"feed.rate",feed,ms}` (`feed` ∈ hub `FEED_IDS` =
   `["opensky", "ais"]`; the server clamps `feed.rate`/`ais` to [60000, 600000]
@@ -530,11 +554,14 @@ Counting caveats (verified Nov 2026):
   `{type:"ais.tile",lat,lon}` (viewport center; sent from the client's
   moveend 1 s debounce only while status `secondary.enabled` — multiple
   connected browsers are last-writer-wins, by design),
-  `{type:"zones.config",kinds,boostMs}` (hot-zone boost config, full replace:
-  `kinds` ⊆ AIR_KINDS — the hub validator drops the WHOLE frame on any bad
-  member; `boostMs` finite here, clamped [10 s, 120 s] by the poller; no
-  reply frame; the client re-sends on every socket open — server state is
-  memory-only, last-writer-wins like `ais.tile`),
+  `{type:"zones.config",kinds,boostMs,auto{enabled,createMin,standdownAt},
+  sections[{id,kinds,boostMs,b}]}` (boost config v2, full replace; v1 frames
+  still valid — the poller materializes today's auto defaults; the hub
+  drops the WHOLE frame on SHAPE violations (bad kinds member, malformed
+  auto/section structure) and the poller drops value-garbage sections
+  one-by-one after `slice(0,6)`; `boostMs` clamped [10 s, 120 s] by the
+  poller; no reply frame; re-sent on every change and socket open —
+  server state memory-only, last-writer-wins like `ais.tile`),
   `{type:"traffic.watch",on}` (gates the server's 1 Hz `traffic` frames;
   the watcher set is per-socket and the panel re-sends on every open while
   watched — panel-lifecycle since 2026-11-26, never toggled by collapse —
@@ -548,18 +575,23 @@ Counting caveats (verified Nov 2026):
   `{type:"status",feeds:{opensky:{lastOkAt,lastError,pollMs,boost?},ais:{connected,enabled,lastError,lastMessageAt,flushMs,secondary:{enabled,connected,lastError,lastMessageAt,attributions,boxes?}}},settings:{storageCapGb,ramCacheGb,cacheUsedBytes,homeRegion},history:{from,to,snapshots},faa:{state,updatedAt,aircraft,lastError},icons:{state,count,updatedAt,lastError},hotzones,serverTime}`
   (icons.state: ready|downloading|failed|absent; `secondary` is non-nullable —
   disabled = `enabled:false` zeroed, never null; `homeRegion` is
-  `{lat,lon}|null`; `boost` = poller BoostStatus
-  `{active,count,intervalMs,paused:"credits"|null,zones}` — `count` sums the
-  zones, `zones` = live zone count (1–2); null/absent = legacy or
-  no zones config (every client read optional-chained); `boxes` =
+  `{lat,lon}|null`; `boost` = poller BoostStatus v2
+  `{active,count,intervalMs,paused:"credits"|"standdown"|null,zones,
+  sectionsActive,sectionsIdle,creditsToday}` — `count` = distinct craft in
+  the union of live polled zones, `zones` = live auto count,
+  `creditsToday` = cost-weighted zone spend (UTC-day rolled, memory-only —
+  restarts at zero); v1 frames lack the new fields (every client read
+  `??`-guarded); `boxes` =
   `[[minLat,minLon],[maxLat,maxLon]][]` (≤2, the composed aiscast home+follow
   tiles recomputed at status time — single source with the AIS subscription;
   `[]` when disabled; the client strokes them as `ais-tile-outline`);
   `hotzones` =
-  array (≤2, slot-stable order) of broadcast-geometry copies
-  `{center,halfW,halfH,count,kind}` (the poller's `dominantKind` ships as
-  `kind`); `[]` when idle — replaced singular `hotzone` 2026-11-26, no
-  legacy field kept),
+  last poll plan: sections (id-asc, active+enabled only) then auto
+  (slot-stable), elements `{center,halfW,halfH,count,kind,id,manual?,
+  active?}` — auto ids `auto:<slot>`, manual entries carry id+manual+
+  active; client paints auto rects, uses manual ids for the row badges;
+  `[]` when idle — replaced singular `hotzone` 2026-11-26, no legacy
+  field kept),
   `{type:"timeline.state",time,craft,seq?}` (`time:null` = return to live / seek
   error), `{type:"aircraft.info",id,info}` (`info:null` = no data; else
   `{nNumber,year,mfr,model,owner,city,state,source:"db"|"live"}`),
@@ -574,5 +606,5 @@ Counting caveats (verified Nov 2026):
   upTotal,downTotal}|null,top:[{proc,bytes}]|null}` (1 Hz, only while
   watchers exist; `device`/`top` null on non-mac/degraded — see Traffic
   monitor).
-- `test/` — 60 files, 1198 tests. Node-environment Vitest; browser-only code
+- `test/` — 62 files, 1279 tests. Node-environment Vitest; browser-only code
   (canvas/WebGL) is not unit-testable and is verified by the user in-browser.
